@@ -45,13 +45,11 @@ v0.1 的 bench 只做结构对比，不是 LLM eval。
 样本量小、位置偏见风险讲清楚。见 eval-report。
 
 **7/**
-两个示例场景上都跑通完整流程：
+五大 pillar 都 ship 了 v0.1：Canonical Source / Governance（审核关口 + watcher stub）/ Context Compiler（2 core + 3 contrib adapter，含 Cursor / Codex CLI / rulesync bridge）/ Evaluation / Adapters。
 
-- 最小玩具（`examples/basic/`）
-- 一份真实 personal-OS 工作区，5 段 section、每段 3.3KB+、文件名带空格（`examples/dxyos-validation/`）
-- 逐行保留率 **91.5%** vs 目标工作区自己 SP 编译出的 CLAUDE.md
+两个示例场景跑通：最小 demo 和真实 personal-OS 工作区（91.5% 逐行保留率 vs 原来的 SP 编译）。
 
-65 单测。MIT。零托管服务，纯本地跑。
+88 单测。MIT。零托管服务，纯本地跑。
 
 **8/**
 v0.1 是 alpha，欢迎破坏性反馈。如果你有过"我的 CLAUDE.md 被悄悄搞坏"的感受，来试一下、拆台。

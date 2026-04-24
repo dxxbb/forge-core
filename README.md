@@ -135,20 +135,44 @@ cat .forge/output/CLAUDE.md
 
 ---
 
+## 五大 pillar 现状
+
+forge 整体不止 Context Compiler——按关注点分五大 pillar。v0.1 每个都有可看可跑的东西：
+
+| Pillar | v0.1 做到什么 | 代码位置 | Spec |
+|---|---|---|---|
+| **Canonical Source** | markdown section + frontmatter + MVC 分层 | `forge/compiler/section.py` | [canonical-source-spec.md](docs/canonical-source-spec.md) |
+| **Governance** | 审核关口完整 + watcher/inbox/rollback 有 stub | `forge/gate/` + `forge/governance/` | [governance-spec.md](docs/governance-spec.md) |
+| **Context Compiler** | 两个 adapter、provenance、doctor、determinism | `forge/compiler/` + `forge/targets/` | [design.md](docs/design.md) |
+| **Evaluation** | 结构 bench 完整 + 行为 eval 框架 + Anthropic runner/judge | `forge/bench/` + `forge/eval/` | [evaluation-spec.md](docs/evaluation-spec.md) |
+| **Adapters** | 2 个 core（claude-code / agents-md）+ 3 个 contrib（cursor / codex-cli / rulesync-bridge） | `forge/targets/` + `forge/contrib/` | [adapters-spec.md](docs/adapters-spec.md) |
+
+每个 pillar 的 spec 都写了"v0.1 做到什么、明确不做什么、v0.2/0.3/0.4 要补什么"，不是 roadmap 空头支票。
+
+---
+
 ## CLI
 
 ```
+# 编译 & 审核关口（Context Compiler + Gate）
 forge init                      # 用当前 sp/ 初始化 .forge/
 forge status                    # 上次通过的哈希 + 是否漂移
 forge doctor                    # schema / provenance / 适配器体检
 forge build                     # sp/ → .forge/output/（不走审核，给 CI 用）
 forge diff                      # 源文件 diff + 编译后预览
-forge approve -m "说明"         # 通过，记日志，重编译
+forge approve -m "说明"         # 通过，记日志,重编译
 forge reject                    # 丢弃当前改动，回到上次通过
 
-forge bench snapshot <名字>     # 给当前编译产物拍快照
+# 结构 bench
+forge bench snapshot <名字>
 forge bench list
 forge bench compare <a> <b>
+
+# Governance（v0.1 stub 级）
+forge watch                     # 扫新 commit，排进 inbox
+forge inbox list                # 看待审 TODO
+forge inbox skip <id> -m "..."  # 把某条 TODO 跳过，记 governance changelog
+forge rollback [hash]           # 回到某次 approved（v0.1 只能回当前）
 ```
 
 ---
@@ -167,7 +191,10 @@ forge bench compare <a> <b>
 | 每段 section 的内容都出现在编译产物        | 6 / 6     |
 | 审核循环                                    | 通过      |
 | bench 循环                                  | 通过      |
-| 单元测试                                    | 65 / 65   |
+| watcher / inbox / rollback（v0.1 stub 级）  | 通过      |
+| Core adapter（claude-code / agents-md）     | 通过      |
+| Contrib adapter（cursor / codex-cli / rulesync-bridge） | 通过 |
+| 单元测试                                    | **88 / 88** |
 
 **行为层**（跑了一次 A/B，小 N）：
 
@@ -184,35 +211,38 @@ forge bench compare <a> <b>
 - [`examples/basic/`](examples/basic) —— 5 个 section + 2 个 config 的最小工作区。
 - [`examples/dxyos-validation/`](examples/dxyos-validation) —— 对真实 personal-OS 工作区（`dxy_OS`）跑完整端到端，上面那张表里的所有检查都跑一遍。
 
-## 加一个新目标（比如 Cursor）
+## 加一个新目标
+
+适配器就是扩展点。v0.1 内置两个 core adapter（`claude-code` / `agents-md`）和三个 contrib adapter：
+
+| 在哪 | 名字 | 产物 |
+|---|---|---|
+| `forge/targets/` | `claude-code` | `CLAUDE.md` |
+| `forge/targets/` | `agents-md` | `AGENTS.md`（跨工具标准） |
+| `forge/contrib/` | `cursor` | `.cursorrules` |
+| `forge/contrib/` | `codex-cli` | Codex CLI 变体的 AGENTS.md |
+| `forge/contrib/` | `rulesync-bridge` | 给 rulesync 的输入，再由 rulesync 投到 20+ 工具 |
+
+contrib adapter 不自动注册——要用就自己：
 
 ```python
-from forge.compiler.section import Section
-from forge.compiler.config import Config
+from forge.contrib.cursor import CursorAdapter
 from forge.targets import register_adapter
-from forge.targets.base import TargetAdapter
-
-class CursorAdapter(TargetAdapter):
-    name = "cursor"
-    default_filename = ".cursorrules"
-
-    def render(self, sections: list[Section], config: Config) -> str:
-        body = "\n\n".join(f"# {s.name}\n{s.body}" for s in sections)
-        return f"# cursor rules for {config.name}\n\n{body}\n"
-
 register_adapter(CursorAdapter())
 ```
 
-之后任何 `target: cursor` 的 config 都会走它。不用 fork、不动 core。
+写自己的 adapter 大约 20 行，见 [adapters-spec.md](docs/adapters-spec.md) 契约。
 
 ---
 
 ## Roadmap
 
-- **v0.1（当前）** —— 编译器核心、审核关口 CLI、结构 bench、两个适配器、provenance / schema / doctor、端到端示例（basic + dxyOS 语义等价性 + 行为 A/B）。
-- **v0.2** —— 完整审核流：watcher、inbox、事件分派、rollback、改动请求的来回。
-- **v0.3** —— 真正的 LLM 行为评估：agent 在固定问题集上跑，前后质量打分。
-- **v0.4** —— 外部 memory 服务（Mem0 / Letta / Zep）作为可选 sidecar 的适配器，不进 core。
+| 版本 | 主题 | 主要内容 |
+|---|---|---|
+| **v0.1（当前）** | 五大 pillar 最小闭环 | Canonical Source / Context Compiler / Gate / 结构 bench / Eval 框架 / 2 core + 3 contrib adapter |
+| **v0.2** | 完整 Governance | 真 daemon watcher、request-changes 回合、多点 rollback、可配置 classify 规则 |
+| **v0.3** | LLM 行为评估 | ≥20 task、multi-seed、counter-balance 默认开、和 CI 集成、成本报告 |
+| **v0.4** | Adapter 扩展 | Mem0 / Letta / Zep 作为可选 sidecar（症状驱动）、Aider / 其他 runtime、真 rulesync integration |
 
 ---
 
@@ -223,7 +253,7 @@ pip install -e '.[dev]'
 pytest
 ```
 
-65 单测 + 端到端验证。跑完整硬核验证：
+88 单测 + 端到端验证。跑完整硬核验证：
 
 ```bash
 python examples/dxyos-validation/validate.py --dxyos-root ~/dxy_OS
