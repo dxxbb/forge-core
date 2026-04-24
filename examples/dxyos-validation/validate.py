@@ -1,11 +1,20 @@
 """End-to-end validation: run forge-core on a real dxyOS workspace.
 
 Usage:
-    python validate.py [--dxyos-root ~/dxy_OS]
+    python validate.py [--dxyos-root ~/dxy_OS] [--verbose]
 
-Copies the five dxyOS SP sections into a staging directory, writes a
-forge-compatible config, and runs the full flow: init → build → snapshot →
-mutate → diff → approve → second snapshot → compare.
+Takes the five dxyOS SP sections and validates forge-core can produce a compiled
+CLAUDE.md that is *semantically equivalent* to dxyOS's hand-maintained SP output.
+
+Steps:
+    1. Load all 5 sections (with spaces in filenames, dxyOS-style frontmatter).
+    2. Load 2 forge-compatible configs.
+    3. Run init + build; verify outputs exist and are reproducible.
+    4. Semantic equivalence: line-level recall of dxyOS's own SP-compiled CLAUDE.md
+       inside forge-core's CLAUDE.md (>= threshold).
+    5. Completeness: every section body contributes to the compiled output.
+    6. forge doctor: schema health check passes.
+    7. Full gate + bench round-trip: snapshot, mutate, diff, approve, snapshot, compare.
 """
 
 from __future__ import annotations
@@ -18,7 +27,6 @@ from pathlib import Path
 HERE = Path(__file__).parent
 STAGING = HERE / "_staging"
 
-# The five canonical sections that dxyOS maintains.
 SECTION_FILES = [
     "about user.md",
     "workspace.md",
@@ -36,8 +44,14 @@ sections:
   - knowledge base
   - preference
   - skill
+required_sections:
+  - about user
+  - workspace
+  - knowledge base
+  - preference
+  - skill
 preamble: |
-  Compiled personal context for Claude Code. Five sections from dxyOS SP.
+  Compiled personal context for Claude Code. Five SP sections (dxyOS MVP schema).
 ---
 """
 
@@ -50,14 +64,25 @@ sections:
   - knowledge base
   - preference
   - skill
+required_sections:
+  - about user
+  - workspace
+  - knowledge base
+  - preference
+  - skill
 preamble: |
-  Compiled personal context for AGENTS.md-compatible runtimes.
+  Compiled context for AGENTS.md-compatible runtimes (Codex, OpenCode, …).
 ---
 """
 
+# Threshold for line-level recall vs dxyOS's own SP output.
+# Lower than 1.0 because forge-core wraps sections with its own headers/provenance,
+# and dxyOS's compiled CLAUDE.md has its own wrapper text. The real content lines
+# should all appear.
+RECALL_THRESHOLD = 0.90
+
 
 def stage_dxyos(dxyos_root: Path) -> Path:
-    """Copy dxyOS sections into STAGING/sp/ with forge-core's expected layout."""
     src_section_dir = dxyos_root / "01 assist" / "SP" / "section"
     if not src_section_dir.exists():
         raise SystemExit(f"not a dxyOS root: {dxyos_root} (missing {src_section_dir})")
@@ -89,111 +114,155 @@ def stage_dxyos(dxyos_root: Path) -> Path:
     return STAGING
 
 
-def run(root: Path, dxyos_root: Path) -> None:
-    """Run the full flow and report metrics."""
-    # Imports are local so the script fails loudly if forge-core isn't installed.
+def normalize_lines(text: str) -> list[str]:
+    """Return non-empty, non-trivial content lines (stripped). Drops headers, YAML, comments."""
+    out: list[str] = []
+    in_fm = False
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        if not line.strip():
+            continue
+        if line == "---":
+            in_fm = not in_fm
+            continue
+        if in_fm:
+            continue
+        # skip our own provenance comments
+        if line.startswith("<!--") or line.startswith("-->") or line.startswith("> forge-core"):
+            continue
+        # skip ATX headers — we only care about body content
+        if line.lstrip().startswith("#"):
+            continue
+        out.append(line.strip())
+    return out
+
+
+def line_recall(source_lines: list[str], target_text: str) -> float:
+    """Fraction of meaningful source lines that appear as a substring in target."""
+    if not source_lines:
+        return 1.0
+    hit = 0
+    for line in source_lines:
+        # use the first 60 chars as a robust needle (chinese/english mixed safe)
+        needle = line[:60] if len(line) > 10 else line
+        if needle and needle in target_text:
+            hit += 1
+    return hit / len(source_lines)
+
+
+def run(root: Path, dxyos_root: Path, verbose: bool) -> None:
     from forge.compiler.loader import load_sections, load_all_configs
     from forge.gate import actions as gate
+    from forge.gate.doctor import run as doctor
     from forge.bench import harness as bench
 
-    print("=" * 60)
-    print("step 1/6: load sections")
+    divider = "=" * 64
+    print(divider)
+    print("STEP 1/7 — load sections")
     sections = load_sections(root)
     for name, sec in sections.items():
-        print(f"  loaded `{name}` ({sec.byte_size}B, {sec.line_count}L)")
+        print(f"  [ok] `{name}` {sec.byte_size}B / {sec.line_count}L  kind={sec.kind or '-'} upstream={len(sec.upstream)}")
     assert len(sections) == 5, f"expected 5 sections, got {len(sections)}"
 
     print()
-    print("step 2/6: load configs")
+    print("STEP 2/7 — load configs")
     configs = load_all_configs(root)
     for name, cfg in configs.items():
-        print(f"  loaded `{name}` target={cfg.target} sections={cfg.sections}")
-    assert len(configs) == 2, f"expected 2 configs, got {len(configs)}"
+        print(f"  [ok] `{name}` target={cfg.target} required={len(cfg.required_sections)}")
+    assert len(configs) == 2
 
     print()
-    print("step 3/6: init + build")
+    print("STEP 3/7 — init + build")
     if (root / ".forge").exists():
         shutil.rmtree(root / ".forge")
     state = gate.init(root)
-    print(f"  .forge initialized at {state.forge_dir}")
-    output_dir = state.output_dir
-    outputs = sorted(output_dir.glob("*.md"))
-    assert len(outputs) == 2, f"expected 2 output files, got {len(outputs)}"
+    compiled_claude = (state.output_dir / "CLAUDE.md").read_text("utf-8")
+    compiled_agents = (state.output_dir / "AGENTS.md").read_text("utf-8")
+    print(f"  [ok] CLAUDE.md {len(compiled_claude.encode('utf-8'))}B / {compiled_claude.count(chr(10))}L")
+    print(f"  [ok] AGENTS.md {len(compiled_agents.encode('utf-8'))}B / {compiled_agents.count(chr(10))}L")
+    # determinism
+    state2 = gate.build(root)
+    compiled_claude_2 = (state.output_dir / "CLAUDE.md").read_text("utf-8")
+    assert compiled_claude == compiled_claude_2, "compile is not deterministic"
+    print("  [ok] compile is deterministic")
 
     print()
-    print("step 4/6: content completeness check")
-    compiled_claude = (output_dir / "CLAUDE.md").read_text(encoding="utf-8")
-    compiled_agents = (output_dir / "AGENTS.md").read_text(encoding="utf-8")
+    print("STEP 4/7 — semantic equivalence vs dxyOS's SP output")
+    dxyos_sp_output = dxyos_root / "01 assist" / "SP" / "output" / "claude code" / "CLAUDE.md"
+    if dxyos_sp_output.exists():
+        dxyos_claude = dxyos_sp_output.read_text("utf-8")
+        dxyos_lines = normalize_lines(dxyos_claude)
+        recall_claude = line_recall(dxyos_lines, compiled_claude)
+        recall_agents = line_recall(dxyos_lines, compiled_agents)
+        print(f"  dxyOS SP output    : {len(dxyos_claude.encode('utf-8'))}B ({len(dxyos_lines)} content lines)")
+        print(f"  forge CLAUDE.md    : {len(compiled_claude.encode('utf-8'))}B")
+        print(f"  line recall CLAUDE : {recall_claude:.1%} (threshold {RECALL_THRESHOLD:.0%})")
+        print(f"  line recall AGENTS : {recall_agents:.1%}")
+        if recall_claude < RECALL_THRESHOLD:
+            if verbose:
+                miss = [l for l in dxyos_lines if l[:60] not in compiled_claude]
+                print(f"  missing lines ({len(miss)}):")
+                for m in miss[:20]:
+                    print(f"    - {m[:120]}")
+            raise SystemExit(f"FAIL: recall {recall_claude:.1%} below threshold {RECALL_THRESHOLD:.0%}")
+        print(f"  [ok] semantic equivalence >= {RECALL_THRESHOLD:.0%}")
+    else:
+        print(f"  (skipped — no {dxyos_sp_output} to compare against)")
+
+    print()
+    print("STEP 5/7 — per-section completeness")
     for sname, sec in sections.items():
-        # pick a distinctive substring from the section body (first 40 chars of first non-empty line)
-        body_lines = [line for line in sec.body.splitlines() if line.strip()]
+        body_lines = [l for l in sec.body.splitlines() if l.strip() and not l.startswith("#")]
         if not body_lines:
             continue
         needle = body_lines[0][:40]
         if needle in compiled_claude and needle in compiled_agents:
-            print(f"  [ok]    `{sname}` present in both outputs")
+            print(f"  [ok] `{sname}` body present in both outputs")
         else:
-            print(f"  [FAIL]  `{sname}` missing (needle={needle!r})")
-            raise SystemExit(1)
+            raise SystemExit(f"FAIL: `{sname}` missing (needle={needle!r})")
 
     print()
-    print("step 5/6: compare against dxyOS's hand-compiled CLAUDE.md")
-    dxyos_claude = dxyos_root / "CLAUDE.md"
-    if dxyos_claude.exists():
-        existing = dxyos_claude.read_text(encoding="utf-8")
-        ex_bytes = len(existing.encode("utf-8"))
-        compiled_bytes = len(compiled_claude.encode("utf-8"))
-        ratio = compiled_bytes / ex_bytes if ex_bytes else 0
-        print(f"  dxyOS CLAUDE.md      : {ex_bytes}B")
-        print(f"  forge-core CLAUDE.md : {compiled_bytes}B ({ratio:.2f}x)")
-        # dxyOS uses @-imports so its own CLAUDE.md can be shorter; our compiled version
-        # includes the resolved section bodies inline. We just note the ratio.
-    else:
-        print(f"  (no {dxyos_claude} to compare against, skipped)")
+    print("STEP 6/7 — forge doctor")
+    report = doctor(root)
+    for line in report.format_lines():
+        print(f"  {line}")
+    if not report.ok:
+        raise SystemExit("FAIL: doctor reported errors")
+    print("  [ok] no doctor errors")
 
     print()
-    print("step 6/6: gate + bench flow on real content")
+    print("STEP 7/7 — full gate + bench round-trip on real content")
     snap_v1 = bench.snapshot(root, "dxyos-v1")
-    print(f"  snapshot v1: {list(snap_v1.outputs.keys())}")
-    # mutate: append a tiny note to preference section
     pref = root / "sp" / "section" / "preference.md"
     if pref.exists():
         pref.write_text(
-            pref.read_text(encoding="utf-8") + "\n\n- (validation marker)\n",
+            pref.read_text("utf-8") + "\n\n- (validation marker added by validate.py)\n",
             encoding="utf-8",
         )
         diff = gate.diff_summary(root)
-        assert diff.changed, "expected diff to show changes after mutation"
-        print(f"  diff: {len(diff.output_diffs)} output file(s) would change")
+        assert diff.changed, "expected diff to show changes"
         result = gate.approve(root, note="validation marker")
-        print(f"  approved hash={result.approved_hash[:12]}")
         snap_v2 = bench.snapshot(root, "dxyos-v2")
         cmp = bench.compare(root, "dxyos-v1", "dxyos-v2")
         for fname, d in cmp.output_deltas.items():
             sign = "+" if d["bytes_delta"] >= 0 else ""
-            print(
-                f"  {fname} delta: {sign}{d['bytes_delta']}B, {sign}{d['lines_delta']}L"
-            )
+            print(f"  [ok] {fname} delta {sign}{d['bytes_delta']}B / {sign}{d['lines_delta']}L")
 
     print()
-    print("=" * 60)
+    print(divider)
     print("VALIDATION PASSED")
-    print(f"  5 sections loaded, 2 configs, 2 outputs rendered")
-    print(f"  full gate + bench flow completed on real dxyOS content")
+    print(f"  5 sections / 2 configs / 2 outputs / doctor clean / gate + bench round-trip ok")
     print(f"  staging: {root}")
 
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument(
-        "--dxyos-root",
-        default="~/dxy_OS",
-        help="Path to dxyOS workspace root (default: ~/dxy_OS)",
-    )
+    p.add_argument("--dxyos-root", default="~/dxy_OS", help="Path to dxyOS workspace root")
+    p.add_argument("--verbose", action="store_true", help="Dump missing lines on recall failure")
     args = p.parse_args()
     dxyos_root = Path(args.dxyos_root).expanduser().resolve()
     staging = stage_dxyos(dxyos_root)
-    run(staging, dxyos_root)
+    run(staging, dxyos_root, verbose=args.verbose)
 
 
 if __name__ == "__main__":

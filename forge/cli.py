@@ -10,6 +10,7 @@ import click
 
 from forge import __version__
 from forge.gate import actions as gate
+from forge.gate.doctor import run as doctor_run
 from forge.bench import harness as bench_harness
 
 
@@ -53,6 +54,17 @@ def status(root: str | None) -> None:
     """Show initialized state, approved hash, and whether sp/ has drifted."""
     info = gate.status(_root(root))
     click.echo(json.dumps(info, indent=2, ensure_ascii=False))
+
+
+@main.command()
+@click.option("--root", type=click.Path(), default=None)
+def doctor(root: str | None) -> None:
+    """Health check: validate configs, section references, provenance, adapters."""
+    report = doctor_run(_root(root))
+    for line in report.format_lines():
+        click.echo(line)
+    if not report.ok:
+        sys.exit(1)
 
 
 # ---------- review gate ----------

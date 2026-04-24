@@ -94,7 +94,7 @@ The compiler is straightforward. Sections are markdown with frontmatter. Configs
 
 This is the same reason git matters and rsync doesn't quite. Both move bytes between states. Only one of them has a notion of "this change was reviewed and committed" with a full history you can walk backwards.
 
-## The bench is also non-negotiable
+## The bench is also non-negotiable — but let me be honest about what it does
 
 The first question anyone asks when they see a personal-AI system is: **does it actually work?** Most answers are vibes. "It feels better now." "I think the agent is sharper."
 
@@ -115,7 +115,11 @@ compare before -> after
   skills: 203B -> 274B (+71B)
 ```
 
-This is deliberately *not* LLM-based yet. It answers "did my change to sections do what I expected structurally?" — not "is the agent smarter?" The latter needs real agent runs against question sets, which is v0.3. Even structural comparison, though, catches the failure mode everyone has hit: *I made a change and didn't notice it doubled the context size.*
+**Be clear about what this is and isn't.** The v0.1 bench measures *structural* deltas — byte count, line count, section size, added/removed sections. It does **not** measure "is the agent actually smarter with the new context." It cannot. That claim requires real agent runs against a fixed question set, with a grading harness, which is v0.3 on the roadmap.
+
+I'm shipping the weak version on purpose. I'd rather ship a small bench I can point at and say "this is what it does, this is what it doesn't" than ship a fake LLM eval that's really just vibes dressed up. Even the structural version catches the most common failure mode: *I made a change and didn't notice it doubled the context size.* That's worth its weight in v0.1. Real eval in v0.3.
+
+This is also why the tool is called `forge-core` and not `forge-eval` or `forge-bench-pro`. The core value prop in v0.1 is the gate + the compile contract. The bench is there to make sure future eval work has somewhere clean to plug in.
 
 ## What about rulesync? claude-memory-compiler? skills-to-agents?
 

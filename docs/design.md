@@ -137,11 +137,25 @@ Adding a new runtime = writing one class. No core changes.
 
 ---
 
-## 8. Roadmap
+## 8. Schema + provenance (v0.1 additions)
 
-- **v0.1 (this release)** — compiler core, gate CLI, structural bench, Claude Code + AGENTS.md adapters, end-to-end fixture.
+After initial end-to-end validation on `dxy_OS`, two gaps emerged:
+
+1. **Real vault sections carry provenance metadata** (`kind`, `upstream`, `generated_by`, `last_rebuild_at`). Dropping these into an opaque `meta` bucket was wrong — they are *the* audit trail for derived content.
+2. **Configs need a schema contract.** Saying "this config requires these 5 sections" and enforcing it at a `doctor` step catches broken setups before compile time, not at runtime.
+
+v0.1 ships both:
+
+- **Section frontmatter** recognizes: `kind` (canonical | derived), `upstream: [...]`, `generated_by: <pipeline>`, `last_rebuild_at` (fallback for `updated_at`).
+- **Config frontmatter** recognizes: `required_sections: [...]` (`forge doctor` validates coverage).
+- **Every compiled output** starts with a machine-readable provenance header: config name, target, SHA256 digest (12 hex), timestamp, per-section name / type / kind / upstream / generated_by / bytes. Rendered as `<!-- … -->` in CLAUDE.md, `> …` in AGENTS.md.
+- **`forge doctor`** runs before-compile health checks: unknown section refs → ERROR, required_sections not covered → ERROR, unknown adapter → WARN, orphan section → WARN, derived section with empty upstream → WARN.
+
+Combined, these make the claim "you can trace every line of the compiled output back to a specific source snapshot" literally true, not aspirational.
+
+## 9. Roadmap
+
+- **v0.1 (this release)** — compiler core, gate CLI, structural bench, Claude Code + AGENTS.md adapters, provenance + schema + doctor, end-to-end fixtures (basic + dxyOS semantic-equivalence).
 - **v0.2** — full governance: watcher, inbox, event-type dispatch, rollback, request-changes round-trip.
 - **v0.3** — LLM-based eval: agent runs against question sets, before/after quality scoring.
 - **v0.4** — adapters for external memory providers (Mem0 / Letta / Zep) as *optional sidecars*, not core.
-
-See `docs/roadmap.md` (planned) for details.

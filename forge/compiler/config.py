@@ -42,6 +42,7 @@ class Config:
     name: str
     target: str
     sections: list[str]
+    required_sections: list[str] = field(default_factory=list)
     preamble: str = ""
     postamble: str = ""
     body: str = ""
@@ -62,12 +63,16 @@ class Config:
         sections = fm.pop("sections", None) or []
         if not isinstance(sections, list):
             raise ValueError(f"{path}: `sections` must be a list")
+        req = fm.pop("required_sections", None) or []
+        if not isinstance(req, list):
+            raise ValueError(f"{path}: `required_sections` must be a list")
         preamble = fm.pop("preamble", "") or ""
         postamble = fm.pop("postamble", "") or ""
         return cls(
             name=name,
             target=target,
             sections=[str(s) for s in sections],
+            required_sections=[str(s) for s in req],
             preamble=preamble,
             postamble=postamble,
             body=body.strip(),

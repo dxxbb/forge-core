@@ -33,6 +33,7 @@ import re
 from forge.targets.base import TargetAdapter
 from forge.compiler.section import Section
 from forge.compiler.config import Config
+from forge.compiler.provenance import build_block, render_markdown_header
 
 
 class ClaudeCodeAdapter(TargetAdapter):
@@ -47,6 +48,7 @@ class ClaudeCodeAdapter(TargetAdapter):
             "<!-- compiled by forge-core. do not edit by hand. "
             "edit sp/section/ and run `forge approve`. -->"
         )
+        parts.append(render_markdown_header(build_block(sections, config), "html"))
         parts.append("")
         if config.preamble.strip():
             parts.append(config.preamble.strip())

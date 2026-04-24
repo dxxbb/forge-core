@@ -1,36 +1,88 @@
 # forge-core
 
-**A review-gated context compiler.** Turn long-term personal content into the context files AI agents actually read (`CLAUDE.md`, `AGENTS.md`, …), with a PR-style gate between your edits and the compiled output, plus a before/after bench to tell you whether the change actually did what you meant.
+> You asked Claude to clean up your `CLAUDE.md`. It silently deleted the section that told it to always write tests. You didn't notice for three sessions.
+>
+> Or: you edited your preferences, and somehow the compiled context doubled in size. You have no idea why.
+>
+> Or: you pushed your `CLAUDE.md` to share with a teammate, and realized you can't explain where half the lines came from.
+
+If any of those felt familiar, this is for you.
+
+**`forge-core`** is a tiny tool that sits between your long-term personal content and the context files agents actually read (`CLAUDE.md`, `AGENTS.md`, …). It treats that relationship the way a build system treats code: **canonical source you edit, compiled artifacts you never edit, and a gate between them that shows you exactly what's about to change before it ships.**
 
 ```
 ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
 │  sp/section/ │──▶│ sp/config/    │──▶│ .forge/output│
-│ (your notes, │    │ (recipe:      │    │ CLAUDE.md    │
-│  one concern │    │  which        │    │ AGENTS.md    │
-│  per file)   │    │  sections,    │    │ …            │
-│              │    │  for which    │    │              │
-│              │    │  runtime)     │    │              │
+│ (you edit    │    │ (recipe:      │    │ CLAUDE.md    │
+│  markdown    │    │  which        │    │ AGENTS.md    │
+│  files, one  │    │  sections,    │    │ …            │
+│  concern     │    │  for which    │    │  (never      │
+│  per file)   │    │  runtime)     │    │  hand-edited)│
 └──────────────┘    └──────────────┘    └──────────────┘
-         ▲                                      ▲
-      you edit                          agents read this
-                                        every session
+                           │
+                           ▼
+                    ┌──────────────┐
+                    │ forge diff    │ ← see what would change
+                    │ forge approve │ ← ship + log + rebuild
+                    │ forge reject  │ ← roll back
+                    └──────────────┘
 ```
 
-Status: **v0.1.0 alpha.** Local-only, single workspace, two target adapters (Claude Code + AGENTS.md). See [Roadmap](#roadmap).
+Status: **v0.1.0 alpha.** Single workspace, local-only, two target adapters. See [Roadmap](#roadmap).
 
 ---
 
-## Why another config tool?
+## For the skeptic: "can't I do this with `make` + `git` already?"
 
-There are already plenty of tools that sync agent config across runtimes (`rulesync`, `ai-rules-sync`), generate `AGENTS.md` from code (`agents-md-generator`, `skills-to-agents`), or compile session transcripts into memory files (`claude-memory-compiler`). **`forge-core` is not any of those.**
+Yes, roughly. And if you've already wired up `make` + `git` to your agent context, you probably don't need this.
 
-What's missing from all of them:
+What `forge-core` gives you that a hand-rolled `make` + `git` doesn't:
 
-1. **A review gate.** Changes to your long-term content go straight into the compiled view with no human checkpoint. One bad `Edit` from an agent, and your next session is reading corrupted context.
-2. **A clean split between canonical source and compiled view.** When you edit `CLAUDE.md` directly, where did that content really come from? Can you trace it? Roll it back?
-3. **An evaluation layer.** You changed your `preferences.md`. Did the compiled context actually reflect that the way you wanted — or did it bloat, or drop a section, or mangle ordering?
+1. **A semantic diff, not just a text diff.** `forge diff` shows you both the source change AND a preview of how *each compiled output* would change. `git diff` shows only text; you'd have to manually re-run your build to see what the output diff looks like, and do it for every runtime target.
+2. **A single integrity contract.** An approved snapshot is a hash over the whole `sp/` tree. Any drift shows up in `forge status`. You can tell at a glance whether your compiled outputs are stale.
+3. **A structural bench built in.** When you change sections, you immediately see which sections grew/shrank, which were added/removed, total byte delta per output. No need to write that yourself.
+4. **A sharable convention.** Anyone can look at `sp/section/` + `sp/config/` + `.forge/changelog.md` and understand the system. A hand-rolled `make` setup is readable only to its author.
 
-`forge-core` addresses all three as first-class concerns. The compiler is the easy part; the gate and the bench are the point.
+**What `forge-core` is NOT pretending to be yet:**
+
+- It's not a smarter compiler than your `make` rules. The compilation is deliberately dumb.
+- Its bench is *structural only* in v0.1. It measures byte / line / section deltas. It does NOT yet measure "is the agent actually smarter with the new context." That's v0.3, and it needs real agent-run harnesses that v0.1 doesn't ship. If you want LLM-graded evals today, use `promptfoo` or similar — `forge-core` is not a replacement for that, and won't be.
+- It's not a runtime memory system. It doesn't watch sessions, doesn't auto-capture, doesn't decide for you. You do the editing. `forge-core` just makes the editing safer and the compilation reproducible.
+
+If "dumb compiler + semantic diff + audit log + roadmap toward real evals" sounds useful, keep reading.
+
+---
+
+## 30-second demo
+
+```bash
+$ forge diff
+======== source diff (sp/) ========
+--- approved/section/preferences.md
++++ current/section/preferences.md
+@@ -9,3 +9,5 @@
+ - Ground external facts in live sources.
+ - No emojis unless requested.
++
++- When touching shared config, always PR first.
+
+======== output diff ========
+--- personal ---
+@@ -19,6 +19,8 @@
+ - No emojis unless requested.
+ 
++- When touching shared config, always PR first.
++
+
+$ forge approve -m "add shared-config PR rule"
+approved hash=82bab7145d23 at 2026-04-24T03:57:58+00:00
+  wrote .forge/output/CLAUDE.md
+  wrote .forge/output/AGENTS.md
+```
+
+That's the core loop. Every change to `sp/` shows both as a source diff and a *compiled output diff* before it ships. If the compiled diff is wrong, `forge reject` puts you back.
+
+See [`docs/demo-walkthrough.md`](docs/demo-walkthrough.md) for the full walkthrough (init → edit → diff → approve → bench snapshot → compare).
 
 ---
 
@@ -39,11 +91,9 @@ What's missing from all of them:
 ```bash
 pip install -e .
 
-# Create a workspace anywhere:
 mkdir -p my-context/sp/section my-context/sp/config
 cd my-context
 
-# Write a section
 cat > sp/section/about-me.md <<'EOF'
 ---
 name: about-me
@@ -53,48 +103,31 @@ type: identity
 I'm a backend engineer. Prefer terse responses. No emojis.
 EOF
 
-# Write a config
 cat > sp/config/personal.md <<'EOF'
 ---
 name: personal
 target: claude-code
-sections:
-  - about-me
+sections: [about-me]
 ---
 EOF
 
-# Compile and gate
-forge init              # snapshot current sp/ as approved baseline
+forge init
 cat .forge/output/CLAUDE.md
 ```
 
-Now edit `sp/section/about-me.md`, then:
-
-```bash
-forge diff              # show source diff + compiled preview
-forge approve -m "..."  # promote + rebuild + log
-# or
-forge reject            # discard changes, restore approved state
-```
+Now edit a section and run `forge diff`.
 
 ---
 
-## Core concepts
+## Core concepts (five small things)
 
-### Section
-An atomic piece of long-term content: one markdown file, one concern. YAML frontmatter (`name`, `type`, `updated_at`, `source`) + free markdown body.
+- **Section** — one markdown file, one concern. YAML frontmatter + body.
+- **Config** — recipe: for target X, include these sections in this order.
+- **Output** — the compiled file (`CLAUDE.md`, …). Never hand-edited. Deterministic.
+- **Gate** — `.forge/` state: approved snapshot, changelog, manifest. Every source change must pass `forge approve` before outputs regenerate.
+- **Bench** — structural before/after over compiled outputs. `snapshot` / `list` / `compare`.
 
-### Config
-A recipe: *"for target X, include these sections in this order with this preamble."* YAML frontmatter naming `target` (adapter) and `sections` (ordered list of section names).
-
-### Output
-The compiled file a runtime reads (`CLAUDE.md`, `AGENTS.md`, …). Never hand-edited. Always reproducible from `section + config` via an adapter. If you edit the output directly, the next rebuild wipes it — **by design**.
-
-### The gate (`.forge/`)
-Hidden state directory. Holds the last approved snapshot of `sp/`, the last compiled outputs, and an append-only `changelog.md`. Every change to `sp/` must pass through `forge approve` (or `forge reject`) before outputs are regenerated.
-
-### The bench
-Structural before/after comparison of compiled outputs — byte size, line count, per-section delta, added/removed sections. Not LLM-based in v0.1; that's v0.3.
+Full spec: [`docs/design.md`](docs/design.md).
 
 ---
 
@@ -103,6 +136,7 @@ Structural before/after comparison of compiled outputs — byte size, line count
 ```
 forge init                      # bootstrap .forge/ from current sp/
 forge status                    # show approved hash, drift state
+forge doctor                    # schema + provenance health check
 forge build                     # render sp/ to .forge/output/ (no gate; for CI)
 forge diff                      # source diff + compiled preview
 forge approve -m "message"      # promote current sp/, rebuild, log
@@ -115,30 +149,51 @@ forge bench compare <a> <b>     # structural diff between snapshots
 
 ---
 
-## Comparison with related tools
+## Where this sits in the 2026 landscape
 
-| Tool                     | What it does                                        | What forge-core adds                               |
-|--------------------------|-----------------------------------------------------|----------------------------------------------------|
-| `rulesync`, `ai-rules-sync` | Sync agent rules across Cursor / Claude Code / Copilot / etc. | Review gate, canonical source, evaluation            |
-| `agents-md-generator`    | Generate AGENTS.md from codebase                    | Source is your long-term content, not code          |
-| `skills-to-agents`       | Compile SKILL.md → AGENTS.md                        | Full multi-section canonical source, not just skills |
-| `claude-memory-compiler` | Auto-capture sessions → LLM-organize into memory    | Human review in the loop; no hidden LLM rewrites   |
-| DSPy / BAML              | Compile prompts / schemas                           | Different layer — compiles *content*, not prompts  |
+| Tool                     | What it owns                                        | What forge-core does that it doesn't |
+|--------------------------|-----------------------------------------------------|---------------------------------------|
+| `rulesync`, `ai-rules-sync` | Format translation across 8+ runtimes         | Review gate + canonical-vs-compiled split + bench |
+| `claude-memory-compiler` | Auto-capture sessions → LLM-organize into memory    | Human review in the loop; no hidden LLM rewrites |
+| `agents-md-generator`    | Generate AGENTS.md from codebase                    | Source is your long-term content, not code |
+| `skills-to-agents`       | Compile SKILL.md → AGENTS.md                        | Full multi-section source, not just skills |
+| DSPy / BAML              | Compile *prompts / schemas*                         | Different layer — compiles *content*, not prompts |
+| Google ADK (Context Compaction) | In-session context compaction                | Cross-session canonical source, not in-flight |
 
-Nothing prevents you from combining forge-core with any of them: an adapter can emit Cursor rules, a watcher can feed inbox from captured sessions, etc. That's on the roadmap.
+Nothing stops you from combining forge-core with any of them: an adapter can emit Cursor rules, a watcher can feed inbox from captured sessions. See roadmap.
+
+---
+
+## Hard validation (not just "it works")
+
+Claims about "personal AI" tools usually stop at *"I built it and it feels good."* forge-core runs a hard validation against a real personal-OS vault ([dxy_OS](https://github.com/dxxbb/dxy_OS)) on every change. Numbers from the latest run:
+
+| Check                                          | Result                |
+|------------------------------------------------|-----------------------|
+| Sections loaded (incl. filenames with spaces)  | 5 / 5                 |
+| Configs with `required_sections` schema        | 2 / 2                 |
+| `forge doctor`                                  | 0 errors              |
+| Compile determinism (same bytes, 2 runs)       | pass                  |
+| **Line recall vs dxy_OS's own SP-compiled CLAUDE.md** | **92.5%**      |
+| Per-section body completeness                  | 5 / 5                 |
+| Gate round-trip (diff → approve → rollback)    | pass                  |
+| Bench round-trip (snapshot → compare)          | pass                  |
+| Unit test suite                                | 45 / 45               |
+
+Reproduce:
+
+```bash
+python examples/dxyos-validation/validate.py --dxyos-root ~/dxy_OS
+```
+
+The 7.5% line-recall gap is dxy_OS's own preamble text ("This file provides guidance..."), not content — the five SP sections land in full. See [`docs/migration-from-personal-os.md`](docs/migration-from-personal-os.md) for the full analysis and how to migrate your own personal-OS vault.
 
 ---
 
 ## Examples
 
-- [`examples/basic/`](examples/basic) — minimal 4-section workspace with two configs (Claude Code + AGENTS.md). `cd examples/basic && forge build`.
-- [`examples/dxyos-validation/`](examples/dxyos-validation) — end-to-end validation against a real personal-OS vault (`dxy_OS`). Script stages the sections, runs the full gate + bench flow, checks that every section survives the compile.
-
----
-
-## Design
-
-See [`docs/design.md`](docs/design.md) for the longer form: problem statement, design principles, adapter contract, roadmap details.
+- [`examples/basic/`](examples/basic) — minimal 4-section workspace with two configs.
+- [`examples/dxyos-validation/`](examples/dxyos-validation) — end-to-end validation against a real personal-OS vault (`dxy_OS`). Runs all the hard-validation checks above.
 
 ---
 
@@ -146,8 +201,8 @@ See [`docs/design.md`](docs/design.md) for the longer form: problem statement, d
 
 - **v0.1 (current)** — compiler core, gate CLI, structural bench, two adapters (`claude-code`, `agents-md`).
 - **v0.2** — full governance: watcher, inbox, event-type dispatch, rollback, request-changes round-trip.
-- **v0.3** — LLM-based eval: agent runs against question sets, before/after quality scoring.
-- **v0.4** — adapters for external memory providers (Mem0 / Letta / Zep) as *optional sidecars*.
+- **v0.3** — LLM-based eval harness: agent runs against question sets, before/after quality scoring. *This is where the "evaluation as first-class layer" claim becomes real rather than aspirational.*
+- **v0.4** — adapters for external memory providers (Mem0 / Letta / Zep) as *optional sidecars*, not core.
 
 ---
 
@@ -158,7 +213,11 @@ pip install -e '.[dev]'
 pytest
 ```
 
-Tests: 29 unit tests covering section parsing, config loading, rendering (both adapters), gate actions, and bench. Run the dxyOS validation with `python examples/dxyos-validation/validate.py --dxyos-root ~/dxy_OS`.
+45 unit tests + end-to-end dxyOS validation. Run the full hard validation with:
+
+```bash
+python examples/dxyos-validation/validate.py --dxyos-root ~/dxy_OS
+```
 
 ---
 

@@ -2,13 +2,16 @@
 
 One markdown file, one concern. Has YAML frontmatter + markdown body.
 
-Frontmatter fields:
-  name (required)       — unique identifier, used by configs to reference this section
-  type (optional)       — free-form classification (identity / preference / skill / ...)
-  updated_at (optional) — ISO 8601 date
-  source (optional)     — provenance pointer (file path, url, conversation id, ...)
+Frontmatter fields (all optional except name):
+  name          — unique identifier, referenced by configs. Defaults to filename stem.
+  type          — free-form classification (identity / preference / skill / ...)
+  kind          — canonical / derived. `derived` sections are compiled from `upstream` sources.
+  updated_at    — ISO 8601 date
+  source        — single-pointer provenance (file path, url, conversation id)
+  upstream      — list of pointers this section was derived from (strings)
+  generated_by  — who/what produced this section (tool name, pipeline id, human)
 
-Any other fields are preserved in `meta`.
+Any other frontmatter fields are preserved in `meta`.
 """
 
 from __future__ import annotations
@@ -25,8 +28,11 @@ class Section:
     name: str
     body: str
     type: str | None = None
+    kind: str | None = None
     updated_at: str | None = None
     source: str | None = None
+    upstream: list[str] = field(default_factory=list)
+    generated_by: str | None = None
     meta: dict[str, Any] = field(default_factory=dict)
     path: Path | None = None
 
@@ -39,17 +45,33 @@ class Section:
             raise ValueError(f"{path}: frontmatter must be a YAML mapping")
         name = fm.pop("name", None) or path.stem
         stype = fm.pop("type", None)
+        kind = fm.pop("kind", None)
         updated = fm.pop("updated_at", None)
         if updated is not None and not isinstance(updated, str):
             # YAML parses bare dates into datetime.date; keep ISO string for stability.
             updated = updated.isoformat() if hasattr(updated, "isoformat") else str(updated)
         src = fm.pop("source", None)
+        upstream_raw = fm.pop("upstream", None) or []
+        if not isinstance(upstream_raw, list):
+            raise ValueError(f"{path}: `upstream` must be a list, got {type(upstream_raw).__name__}")
+        upstream = [str(u) for u in upstream_raw]
+        generated_by = fm.pop("generated_by", None)
+        # also consume last_rebuild_at if present (dxyOS-style) — keep as updated_at fallback
+        if updated is None:
+            lr = fm.pop("last_rebuild_at", None)
+            if lr is not None:
+                updated = lr if isinstance(lr, str) else (
+                    lr.isoformat() if hasattr(lr, "isoformat") else str(lr)
+                )
         return cls(
             name=name,
             body=body.strip(),
             type=stype,
+            kind=kind,
             updated_at=updated,
             source=src,
+            upstream=upstream,
+            generated_by=generated_by,
             meta=fm,
             path=path,
         )
