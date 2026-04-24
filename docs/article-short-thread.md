@@ -5,65 +5,60 @@
 ---
 
 **1/**
-你有没有让 AI "整理一下"它的 `CLAUDE.md` / `AGENTS.md`，结果它悄悄把你真正需要的那段删了？
+上周你告诉 agent "用 Python，不要 TypeScript"。今天它给你 TypeScript。
 
-我有过。这就是我做 `forge-core` 的原因。
+你打开 `CLAUDE.md`，preference 那段少了一行。你没 commit 过这个文件，git blame 查不到是谁改的。
+
+不是 agent 缺 memory。是它的 memory 没人管。
 
 **2/**
-2026 年的 agent 工具生态分三层很成熟：
+agent 配置文件 (`CLAUDE.md` / `AGENTS.md`) 你管它用什么？
 
-- rules sync（rulesync、ai-rules-sync）
-- memory 编译器（claude-memory-compiler）
-- prompt 编译器（DSPy、BAML）
-
-**没有一个**在你的长期内容和 agent 真的读的 compiled context 之间放 **review gate**。
+多数人的答案是"手改，改完祈祷没出事"——等于生产环境裸改代码还不 commit。
 
 **3/**
-`forge-core` 用 build system 对待代码的方式对待你的个人 context：
+今天 agent 工具生态三类都不少：
 
-- `sp/section/` = canonical source（你改的）
-- `sp/config/` = 配方（哪些 section、投给哪个 runtime）
-- `.forge/output/` = compiled artifact（从不手改）
-- `forge diff / approve / reject` = gate
+- 规则同步（rulesync，1k 星）——**改了就推，没人审核**
+- memory 编译器（claude-memory-compiler，800 星）——**LLM 直接写进你 memory，没 review step**
+- prompt 编译器（DSPy / BAML）——**管的是另一层**（agent 怎么想），不是（agent 读哪份上下文）
+
+没有一个在"你改长期内容"和"agent 读到编译产物"之间放一道关口。
 
 **4/**
-文本 diff 工具不给你的关键东西：**compiled-output diff**。
+`forge-core` 做的就一件事：在"你改"和"agent 读"之间加一道关口。
 
-你编辑 `sp/section/preferences.md` 时，`forge diff` 展示：
-(a) source 变了什么，AND
-(b) **每个** compiled target（`CLAUDE.md`、`AGENTS.md`、…）会变什么。
-
-如果 output diff 不对，`forge reject` 让你回退。
+改源文件 → `forge diff` → 同时看到：源文件变了什么，**每一个**编译产物（CLAUDE.md / AGENTS.md）会变成什么 → 满意了 `forge approve`，不满意 `forge reject` 回滚。
 
 **5/**
-"`make` + `git` 不就够了吗？"
+"`make` + `git` 不就够了？"
 
-某种程度上够。但你在重新发明：跨多 target 的语义 diff、source tree 上的完整性 hash、结构 bench、append-only changelog、可复现 adapter 契约。
+某种程度上够。但你自己要实现：跨多目标的语义 diff、整棵源文件树的完整性 hash、结构 bench、只追加的 changelog、可复现的适配器契约。
 
-forge-core 就是把这些打包进 ~1k 行 Python。
+forge-core 把这些打包成 ~1k 行 Python，就这。
 
 **6/**
-v0.1 的 bench 是**结构**的，不是 LLM eval。
+v0.1 的 bench 只做结构对比，不是 LLM eval。
 
-但 v0.1 还 ship 了**真 A/B 行为 eval 的结果**：4 任务 × 2 版本 × 8 subagent 生成 + 4 blind judge。**2-2 打平。没有行为回退**。
+但 v0.1 同时跑了一轮**真 A/B 行为评估**：4 任务 × 2 版本 = 8 个子 agent 回答 + 4 个盲评判官。**2 比 2 打平，没有行为回退**。
 
-小 N、诚实讲局限。见 eval-report。
+样本量小、位置偏见风险讲清楚。见 eval-report。
 
 **7/**
-两个 fixture 上端到端验证：
+两个示例场景上都跑通完整流程：
 
 - 最小玩具（`examples/basic/`）
-- 真 personal-OS vault，5 个 section、每段 3.3KB+、文件名带空格（`examples/dxyos-validation/`）
-- **93.5%** 语义 line recall vs 目标 vault 自己 SP-compiled CLAUDE.md
+- 一份真实 personal-OS 工作区，5 段 section、每段 3.3KB+、文件名带空格（`examples/dxyos-validation/`）
+- 逐行保留率 **91.5%** vs 目标工作区自己 SP 编译出的 CLAUDE.md
 
-60 单测。MIT。零托管服务。离线可用。
+65 单测。MIT。零托管服务，纯本地跑。
 
 **8/**
-v0.1 是 alpha，breaking change 欢迎反馈。如果你感受过 "我的 CLAUDE.md 悄悄坏了" 的痛，试一下，拆台。
+v0.1 是 alpha，欢迎破坏性反馈。如果你有过"我的 CLAUDE.md 被悄悄搞坏"的感受，来试一下、拆台。
 
-特别希望看到：
-- 非 Claude runtime 的 adapter（Cursor、Aider）
-- 你觉得 bench 哪些 metric 真的有用
+特别想看到：
+- 非 Claude 生态的适配器（Cursor、Aider）
+- 你觉得 bench 里真的有用的 metric 是什么
 
 [LINK]
 

@@ -1,29 +1,26 @@
-"""Claude Code adapter: produce CLAUDE.md.
+"""Claude Code adapter：产出 CLAUDE.md。
 
-Output format:
+产物结构：
 
-    # <config.name> · compiled by forge-core
+    <可选 output_frontmatter YAML>
 
-    <provenance header comment>
+    # <config.name>
 
-    <preamble>
+    <!-- forge-core provenance 注释块 -->
 
     ## <section-1 name>
-
     <section-1 body>
 
     ## <section-2 name>
-
     <section-2 body>
 
     ...
 
-    <postamble>
-    <config body>
+每段 section 以 `## <name>` 作为 heading emit。如果开启 demote_section_headings，
+section body 自带的 leading heading 会被 strip，其他 heading 全部降一级。
 
-Sections are emitted as level-2 headings using the section name. If the
-section body already starts with an H1/H2 heading matching the name, the
-adapter does NOT duplicate it.
+注意 v0.2 后：Config 不再接 preamble / postamble / body。要在产物开头或结尾
+加文字，请写成一个独立的 section 并挂进 `sections:` 列表。
 """
 
 from __future__ import annotations
@@ -70,22 +67,19 @@ class ClaudeCodeAdapter(TargetAdapter):
         )
         parts.append(render_markdown_header(build_block(sections, config), "html"))
         parts.append("")
-        if config.preamble.strip():
-            parts.append(config.preamble.strip())
-            parts.append("")
         for sec in sections:
+            if sec.type == "wrapper":
+                # wrapper 类型：原样输出 body，不加 heading、不做 demote。
+                # 用来承载前言 / 结语 / 分隔文字之类"不是主体 section"的内容。
+                parts.append(sec.body.strip())
+                parts.append("")
+                continue
             parts.append(_section_heading(sec))
             parts.append("")
             body = sec.body.strip()
             if config.demote_section_headings:
                 body = _demote_headings(body)
             parts.append(body)
-            parts.append("")
-        if config.postamble.strip():
-            parts.append(config.postamble.strip())
-            parts.append("")
-        if config.body.strip():
-            parts.append(config.body.strip())
             parts.append("")
         return "\n".join(parts).rstrip() + "\n"
 

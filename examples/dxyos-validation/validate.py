@@ -35,10 +35,19 @@ SECTION_FILES = [
     "skill.md",
 ]
 
+PREFACE_SECTION = """---
+name: _preface
+type: wrapper
+---
+
+Compiled personal context. Five SP sections (dxyOS MVP schema).
+"""
+
 CONFIG_CLAUDE = """---
 name: master
 target: claude-code
 sections:
+  - _preface
   - about user
   - workspace
   - knowledge base
@@ -50,8 +59,7 @@ required_sections:
   - knowledge base
   - preference
   - skill
-preamble: |
-  Compiled personal context for Claude Code. Five SP sections (dxyOS MVP schema).
+demote_section_headings: true
 ---
 """
 
@@ -59,6 +67,7 @@ CONFIG_AGENTS = """---
 name: master-agents
 target: agents-md
 sections:
+  - _preface
   - about user
   - workspace
   - knowledge base
@@ -70,8 +79,7 @@ required_sections:
   - knowledge base
   - preference
   - skill
-preamble: |
-  Compiled context for AGENTS.md-compatible runtimes (Codex, OpenCode, …).
+demote_section_headings: true
 ---
 """
 
@@ -107,10 +115,11 @@ def stage_dxyos(dxyos_root: Path) -> Path:
     if missing:
         print(f"WARN: missing sections: {missing}")
 
+    (section_dir / "_preface.md").write_text(PREFACE_SECTION, encoding="utf-8")
     (config_dir / "master.md").write_text(CONFIG_CLAUDE, encoding="utf-8")
     (config_dir / "master-agents.md").write_text(CONFIG_AGENTS, encoding="utf-8")
 
-    print(f"staged {len(copied)} sections + 2 configs into {STAGING}")
+    print(f"staged {len(copied)} sections + 1 wrapper + 2 configs into {STAGING}")
     return STAGING
 
 
@@ -162,7 +171,8 @@ def run(root: Path, dxyos_root: Path, verbose: bool) -> None:
     sections = load_sections(root)
     for name, sec in sections.items():
         print(f"  [ok] `{name}` {sec.byte_size}B / {sec.line_count}L  kind={sec.kind or '-'} upstream={len(sec.upstream)}")
-    assert len(sections) == 5, f"expected 5 sections, got {len(sections)}"
+    # 5 content sections + 1 wrapper section
+    assert len(sections) == 6, f"expected 6 sections (5 content + 1 wrapper), got {len(sections)}"
 
     print()
     print("STEP 2/7 — load configs")

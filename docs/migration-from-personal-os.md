@@ -76,26 +76,38 @@ generated_by: feishu-ingest-pipeline
 ```yaml
 ---
 name: master
-target: claude-code          # 或：agents-md
+target: claude-code                  # 或：agents-md
 sections:
+  - _preface                         # 前言也是一个 section（见下）
   - about-me
   - preferences
   - workspace
   - knowledge-base
   - skills
-required_sections:           # schema 约束，`forge doctor` 会强制
+required_sections:                   # schema 约束，`forge doctor` 会强制
   - about-me
   - preferences
-demote_section_headings: true  # 如果你的 section body 自带 H1/H2 标题
-output_frontmatter:          # compiled 产出顶部要 emit 的 YAML
+demote_section_headings: true        # section body 自带 H1/H2 标题时开启
+output_frontmatter:                  # 编译产物顶部要 emit 的 YAML
   kind: derived
   target_tool: claude-code
-preamble: |
-  这是给 Claude Code 的个人 context。
+---
+```
+
+> **重要：Config 不接 `preamble` / `postamble` / `body` 字段。** Config 在 forge-core 里是 MVC 的 Controller，只负责"怎么编"，不装内容。v0.1 版本里这三个字段会直接报错，告诉你搬到 section 去。
+
+如果你要在产物开头加一段介绍文字，写一个 wrapper section：
+
+```yaml
+---
+name: _preface
+type: wrapper
 ---
 
-可选自由 markdown body，会追加在所有 section 之后。
+这是给 Claude Code 的个人 context。由 sp/section/ 自动编译。
 ```
+
+放在 `sp/section/_preface.md`，然后在 config 的 `sections:` 列表里排在第一个。`type: wrapper` 告诉 adapter：body 原样输出，不加 `## _Preface` 这种标题、不参与 heading 降级。
 
 ---
 
@@ -105,18 +117,18 @@ dxy_OS 迁移结果（可复现：`python examples/dxyos-validation/validate.py 
 
 | 检查                                             | 结果                              |
 |-------------------------------------------------|-----------------------------------|
-| Section 加载（文件名带空格）                    | 5 / 5 ✅                          |
+| Section 加载（文件名带空格 + 1 个 wrapper）     | 6 / 6 ✅                          |
 | Config 带 `required_sections`                   | 2 / 2 ✅                          |
-| `forge doctor`                                   | 0 errors / 0 warnings ✅          |
+| `forge doctor`                                   | 0 errors ✅                       |
 | 编译确定性（两次跑同 bytes）                    | ✅                                |
-| Line recall vs dxyOS 自己 SP-compiled CLAUDE.md | **93.5%**                         |
-| Per-section body 完整性                          | 5 / 5 ✅                          |
+| Line recall vs dxyOS 自己 SP 编译的 CLAUDE.md   | **91.5%**                         |
+| Per-section body 完整性                          | 6 / 6 ✅                          |
 | Gate + bench 循环（diff/approve/snapshot/compare）| ✅                               |
 | 行为 A/B eval（见 eval-report）                  | 2–2 split，无回退 ✅              |
 
-**那 6.5% 没 recall 的是什么？**
+**那 8.5% 没对上的是什么？**
 
-检查缺失的行，发现是 dxyOS 自己的 wrapper 前置文本，像 *"This file provides guidance to Claude Code when working in this environment. It is auto-generated from..."* 之类。那段文字是 dxyOS compile 模板的一部分，不是 section 内容。forge-core 用自己的 preamble + provenance 替代，所以**内容**行（identity、preferences、knowledge-base、skills）全部在——只是 **wrapper** 不同。在一个 MVP-schema 对齐的 vault 上 93.5% recall 是首次迁移的强结果；如果要 byte 级 wrapper 一致，就自定义 adapter。
+是 dxyOS 原来那段"本文由 `01 assist/SP/config/master.md` 自动生成"的说明文字，它以前是硬编码在 dxyOS compile 模板里的 wrapper。forge-core 把它搬成了一个 `_preface` wrapper section——内容基本相同但不是逐字一致。所有**主体内容**（identity / preferences / knowledge-base / skills）全部保留。如果你需要 byte 级别对齐原来的 wrapper，把 `_preface` section 的 body 原样拷过来就行。
 
 ---
 

@@ -4,7 +4,14 @@
 
 ## [0.1.0] — 2026-04-24
 
-首次发布。带 schema 检查和 provenance 的 review-gated context compiler。
+首次发布。带 schema 检查、provenance、MVC 分层的 review-gated context compiler。
+
+### MVC 分层（这次最重要的架构修正）
+
+- `Section` = Model，装内容。
+- `Config` = Controller，**只装控制信息**。v0.1 第一版把 `preamble` / `postamble` / `body` 放在 Config 里是错的——那是内容，现在全部砍掉，强制走 section。v0.1 直接拒绝这三个字段并给出明确迁移指引，不做向后兼容（alpha 阶段，破坏面可控）。
+- `Output` = View，编译产物，不手改。
+- **Wrapper section（`type: wrapper`）**：用来承载前言 / 结语这种"不是主体 section"的文字。body 原样输出，不 emit `## <name>` 标题、不参与 heading 降级。约定以 `_` 开头命名。
 
 ### 新增
 - **Compiler core** — `Section` + `Config` + `Renderer`。YAML frontmatter + markdown body。确定性编译。
@@ -23,10 +30,10 @@
   - `examples/dxyos-validation/` — 对真实 personal-OS vault 的完整硬核验证：语义等价性（vs vault 自己 SP-compiled CLAUDE.md 的 line recall）、completeness、doctor、gate + bench 循环。还会自动产出 `diff-vs-dxyos.txt` 供人类对比。
 - **迁移指南** — `docs/migration-from-personal-os.md`。
 - **Eval 报告** — `docs/eval-report.md`，真实 4 任务 × 2 版本 subagent A/B + 4 blind judge，位置随机化，2-2 打平。
-- **单测** — 60 个 pytest（section parser、loader、两个 adapter、所有 gate action、bench、provenance、doctor、heading demotion、adapter 扩展、eval 接口）。
+- **单测** — 65 个 pytest（section parser、loader、两个 adapter、所有 gate action、bench、provenance、doctor、heading demotion、adapter 扩展、eval 接口、MVC / wrapper）。
 
 ### 已验证
-- 结构 line recall vs dxyOS 自己 SP-compiled CLAUDE.md：**93.5%**（6.5% gap 是 dxyOS wrapper 前置文本，不是内容）。
+- 结构 line recall vs dxyOS 自己 SP-compiled CLAUDE.md：**91.5%**（8.5% gap 是 wrapper 说明文字的措辞差异，不是内容丢失）。
 - 编译确定性：同输入两次跑输出 bytes 完全相同。
 - Gate 循环（diff → approve → rollback）在真实 vault 内容上通过。
 - 行为 A/B eval：4 任务 × 2 版本 subagent + 4 blind judge，位置随机化，2-2 打平，**无行为回退**。

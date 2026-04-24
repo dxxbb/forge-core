@@ -2,9 +2,8 @@
 name: codex
 target: agents-md
 sections:
+  - _preface
   - about-me
   - preferences
   - skills
-preamble: |
-  Compiled context for AGENTS.md-compatible runtimes (Codex CLI, OpenCode, etc.).
 ---

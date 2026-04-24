@@ -1,34 +1,34 @@
-# 为什么我做了一个 review-gated context compiler（以及 `rulesync` 为什么不够）
+# 为什么我又写了一个和 `rulesync` 类似的小工具
 
-*草稿——还未发布。*
+*草稿——还没发。*
 
 ---
 
-## 这件事没人在做
+## 一个没人在做的小缝隙
 
-2026 年的 agent 工具生态分三层成熟，少了一层。
+2026 年和 agent 打交道的工具已经不少了，但它们基本只在三类事上做功：
 
-**第一层：rules sync。** `rulesync`、`ai-rules-sync` 这类工具拿你的 agent 指令，在 Cursor、Claude Code、Copilot、Codex、Gemini、Windsurf 之间镜像。一份真相，八份生成的配置。挺好。
+**第一类是把规则同步过去**。`rulesync` 这类（GitHub 有 1k 星，真的在被人用）——你写一份规则，它帮你投给 Cursor、Claude Code、Copilot、Gemini 这些 20 多个工具。**但它改了就直接推**，没有一道让你看一眼再决定的关口。
 
-**第二层：memory 编译器。** `claude-memory-compiler` 这类工具 hook 你的会话，抽取"关键决策"，用 LLM 把结果组织成结构化的 memory 文章。也挺好。
+**第二类是把会话抓回来**。`claude-memory-compiler` 这类——它 hook 你和 Claude 的对话，让 LLM 自己整理出 memory 文章。**也是没人审核**的：LLM 直接往你的 memory 文件里写。
 
-**第三层：prompt 编译器。** DSPy、BAML 把你的 prompt 逻辑编译成优化过的调用 pattern。它们在另一层——编译 **程序**，不是 **内容**。
+**第三类是编译 prompt 本身**。DSPy、BAML 这种。它们管的是"agent 怎么思考"，不是"agent 读哪份上下文"。完全不同的一层。
 
-缺的那层夹在这三者中间：**一个给你长期内容做的 review-gated 编译器**。
+这三类之间，缺了一个很小但很具体的东西：**在你改长期内容、和 agent 真的读到那份编译产物之间，放一道你能看见的关口**。
 
-我不想要又一个自动往我 memory 文件里写的工具。也不想要又一个把我输入的任何东西塞进八个 runtime 的 sync 工具。我想要 build system 给代码的那种东西：**我编辑的 canonical source、从不编辑的 compiled artifact、中间有一道 gate 在 ship 之前告诉我 *这次改动会变成什么***。
+我不是想做又一个会自动改我 memory 的工具。也不是想做又一个把我输入的任何东西推去 8 个 runtime 的 sync 工具。我想要的就是 build system 给源代码的那一套：**我改我的源文件，产物永远从源文件编译出来，中间有一道 diff + approve + rollback 让我看清楚每次变化**。
 
 这就是 `forge-core`。
 
-## 三个问题
+## 这件事今天的三个具体问题
 
-1. **长期内容和运行时 context 混在一起。** 你的笔记、偏好、学到的规则、生成的 `CLAUDE.md`、实际对话的草稿空间，全堆在一起。没有清楚的 "这是真相" vs "这是衍生产物"。当 `CLAUDE.md` 里某一行看着不对，你追溯不到一个具体来源。
+**第一，长期内容和运行时上下文混在一起。** 你的笔记、偏好、学到的规则、生成的 `CLAUDE.md`、对话的草稿空间，都堆在一起。没有清晰的"这是我积累的真相"和"这是 agent 每次启动读的那份东西"的分界。`CLAUDE.md` 里某一行看着不对，你追不回这行是从哪来的。
 
-2. **变动进入系统时没有可追溯性。** agent 在会话里改了你的 memory 文件。谁批准的？为什么？能 rollback 吗？多数工具的答案是 "不——现在那就是你的 memory 了"。
+**第二，改动进入系统时没审计。** agent 在会话里改了你的 memory 文件，谁改的、什么时候改的、为什么改、能不能回滚？多数工具答不出来——"改完了就是你的 memory 了"。
 
-3. **你没法判断系统是不是变好了。** 多数 "personal OS" 流程止步于 "感觉更顺"。没有 bench，没有前后对比，没有结构检查。你做了改动——它真的让你想要的 section 改了吗，还是扩了、丢了、搞乱了 ordering？
+**第三，你没法判断这套东西有没有变好。** 大部分 personal OS 的博文止步于"感觉更顺了"。没 bench、没前后对比、没结构检查。你做了一次改动，真的只让你想改的那一段变了吗？还是顺带把其他什么东西一起撑大了？
 
-每一个都可以单独解。现有工具没有一个同时解三个。
+三件事里每一件单独都有工具能解。但没有一个工具三件事一起解。
 
 ## forge-core 怎么工作
 
@@ -86,19 +86,19 @@ approved hash=82bab7145d23 at 2026-04-24T03:57:58+00:00
 
 核心概念就这一个：**每次 canonical source 的变动，同时以 source diff 和 compiled-output diff 的形式出现，都在 ship 之前**。如果你不喜欢它会怎么变 `CLAUDE.md`，`forge reject` 让你回到上次 approved。
 
-## 为什么 gate 比编译器更重要
+## 关口比编译本身更重要
 
-编译器部分很直白。Section 是带 frontmatter 的 markdown，Config 是 section 名字的列表，Adapter 把有序 section 渲染成 target 格式。任何人下午写得完。你完全可以说 `rulesync` 在 rules 这个子集上已经做了有意思的编译部分。
+编译的部分其实很笨。Section 是带 frontmatter 的 markdown，Config 是一列 section 名字，adapter 负责把它们按顺序拼成目标格式。一个人一个下午写得完。你甚至可以说，`rulesync` 在"规则"这个子集上已经把这步做了。
 
-**Gate 才是关键。** 没有它，forge-core 就是"又一个 markdown templater"。有了它，forge-core 就变成：阻止你的 agent context 被一次坏 edit 悄悄破坏的东西，能把 compiled output 任何一行追回到具体 approved source 快照的东西。
+**关口才是这个工具的灵魂**。没有它，forge-core 就只是"又一个 markdown 模板引擎"。有了它，它就成了两件事：一道阻止 agent 上下文被某次坏改动悄悄破坏的屏障；一个能把产物任何一行追回到某次具体 approve 点的机制。
 
-这和 git 能做但 rsync 不完全能做的原因是一样的。两者都在状态间搬字节。只有一个带着 "这次变动经过 review 并提交了" 的概念和可走回去的完整历史。
+打个比方：git 能做而 rsync 做不到的事情是什么？都搬字节，区别是 git 多了"这次改动是经过审查提交的"这个概念，和一条可以走回去的完整历史。forge-core 给 agent 配置文件这层补的，就是这种概念和历史。
 
-## Bench 也不能省——但让我说清楚它做的是什么
+## Bench 也不能省——但得先说清楚它是什么不是什么
 
-任何人看到 personal AI 系统第一个问题是：**它真的有用吗？** 多数答案是拍脑袋。"感觉更好了"、"觉得 agent 更锋利了"。
+任何看到 personal AI 工具的人都会先问一个问题：**它真的有用吗？** 多数答案是拍脑袋："感觉更好了"、"agent 变锋利了"。
 
-`forge-core` v0.1 ship 一个结构 bench：
+`forge-core` v0.1 自带一个结构 bench：
 
 ```bash
 $ forge bench snapshot before
@@ -115,21 +115,21 @@ compare before -> after
   skills: 203B -> 274B (+71B)
 ```
 
-**清楚讲这是什么不是什么。** v0.1 的 bench 衡量**结构** delta——byte 数、行数、section size、新增/删除 section。它**不**衡量 "agent 在新 context 下真的变聪明了吗"。它做不到。那个断言需要真 agent 在固定问题集上跑、带打分 harness，那是 v0.3。
+**讲清楚它是什么不是什么**：v0.1 的 bench 只衡量**结构变化**——字节数、行数、每段 section 大小、新增 / 删除的 section。它**不**衡量"agent 用了新 context 之后是不是变聪明了"。它做不到。那个断言需要拿真 agent 在固定问题集上跑 + 有打分系统，那是 v0.3 的事。
 
-我故意 ship 弱版。我宁愿 ship 一个我能指着说 "它做什么、不做什么" 的小 bench，也不 ship 一个其实只是拍脑袋的假 LLM eval。结构版本至少能抓住一个大家都撞过的 failure：*我做了一次改动，没注意 context size 翻倍了*。
+我故意先 ship 弱版。我宁愿给你一个能讲清楚"它做什么、不做什么"的小 bench，也不想 ship 一个其实就是拍脑袋的"LLM eval"。就算只做结构对比，至少能抓住一个大家都撞过的坑：*改了一次，没注意上下文翻倍了*。
 
-所以这工具叫 `forge-core` 而不是 `forge-eval` 或 `forge-bench-pro`。v0.1 的核心卖点是 gate + compile 契约。bench 在那里是为了给 v0.3 的真 eval 留一个干净的插入点。
+所以这个工具叫 `forge-core`，不叫 `forge-eval` 或 `forge-bench-pro`。v0.1 的主卖点是"关口 + 编译契约"。bench 放在这里，是给 v0.3 的真 eval 留一个干净的接口。
 
-## 但我也真跑了 A/B eval
+## 但我也真跑了一轮 A/B 行为评估
 
-v0.1 还 ship 了一个**真实行为 A/B eval 的结果**。不是模拟。
+v0.1 除了结构 bench 之外，还跑了一次**真实的行为 A/B 评估**。不是模拟。
 
-4 个任务（identity、workspace、grounding、ikigai-direction）× 2 个 CLAUDE.md 版本（dxyOS 迁移前 vs forge-core 编译）= 8 次真实 subagent 生成 + 4 个 blind LLM 判官。位置随机化。
+4 个任务（identity、workspace、grounding、ikigai-direction）× 2 个 CLAUDE.md 版本（dxyOS 迁移前 vs forge-core 编译）= 8 次真实的子 agent 回答 + 4 个盲评的 LLM 判官。位置随机化。
 
-**结果：2-2 打平。** 两个版本行为表现持平。详细方法论、位置偏见的诚实 caveat、原始判决，都在 [`docs/eval-report.md`](eval-report.md)。
+**结果：2 比 2 打平。** 两个版本行为表现基本一致。完整方法、位置偏见这个坑的诚实讨论、原始判决，都在 [`docs/eval-report.md`](eval-report.md) 里。
 
-是小 N。是 positional-bias-vulnerable。但它**是真的**——真 agent 行为，在真内容上，不是拍脑袋。每一个宣称 "让你的 agent 更聪明" 的 personal AI 工具至少欠这个量级的实验，**而多数没做**。forge-core v0.1 ship 了这套框架 + 一个小而诚实的结果，不是 ship 一个没法 back up 的大 claim。
+样本量小。有位置偏见的风险。但它**是真的**——真 agent 行为，在真内容上，不是拍脑袋。每一个号称"让你的 agent 更聪明"的个人 AI 工具，都至少欠一次这个量级的实验，**而多数没跑**。forge-core v0.1 先把这套框架加一个小而诚实的结果放在桌上，不吹它 back 不起的大话。
 
 ## `rulesync` 怎么办？`claude-memory-compiler` 呢？`skills-to-agents` 呢？
 
@@ -144,27 +144,27 @@ v0.1 还 ship 了一个**真实行为 A/B eval 的结果**。不是模拟。
 
 没什么阻止你组合用。未来的 forge-core watcher 可以把 claude-memory-compiler 捕获的内容作为 proposed input（要求 review 才能进 canonical source）。未来的 adapter 可以 emit Cursor `.cursorrules`。这就是一个干净分层的意义。
 
-## v0.1 里有什么、没有什么
+## v0.1 有什么，没什么
 
-**现在 ship 的：** compiler core、Claude Code + AGENTS.md adapter、review gate（init/diff/approve/reject/status/build/doctor）、结构 bench、60 单测、端到端 dxyOS 验证（93.5% 语义 line recall + 真 A/B eval 2-2 打平）。
+**现在 ship 的**：编译器核心、Claude Code + AGENTS.md 两个适配器、审核关口 CLI（init / diff / approve / reject / status / build / doctor）、结构 bench、65 个单测、对 dxyOS 端到端的验证（91.5% 逐行保留率 + 真 A/B 2-2 打平）。
 
-**还没 ship：**
-- 没 watcher / inbox / auto-ingest。你手动编辑 `sp/section/`。（v0.2）
-- 没 LLM-based eval。Bench 是结构的。（v0.3）
-- 没 Mem0 / Letta / Zep adapter。Canonical source 就是 markdown。（v0.4，症状驱动）
-- 没 CI 集成、没托管版、没 Web UI。
+**还没做的**：
+- 没有 watcher / inbox / 自动抓取。`sp/section/` 都是你自己改。（v0.2）
+- 没有 LLM 打分的 eval。现在 bench 是结构的。（v0.3）
+- 没有 Mem0 / Letta / Zep 的适配器。源头就是 markdown 文件。（v0.4，按需接）
+- 没有 CI 集成、没有托管版、没有 Web UI。
 
-这是刻意的。整个论点是 **真正难的问题是 gate + 分层 + bench 契约——不是编译本身**。v0.1 最小版 ship 论点，让我（以及任何觉得这有意思的人）先验证概念，再加表面。
+这些都是故意不做的。整件事的论点是：**真正难的是关口 + 分层 + bench 契约，不是编译本身**。v0.1 先把论点以最小版本 ship 出来，让我（以及任何觉得这个方向有意思的人）先验证概念，再往上加。
 
-## 我想从你这里得到什么
+## 想请你做什么
 
-如果这个方向打中你——如果你感受过 "我的 CLAUDE.md 悄悄坏了" 或 "我不知道上一次 edit 是帮了还是坏了" 的那种痛——试一下，拆台，告诉我模型哪里断。Issue 和 PR 都欢迎。特别希望看到：
+如果这个方向打中你——如果你有过"我的 `CLAUDE.md` 被悄悄搞坏了"或者"我上一次改到底帮了还是坏了都分不清"这种感受——试一下、拆台、告诉我我的模型哪里塌了。Issue 和 PR 都欢迎。我特别希望看到：
 
-- 第二个 target adapter，不在 Claude 生态内（Cursor、Aider、别的）。
-- 更好的 diff UX（当前文本 diff 能用但不精致）。
-- 真实世界的 bench 场景，结构对比真正有用的地方、vs 结构对比失效的地方。
+- 第二个非 Claude 生态的适配器（Cursor、Aider 之类）。
+- 更顺手的 diff 体验（当前的文本 diff 能用但不精致）。
+- 真实场景下"结构对比够用"和"结构对比不够用"各是什么时候。
 
-Repo：*(链接待定——还未 push 到 public GitHub)*.
+Repo：*（还没 push 到 GitHub）*。
 
 ---
 

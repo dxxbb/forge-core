@@ -34,22 +34,17 @@ class AgentsMdAdapter(TargetAdapter):
         parts.append("")
         parts.append(render_markdown_header(build_block(sections, config), "blockquote"))
         parts.append("")
-        if config.preamble.strip():
-            parts.append(config.preamble.strip())
-            parts.append("")
         for sec in sections:
+            if sec.type == "wrapper":
+                parts.append(sec.body.strip())
+                parts.append("")
+                continue
             parts.append(_heading(sec))
             parts.append("")
             body = sec.body.strip()
             if config.demote_section_headings:
                 body = _demote_headings(body)
             parts.append(body)
-            parts.append("")
-        if config.postamble.strip():
-            parts.append(config.postamble.strip())
-            parts.append("")
-        if config.body.strip():
-            parts.append(config.body.strip())
             parts.append("")
         return "\n".join(parts).rstrip() + "\n"
 
