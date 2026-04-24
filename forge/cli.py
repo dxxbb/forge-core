@@ -1,0 +1,193 @@
+"""forge CLI — single entrypoint for compiler / gate / bench."""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import click
+
+from forge import __version__
+from forge.gate import actions as gate
+from forge.bench import harness as bench_harness
+
+
+def _root(path: str | None) -> Path:
+    return Path(path).resolve() if path else Path.cwd()
+
+
+@click.group()
+@click.version_option(__version__, prog_name="forge")
+def main() -> None:
+    """forge-core: review-gated context compiler."""
+
+
+# ---------- build / init / status ----------
+
+@main.command()
+@click.option("--root", type=click.Path(), default=None, help="Workspace root (default: cwd).")
+def build(root: str | None) -> None:
+    """Render sp/ to output/ (no gate, always uses current sp/)."""
+    written = gate.build(_root(root))
+    for p in written:
+        click.echo(f"wrote {p}")
+
+
+@main.command()
+@click.option("--root", type=click.Path(), default=None)
+@click.option("--force", is_flag=True, help="Re-init even if already initialized.")
+def init(root: str | None, force: bool) -> None:
+    """Bootstrap .forge/ by snapshotting current sp/ as baseline."""
+    try:
+        state = gate.init(_root(root), force=force)
+    except RuntimeError as e:
+        click.echo(f"error: {e}", err=True)
+        sys.exit(1)
+    click.echo(f"initialized .forge at {state.forge_dir}")
+
+
+@main.command()
+@click.option("--root", type=click.Path(), default=None)
+def status(root: str | None) -> None:
+    """Show initialized state, approved hash, and whether sp/ has drifted."""
+    info = gate.status(_root(root))
+    click.echo(json.dumps(info, indent=2, ensure_ascii=False))
+
+
+# ---------- review gate ----------
+
+@main.command()
+@click.option("--root", type=click.Path(), default=None)
+@click.option("--source-only", is_flag=True, help="Only show source diff, not output diff.")
+@click.option("--output-only", is_flag=True, help="Only show output diff.")
+def diff(root: str | None, source_only: bool, output_only: bool) -> None:
+    """Show what would change on approve (source diff + compiled preview)."""
+    try:
+        result = gate.diff_summary(_root(root))
+    except RuntimeError as e:
+        click.echo(f"error: {e}", err=True)
+        sys.exit(1)
+    if not result.changed:
+        click.echo("no changes since last approve")
+        return
+    if not output_only:
+        click.echo("=" * 8 + " source diff (sp/) " + "=" * 8)
+        for line in result.source_diff_lines:
+            click.echo(line)
+        if not result.source_diff_lines:
+            click.echo("(no source changes)")
+    if not source_only:
+        click.echo()
+        click.echo("=" * 8 + " output diff " + "=" * 8)
+        if not result.output_diffs:
+            click.echo("(no output changes)")
+        for cname, lines in result.output_diffs.items():
+            click.echo(f"--- {cname} ---")
+            for line in lines:
+                click.echo(line)
+
+
+@main.command()
+@click.option("--root", type=click.Path(), default=None)
+@click.option("--note", "-m", default="", help="Short message for changelog.")
+def approve(root: str | None, note: str) -> None:
+    """Accept current sp/ as the new approved baseline. Rebuilds output/."""
+    try:
+        result = gate.approve(_root(root), note=note)
+    except RuntimeError as e:
+        click.echo(f"error: {e}", err=True)
+        sys.exit(1)
+    click.echo(f"approved hash={result.approved_hash[:12]} at {result.approved_at}")
+    for p in result.outputs_written:
+        click.echo(f"  wrote {p}")
+
+
+@main.command()
+@click.option("--root", type=click.Path(), default=None)
+@click.confirmation_option(prompt="Discard all current changes to sp/ and restore approved?")
+def reject(root: str | None) -> None:
+    """Discard changes to sp/; restore from last approved."""
+    try:
+        gate.reject(_root(root))
+    except RuntimeError as e:
+        click.echo(f"error: {e}", err=True)
+        sys.exit(1)
+    click.echo("restored sp/ from last approved")
+
+
+# ---------- bench ----------
+
+@main.group()
+def bench() -> None:
+    """Structural before/after bench for compiled outputs."""
+
+
+@bench.command("snapshot")
+@click.argument("name")
+@click.option("--root", type=click.Path(), default=None)
+def bench_snapshot(name: str, root: str | None) -> None:
+    """Capture a named snapshot of current compiled outputs."""
+    try:
+        snap = bench_harness.snapshot(_root(root), name)
+    except RuntimeError as e:
+        click.echo(f"error: {e}", err=True)
+        sys.exit(1)
+    click.echo(f"snapshot `{name}` created at {snap.created_at}")
+    click.echo(f"  outputs: {sorted(snap.outputs)}")
+    click.echo(f"  sections: {len(snap.sections)}")
+
+
+@bench.command("list")
+@click.option("--root", type=click.Path(), default=None)
+def bench_list(root: str | None) -> None:
+    """List all snapshots."""
+    names = bench_harness.list_snapshots(_root(root))
+    if not names:
+        click.echo("(no snapshots)")
+        return
+    for n in names:
+        click.echo(n)
+
+
+@bench.command("compare")
+@click.argument("before")
+@click.argument("after")
+@click.option("--root", type=click.Path(), default=None)
+@click.option("--json", "as_json", is_flag=True, help="Output raw JSON.")
+def bench_compare(before: str, after: str, root: str | None, as_json: bool) -> None:
+    """Structural diff between two snapshots."""
+    try:
+        cmp = bench_harness.compare(_root(root), before, after)
+    except FileNotFoundError as e:
+        click.echo(f"error: {e}", err=True)
+        sys.exit(1)
+    if as_json:
+        from dataclasses import asdict
+        click.echo(json.dumps(asdict(cmp), indent=2, ensure_ascii=False))
+        return
+    click.echo(f"compare {before} -> {after}")
+    click.echo()
+    click.echo("# outputs")
+    for fname, d in cmp.output_deltas.items():
+        sign = "+" if d["bytes_delta"] >= 0 else ""
+        click.echo(
+            f"  {fname}: {d['bytes_before']}B -> {d['bytes_after']}B "
+            f"({sign}{d['bytes_delta']}B, {sign}{d['lines_delta']}L)"
+        )
+    click.echo()
+    if cmp.added_sections:
+        click.echo(f"# added sections: {cmp.added_sections}")
+    if cmp.removed_sections:
+        click.echo(f"# removed sections: {cmp.removed_sections}")
+    if cmp.section_deltas:
+        click.echo("# section size deltas")
+        for sname, d in cmp.section_deltas.items():
+            sign = "+" if d["bytes_delta"] >= 0 else ""
+            click.echo(
+                f"  {sname}: {d['bytes_before']}B -> {d['bytes_after']}B ({sign}{d['bytes_delta']}B)"
+            )
+
+
+if __name__ == "__main__":
+    main()
