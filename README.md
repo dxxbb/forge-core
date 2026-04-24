@@ -166,7 +166,9 @@ Nothing stops you from combining forge-core with any of them: an adapter can emi
 
 ## Hard validation (not just "it works")
 
-Claims about "personal AI" tools usually stop at *"I built it and it feels good."* forge-core runs a hard validation against a real personal-OS vault ([dxy_OS](https://github.com/dxxbb/dxy_OS)) on every change. Numbers from the latest run:
+Claims about "personal AI" tools usually stop at *"I built it and it feels good."* forge-core ships two concrete layers of evidence:
+
+**Structural** (every change, every commit):
 
 | Check                                          | Result                |
 |------------------------------------------------|-----------------------|
@@ -178,7 +180,13 @@ Claims about "personal AI" tools usually stop at *"I built it and it feels good.
 | Per-section body completeness                  | 5 / 5                 |
 | Gate round-trip (diff → approve → rollback)    | pass                  |
 | Bench round-trip (snapshot → compare)          | pass                  |
-| Unit test suite                                | 45 / 45               |
+| Unit test suite                                | 54 / 54               |
+
+**Behavioral** (one real A/B eval, v0.1):
+
+4 tasks × 2 versions = 8 subagent-generated answers + 4 blind LLM judges on a real personal-OS vault. After randomized position assignment, **2–2 split** between master (pre-migration pipeline) and forge (post-migration). No detectable behavioral regression. Full methodology, positional-bias caveat, and raw judgments in [`docs/eval-report.md`](docs/eval-report.md).
+
+This is not "forge compiles objectively better context" — v0.1 doesn't have the statistical power to say that. It's "forge compiles context the agent uses at least as effectively as the hand-rolled pipeline." For a migration decision, that's the claim that matters.
 
 Reproduce:
 

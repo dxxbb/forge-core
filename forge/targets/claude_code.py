@@ -30,10 +30,27 @@ from __future__ import annotations
 
 import re
 
+from datetime import datetime, timezone
+
+import yaml
+
+from forge import __version__
 from forge.targets.base import TargetAdapter
 from forge.compiler.section import Section
 from forge.compiler.config import Config
 from forge.compiler.provenance import build_block, render_markdown_header
+
+
+def _emit_output_frontmatter(user_fm: dict) -> str:
+    """Return YAML frontmatter block including user's fields + auto-injected provenance."""
+    merged: dict = dict(user_fm)
+    # Always inject (do not override user-provided values)
+    merged.setdefault("generated_by", f"forge-core@{__version__}")
+    merged.setdefault(
+        "last_rebuild_at", datetime.now(timezone.utc).isoformat(timespec="seconds")
+    )
+    dumped = yaml.safe_dump(merged, sort_keys=False, allow_unicode=True).rstrip()
+    return f"---\n{dumped}\n---"
 
 
 class ClaudeCodeAdapter(TargetAdapter):
@@ -42,6 +59,9 @@ class ClaudeCodeAdapter(TargetAdapter):
 
     def render(self, sections: list[Section], config: Config) -> str:
         parts: list[str] = []
+        if config.output_frontmatter:
+            parts.append(_emit_output_frontmatter(config.output_frontmatter))
+            parts.append("")
         parts.append(f"# {config.name}")
         parts.append("")
         parts.append(
@@ -54,11 +74,12 @@ class ClaudeCodeAdapter(TargetAdapter):
             parts.append(config.preamble.strip())
             parts.append("")
         for sec in sections:
-            heading = _section_heading(sec)
-            if heading:
-                parts.append(heading)
-                parts.append("")
-            parts.append(sec.body.strip())
+            parts.append(_section_heading(sec))
+            parts.append("")
+            body = sec.body.strip()
+            if config.demote_section_headings:
+                body = _demote_headings(body)
+            parts.append(body)
             parts.append("")
         if config.postamble.strip():
             parts.append(config.postamble.strip())
@@ -70,10 +91,45 @@ class ClaudeCodeAdapter(TargetAdapter):
 
 
 def _section_heading(sec: Section) -> str:
-    """Return `## <name>` unless the body already starts with an H1/H2 on the same topic."""
-    body = sec.body.lstrip()
-    first_line = body.splitlines()[0] if body else ""
-    if re.match(r"^#{1,2}\s", first_line):
-        return ""
+    """Always emit `## <name>` as the section boundary.
+
+    If the section body itself starts with an H1, we still emit our H2 first; the
+    body's H1 then becomes a sub-heading. Predictable structure > clever dedup.
+    Callers can also enable config.demote_section_headings to shift all body
+    headings down one level.
+    """
     pretty = sec.name.replace("-", " ").replace("_", " ")
+    pretty = pretty[0].upper() + pretty[1:] if pretty else pretty
     return f"## {pretty}"
+
+
+def _demote_headings(text: str) -> str:
+    """Normalize a section body so it fits cleanly under forge's `## <name>` wrapper.
+
+    Two transforms (in order):
+    1. If the body starts with an ATX heading (after leading blank lines), STRIP
+       it — it's semantically redundant with the adapter's own section heading.
+    2. Demote every remaining ATX heading down one level (# → ##, ## → ###, …).
+
+    Matches the pipeline dxyOS previously used (confirmed by diff of
+    pre-migration CLAUDE.md against section files).
+    """
+    lines = text.splitlines()
+    # 1) strip leading heading if the body opens with one
+    i = 0
+    while i < len(lines) and not lines[i].strip():
+        i += 1
+    if i < len(lines) and re.match(r"^#{1,5}\s", lines[i]):
+        lines = lines[:i] + lines[i + 1 :]
+        # also drop the blank immediately after, if any
+        if i < len(lines) and not lines[i].strip():
+            lines = lines[:i] + lines[i + 1 :]
+    # 2) demote everything that's still a heading
+    out: list[str] = []
+    for line in lines:
+        m = re.match(r"^(#{1,5})(\s)", line)
+        if m:
+            out.append(m.group(1) + "#" + line[len(m.group(1)) :])
+        else:
+            out.append(line)
+    return "\n".join(out).lstrip("\n")

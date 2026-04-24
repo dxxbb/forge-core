@@ -43,6 +43,8 @@ class Config:
     target: str
     sections: list[str]
     required_sections: list[str] = field(default_factory=list)
+    output_frontmatter: dict[str, Any] = field(default_factory=dict)
+    demote_section_headings: bool = False
     preamble: str = ""
     postamble: str = ""
     body: str = ""
@@ -66,6 +68,10 @@ class Config:
         req = fm.pop("required_sections", None) or []
         if not isinstance(req, list):
             raise ValueError(f"{path}: `required_sections` must be a list")
+        out_fm = fm.pop("output_frontmatter", None) or {}
+        if not isinstance(out_fm, dict):
+            raise ValueError(f"{path}: `output_frontmatter` must be a mapping")
+        demote = bool(fm.pop("demote_section_headings", False))
         preamble = fm.pop("preamble", "") or ""
         postamble = fm.pop("postamble", "") or ""
         return cls(
@@ -73,6 +79,8 @@ class Config:
             target=target,
             sections=[str(s) for s in sections],
             required_sections=[str(s) for s in req],
+            output_frontmatter=out_fm,
+            demote_section_headings=demote,
             preamble=preamble,
             postamble=postamble,
             body=body.strip(),

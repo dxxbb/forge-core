@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 
 from forge.targets.base import TargetAdapter
+from forge.targets.claude_code import _emit_output_frontmatter, _demote_headings
 from forge.compiler.section import Section
 from forge.compiler.config import Config
 from forge.compiler.provenance import build_block, render_markdown_header
@@ -21,6 +22,9 @@ class AgentsMdAdapter(TargetAdapter):
 
     def render(self, sections: list[Section], config: Config) -> str:
         parts: list[str] = []
+        if config.output_frontmatter:
+            parts.append(_emit_output_frontmatter(config.output_frontmatter))
+            parts.append("")
         parts.append(f"# {config.name}")
         parts.append("")
         parts.append(
@@ -34,11 +38,12 @@ class AgentsMdAdapter(TargetAdapter):
             parts.append(config.preamble.strip())
             parts.append("")
         for sec in sections:
-            heading = _heading(sec)
-            if heading:
-                parts.append(heading)
-                parts.append("")
-            parts.append(sec.body.strip())
+            parts.append(_heading(sec))
+            parts.append("")
+            body = sec.body.strip()
+            if config.demote_section_headings:
+                body = _demote_headings(body)
+            parts.append(body)
             parts.append("")
         if config.postamble.strip():
             parts.append(config.postamble.strip())
@@ -50,9 +55,5 @@ class AgentsMdAdapter(TargetAdapter):
 
 
 def _heading(sec: Section) -> str:
-    body = sec.body.lstrip()
-    first_line = body.splitlines()[0] if body else ""
-    if re.match(r"^#{1,2}\s", first_line):
-        return ""
     pretty = sec.name.replace("-", " ").replace("_", " ").title()
     return f"## {pretty}"

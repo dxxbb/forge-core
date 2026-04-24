@@ -29,9 +29,9 @@ def test_render_claude_code(workspace: Path) -> None:
     assert "# main" in out
     assert "Alpha body content" in out
     assert "Beta body content" in out
-    # section headings auto-generated
-    assert "## alpha" in out
-    assert "## beta" in out
+    # section headings auto-generated (name with first letter capitalized)
+    assert "## Alpha" in out
+    assert "## Beta" in out
 
 
 def test_render_agents_md(workspace: Path) -> None:
