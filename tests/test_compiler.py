@@ -1,4 +1,5 @@
 from pathlib import Path
+import time
 
 import pytest
 
@@ -64,7 +65,9 @@ def test_render_deterministic(workspace: Path) -> None:
     """Same inputs → same output bytes."""
     secs = load_sections(workspace)
     cfg = load_config(workspace, "main")
+    cfg.output_frontmatter = {"kind": "derived"}
     out1 = render(secs, cfg)
+    time.sleep(1.1)
     out2 = render(secs, cfg)
     assert out1 == out2
 

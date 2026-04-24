@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import shutil
 import sys
+import time
 from pathlib import Path
 
 HERE = Path(__file__).parent
@@ -191,7 +192,8 @@ def run(root: Path, dxyos_root: Path, verbose: bool) -> None:
     print(f"  [ok] CLAUDE.md {len(compiled_claude.encode('utf-8'))}B / {compiled_claude.count(chr(10))}L")
     print(f"  [ok] AGENTS.md {len(compiled_agents.encode('utf-8'))}B / {compiled_agents.count(chr(10))}L")
     # determinism
-    state2 = gate.build(root)
+    time.sleep(1.1)
+    gate.build(root)
     compiled_claude_2 = (state.output_dir / "CLAUDE.md").read_text("utf-8")
     assert compiled_claude == compiled_claude_2, "compile is not deterministic"
     print("  [ok] compile is deterministic")

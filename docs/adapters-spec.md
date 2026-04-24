@@ -39,7 +39,7 @@ Adapter 需要自己处理的几件事：
 | `config.output_frontmatter` | 如果 config 有 `output_frontmatter: {...}`，在产物顶部 emit YAML frontmatter。可以复用 `forge.targets.claude_code._emit_output_frontmatter`。 |
 | `config.demote_section_headings` | 如果 true，section body 里的 leading H1/H2 要 strip，其余 heading 降一级。复用 `forge.targets.claude_code._demote_headings`。 |
 | `section.type == "wrapper"` | 原样输出 body，**不** emit `## <name>` 标题，**不** 参与 heading demote。 |
-| provenance header | 建议复用 `forge.compiler.provenance.build_block()` 生成机读元数据，用 `render_markdown_header()` 渲染成注释。 |
+| provenance header | 建议复用 `forge.compiler.provenance.build_block()` 生成机读元数据，用 `render_markdown_header()` 渲染成注释。header 不含当前时间，保证相同输入重复 build 输出同 bytes。 |
 
 除此之外 adapter 做什么格式随意——可以是 markdown、YAML、JSON、INI、甚至二进制。契约就是 `str → str`。
 
@@ -103,7 +103,7 @@ sections: [about-me, preferences]
 
 ## 设计原则
 
-1. **Adapter 是 stateless 纯函数。** 同样的 (sections, config) 输入必须产出同样的 bytes。不做 IO、不做 API 调用、不做时间戳（provenance 的时间戳由 compiler 层注入，不由 adapter 生成）。
+1. **Adapter 是 stateless 纯函数。** 同样的 (sections, config) 输入必须产出同样的 bytes。不做 IO、不做 API 调用、不做时间戳。时间戳只进 manifest / changelog，不进 compiled output。
 2. **Adapter 不校验 section 内容。** 校验走 `forge/gate/doctor.py`，那是 schema 层的事。
 3. **Adapter 不应该知道 watcher / inbox / bench。** 它就是 "翻译器"，只读上游的 section + config。
 4. **Core 保持小。** `forge/targets/` 只放两个"标准实现"，其他都进 `forge/contrib/`。别人贡献的 adapter 也放 contrib，成熟后才考虑升核。

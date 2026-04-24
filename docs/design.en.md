@@ -76,7 +76,7 @@ Mechanics:
 - `forge diff` compares current `section/ + config/` against `approved/`, shows both the source diff AND a preview of how `output/` would change.
 - `forge approve` promotes current state into `approved/`, rebuilds all outputs, appends an entry to `.forge/changelog.md` with timestamp + diff summary.
 - `forge reject` reverts working tree to `approved/`.
-- Provenance: every output file includes a header comment with the approval hash + timestamp, so you can trace any line in `CLAUDE.md` back to a specific approved section snapshot.
+- Provenance: every output file includes a header comment with a stable digest + per-section source metadata, so you can trace any line in `CLAUDE.md` back to a specific approved section snapshot. Timestamps live in `.forge/manifest.json` / changelog, not in deterministic outputs.
 
 **What this gives you that `rulesync` doesn't:** you can't accidentally push a bad change to your agent context. You always see the compiled diff before it ships. You can always roll back.
 
@@ -148,7 +148,7 @@ v0.1 ships both:
 
 - **Section frontmatter** recognizes: `kind` (canonical | derived), `upstream: [...]`, `generated_by: <pipeline>`, `last_rebuild_at` (fallback for `updated_at`).
 - **Config frontmatter** recognizes: `required_sections: [...]` (`forge doctor` validates coverage).
-- **Every compiled output** starts with a machine-readable provenance header: config name, target, SHA256 digest (12 hex), timestamp, per-section name / type / kind / upstream / generated_by / bytes. Rendered as `<!-- … -->` in CLAUDE.md, `> …` in AGENTS.md.
+- **Every compiled output** starts with a machine-readable provenance header: config name, target, forge-core version, SHA256 digest (12 hex), per-section name / type / kind / upstream / generated_by / bytes. Rendered as `<!-- … -->` in CLAUDE.md, `> …` in AGENTS.md. The header intentionally excludes build time so repeated builds from identical inputs stay byte-deterministic.
 - **`forge doctor`** runs before-compile health checks: unknown section refs → ERROR, required_sections not covered → ERROR, unknown adapter → WARN, orphan section → WARN, derived section with empty upstream → WARN.
 
 Combined, these make the claim "you can trace every line of the compiled output back to a specific source snapshot" literally true, not aspirational.

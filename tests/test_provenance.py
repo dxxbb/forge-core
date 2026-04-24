@@ -26,12 +26,33 @@ def test_provenance_digest_changes_with_content(workspace: Path, tmp_path: Path)
     assert d1 != d2
 
 
+def test_provenance_digest_changes_with_rendering_fields(workspace: Path) -> None:
+    secs = list(load_sections(workspace).values())
+    cfg = load_config(workspace, "main")
+    d1 = compute_digest(secs, cfg)
+
+    cfg.demote_section_headings = True
+    d2 = compute_digest(secs, cfg)
+    assert d1 != d2
+
+    cfg.demote_section_headings = False
+    cfg.output_frontmatter = {"kind": "derived"}
+    d3 = compute_digest(secs, cfg)
+    assert d1 != d3
+
+    secs[0].type = "wrapper"
+    d4 = compute_digest(secs, cfg)
+    assert d3 != d4
+
+
 def test_provenance_block_fields(workspace: Path) -> None:
     secs = list(load_sections(workspace).values())
     cfg = load_config(workspace, "main")
     block = build_block(secs, cfg)
     assert block["config"] == "main"
     assert block["target"] == "claude-code"
+    assert block["forge_core_version"]
+    assert "compiled_at" not in block
     assert len(block["sections"]) == 2
     assert {s["name"] for s in block["sections"]} == {"alpha", "beta"}
 
@@ -61,6 +82,7 @@ def test_render_includes_provenance(workspace: Path) -> None:
     out = render(secs, cfg)
     assert "forge-core provenance" in out
     assert "digest=" in out
+    assert "compiled_at=" not in out
 
 
 def test_section_upstream_field(tmp_path: Path) -> None:

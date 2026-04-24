@@ -27,8 +27,6 @@ from __future__ import annotations
 
 import re
 
-from datetime import datetime, timezone
-
 import yaml
 
 from forge import __version__
@@ -39,13 +37,10 @@ from forge.compiler.provenance import build_block, render_markdown_header
 
 
 def _emit_output_frontmatter(user_fm: dict) -> str:
-    """Return YAML frontmatter block including user's fields + auto-injected provenance."""
+    """Return deterministic YAML frontmatter with user fields + stable generator."""
     merged: dict = dict(user_fm)
     # Always inject (do not override user-provided values)
     merged.setdefault("generated_by", f"forge-core@{__version__}")
-    merged.setdefault(
-        "last_rebuild_at", datetime.now(timezone.utc).isoformat(timespec="seconds")
-    )
     dumped = yaml.safe_dump(merged, sort_keys=False, allow_unicode=True).rstrip()
     return f"---\n{dumped}\n---"
 
