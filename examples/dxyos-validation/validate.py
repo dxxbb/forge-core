@@ -92,9 +92,20 @@ RECALL_THRESHOLD = 0.90
 
 
 def stage_dxyos(dxyos_root: Path) -> Path:
-    src_section_dir = dxyos_root / "01 assist" / "SP" / "section"
-    if not src_section_dir.exists():
-        raise SystemExit(f"not a dxyOS root: {dxyos_root} (missing {src_section_dir})")
+    # Support both old (pre-forge-core migration) and new dxyOS layouts.
+    # New canonical: sp/section/ at vault root (forge-core native).
+    # Old: 01 assist/SP/section/ (dxyOS pre-migration).
+    new_section_dir = dxyos_root / "sp" / "section"
+    old_section_dir = dxyos_root / "01 assist" / "SP" / "section"
+    if new_section_dir.exists():
+        src_section_dir = new_section_dir
+    elif old_section_dir.exists():
+        src_section_dir = old_section_dir
+    else:
+        raise SystemExit(
+            f"not a dxyOS root: {dxyos_root} "
+            f"(missing both {new_section_dir} and {old_section_dir})"
+        )
 
     if STAGING.exists():
         shutil.rmtree(STAGING)
@@ -200,7 +211,12 @@ def run(root: Path, dxyos_root: Path, verbose: bool) -> None:
 
     print()
     print("STEP 4/7 — semantic equivalence vs dxyOS's SP output")
-    dxyos_sp_output = dxyos_root / "01 assist" / "SP" / "output" / "claude code" / "CLAUDE.md"
+    # Compare target: in new (post-migration) dxyOS layout the ground truth is
+    # .forge/output/CLAUDE.md at vault root; in the old layout it was under
+    # 01 assist/SP/output/claude code/. Try both.
+    new_target = dxyos_root / ".forge" / "output" / "CLAUDE.md"
+    old_target = dxyos_root / "01 assist" / "SP" / "output" / "claude code" / "CLAUDE.md"
+    dxyos_sp_output = new_target if new_target.exists() else old_target
     if dxyos_sp_output.exists():
         dxyos_claude = dxyos_sp_output.read_text("utf-8")
         dxyos_lines = normalize_lines(dxyos_claude)
@@ -270,7 +286,7 @@ def run(root: Path, dxyos_root: Path, verbose: bool) -> None:
             difflib.unified_diff(
                 dxyos_claude_text.splitlines(),
                 forge_claude_text.splitlines(),
-                fromfile="dxyOS/01 assist/SP/output/claude code/CLAUDE.md",
+                fromfile="dxyOS/.forge/output/CLAUDE.md (post-migration)",
                 tofile="forge-core/.forge/output/CLAUDE.md",
                 lineterm="",
             )

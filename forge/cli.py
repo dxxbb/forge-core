@@ -27,7 +27,42 @@ def main() -> None:
     """forge-core: review-gated context compiler."""
 
 
-# ---------- build / init / status ----------
+# ---------- new / build / init / status ----------
+
+@main.command("new")
+@click.argument("path", type=click.Path())
+def new_cmd(path: str) -> None:
+    """Scaffold a new forge-core workspace at PATH with template section + config."""
+    root = Path(path)
+    if root.exists():
+        click.echo(f"error: {root} already exists", err=True)
+        sys.exit(1)
+    (root / "sp" / "section").mkdir(parents=True)
+    (root / "sp" / "config").mkdir(parents=True)
+
+    (root / "sp" / "section" / "about-me.md").write_text(
+        "---\nname: about-me\ntype: identity\n---\n\n"
+        "Replace this body with a short, honest description of yourself —\n"
+        "what you work on, how you prefer to collaborate, what you keep\n"
+        "having to re-explain to agents.\n\n"
+        "Agents will read this section every session.\n",
+        encoding="utf-8",
+    )
+    (root / "sp" / "config" / "personal.md").write_text(
+        "---\nname: personal\ntarget: claude-code\nsections:\n  - about-me\n---\n",
+        encoding="utf-8",
+    )
+    (root / ".gitignore").write_text(".forge/\n", encoding="utf-8")
+
+    click.echo(f"created {root}/")
+    click.echo()
+    click.echo("Next:")
+    click.echo(f"  cd {path}")
+    click.echo(f"  $EDITOR sp/section/about-me.md   # describe yourself")
+    click.echo(f"  forge init                       # snapshot baseline + compile")
+    click.echo(f"  cat .forge/output/CLAUDE.md      # see the compiled view")
+    click.echo()
+    click.echo("Then edit the section, run `forge diff` to preview, `forge approve` to ship.")
 
 @main.command()
 @click.option("--root", type=click.Path(), default=None, help="Workspace root (default: cwd).")
