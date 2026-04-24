@@ -249,10 +249,30 @@ def run(root: Path, dxyos_root: Path, verbose: bool) -> None:
             print(f"  [ok] {fname} delta {sign}{d['bytes_delta']}B / {sign}{d['lines_delta']}L")
 
     print()
+    print("STEP BONUS — writing side-by-side diff for human review")
+    if dxyos_sp_output.exists():
+        import difflib
+        dxyos_claude_text = dxyos_sp_output.read_text("utf-8")
+        forge_claude_text = (state.output_dir / "CLAUDE.md").read_text("utf-8")
+        diff_lines = list(
+            difflib.unified_diff(
+                dxyos_claude_text.splitlines(),
+                forge_claude_text.splitlines(),
+                fromfile="dxyOS/01 assist/SP/output/claude code/CLAUDE.md",
+                tofile="forge-core/.forge/output/CLAUDE.md",
+                lineterm="",
+            )
+        )
+        diff_path = root / "diff-vs-dxyos.txt"
+        diff_path.write_text("\n".join(diff_lines) + "\n", encoding="utf-8")
+        print(f"  wrote {diff_path} ({len(diff_lines)} diff lines)")
+
+    print()
     print(divider)
     print("VALIDATION PASSED")
     print(f"  5 sections / 2 configs / 2 outputs / doctor clean / gate + bench round-trip ok")
     print(f"  staging: {root}")
+    print(f"  for side-by-side comparison: less {root}/diff-vs-dxyos.txt")
 
 
 def main() -> None:

@@ -195,6 +195,29 @@ The 7.5% line-recall gap is dxy_OS's own preamble text ("This file provides guid
 - [`examples/basic/`](examples/basic) — minimal 4-section workspace with two configs.
 - [`examples/dxyos-validation/`](examples/dxyos-validation) — end-to-end validation against a real personal-OS vault (`dxy_OS`). Runs all the hard-validation checks above.
 
+## Adding a custom target
+
+Adapters are the extension surface. Adding a new runtime is ~20 LoC:
+
+```python
+from forge.compiler.section import Section
+from forge.compiler.config import Config
+from forge.targets import register_adapter
+from forge.targets.base import TargetAdapter
+
+class CursorAdapter(TargetAdapter):
+    name = "cursor"
+    default_filename = ".cursorrules"
+
+    def render(self, sections: list[Section], config: Config) -> str:
+        body = "\n\n".join(f"# {s.name}\n{s.body}" for s in sections)
+        return f"# cursor rules for {config.name}\n\n{body}\n"
+
+register_adapter(CursorAdapter())
+```
+
+Then any config with `target: cursor` compiles through it. No forks, no core patches.
+
 ---
 
 ## Roadmap
