@@ -1,65 +1,72 @@
-# Short version (X / Mastodon thread, 8 posts)
+# 短版（X / 知乎想法 / 小红书 thread，8 条）
 
-*Drafted as an 8-post thread. Replace [LINK] with the repo URL before posting. Keep screenshots in mind between posts 3/4 and 7/8.*
+*草拟为 8 条推。发之前把 [LINK] 换成真实 repo URL。3/4 条之间和 7/8 之间留截图位。*
 
 ---
 
 **1/**
-Have you ever asked your AI to "clean up" its own `CLAUDE.md` / `AGENTS.md`, only to find later that it silently deleted a section you actually needed?
+你有没有让 AI "整理一下"它的 `CLAUDE.md` / `AGENTS.md`，结果它悄悄把你真正需要的那段删了？
 
-I have. That's why I built `forge-core`.
+我有过。这就是我做 `forge-core` 的原因。
 
 **2/**
-The agent-tooling ecosystem in 2026 has three rich layers:
+2026 年的 agent 工具生态分三层很成熟：
 
-- rules sync (rulesync, ai-rules-sync)
-- memory compilers (claude-memory-compiler)
-- prompt compilers (DSPy, BAML)
+- rules sync（rulesync、ai-rules-sync）
+- memory 编译器（claude-memory-compiler）
+- prompt 编译器（DSPy、BAML）
 
-None of them has a **review gate** between your long-term content and the compiled context the agent actually reads.
+**没有一个**在你的长期内容和 agent 真的读的 compiled context 之间放 **review gate**。
 
 **3/**
-`forge-core` treats your personal context the way a build system treats code:
+`forge-core` 用 build system 对待代码的方式对待你的个人 context：
 
-- `sp/section/` = canonical source (you edit)
-- `sp/config/` = recipe (which sections, for which runtime)
-- `.forge/output/` = compiled artifacts (never hand-edited)
+- `sp/section/` = canonical source（你改的）
+- `sp/config/` = 配方（哪些 section、投给哪个 runtime）
+- `.forge/output/` = compiled artifact（从不手改）
 - `forge diff / approve / reject` = gate
 
 **4/**
-The thing no text-diff tool gives you: a **compiled-output diff**.
+文本 diff 工具不给你的关键东西：**compiled-output diff**。
 
-When you edit `sp/section/preferences.md`, `forge diff` shows:
-(a) what changed in the source, AND
-(b) what will change in *each* compiled target (`CLAUDE.md`, `AGENTS.md`, …).
+你编辑 `sp/section/preferences.md` 时，`forge diff` 展示：
+(a) source 变了什么，AND
+(b) **每个** compiled target（`CLAUDE.md`、`AGENTS.md`、…）会变什么。
 
-If the output diff is wrong, `forge reject` puts you back.
+如果 output diff 不对，`forge reject` 让你回退。
 
 **5/**
-"Can't I do this with `make` + `git`?"
+"`make` + `git` 不就够了吗？"
 
-Sort of. You'd be re-inventing: semantic diff across multiple compiled targets, integrity hash over the source tree, structural bench, append-only changelog, reproducible adapter contract.
+某种程度上够。但你在重新发明：跨多 target 的语义 diff、source tree 上的完整性 hash、结构 bench、append-only changelog、可复现 adapter 契约。
 
-forge-core just packages all of that in ~1k LoC Python.
+forge-core 就是把这些打包进 ~1k 行 Python。
 
 **6/**
-I'm not pretending `forge-core`'s v0.1 bench is "LLM evaluation." It isn't. It's a **structural** bench — byte/line/section deltas between snapshots. It catches the failure mode: "I made a change and didn't notice the context doubled."
+v0.1 的 bench 是**结构**的，不是 LLM eval。
 
-Real LLM-graded evals are v0.3.
+但 v0.1 还 ship 了**真 A/B 行为 eval 的结果**：4 任务 × 2 版本 × 8 subagent 生成 + 4 blind judge。**2-2 打平。没有行为回退**。
+
+小 N、诚实讲局限。见 eval-report。
 
 **7/**
-Validated end-to-end on two fixtures:
+两个 fixture 上端到端验证：
 
-- a minimal toy (`examples/basic/`)
-- a real personal-OS vault with 5 sections, 3.3KB+ each, filenames-with-spaces (`examples/dxyos-validation/`)
+- 最小玩具（`examples/basic/`）
+- 真 personal-OS vault，5 个 section、每段 3.3KB+、文件名带空格（`examples/dxyos-validation/`）
+- **93.5%** 语义 line recall vs 目标 vault 自己 SP-compiled CLAUDE.md
 
-29 unit tests. MIT. Zero hosted service. Works offline.
+60 单测。MIT。零托管服务。离线可用。
 
 **8/**
-v0.1 is alpha; breaking changes are welcome feedback. If you've felt the "my CLAUDE.md got silently corrupted" pain, try it and push back.
+v0.1 是 alpha，breaking change 欢迎反馈。如果你感受过 "我的 CLAUDE.md 悄悄坏了" 的痛，试一下，拆台。
 
-Especially curious about:
-- adapters for non-Claude runtimes (Cursor, Aider)
-- what bench metrics are actually useful to you
+特别希望看到：
+- 非 Claude runtime 的 adapter（Cursor、Aider）
+- 你觉得 bench 哪些 metric 真的有用
 
 [LINK]
+
+---
+
+*英文版见 [`article-short-thread.en.md`](article-short-thread.en.md)。*

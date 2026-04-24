@@ -1,59 +1,58 @@
 # forge-core
 
-> You asked Claude to clean up your `CLAUDE.md`. It silently deleted the section that told it to always write tests. You didn't notice for three sessions.
+> 你有没有过这种时刻：让 Claude "整理一下" 你的 `CLAUDE.md`，它悄悄把一段重要规则删了，直到三次会话之后你才发现。
 >
-> Or: you edited your preferences, and somehow the compiled context doubled in size. You have no idea why.
+> 或者：你改了 preference，结果编译出来的 context 莫名胖了一倍，查不出为什么。
 >
-> Or: you pushed your `CLAUDE.md` to share with a teammate, and realized you can't explain where half the lines came from.
+> 或者：你想把你的 `CLAUDE.md` 分享给队友，却说不清里面每一段是从哪里来的。
 
-If any of those felt familiar, this is for you.
+如果上面任何一条击中你，这个工具就是为你做的。
 
-**`forge-core`** is a tiny tool that sits between your long-term personal content and the context files agents actually read (`CLAUDE.md`, `AGENTS.md`, …). It treats that relationship the way a build system treats code: **canonical source you edit, compiled artifacts you never edit, and a gate between them that shows you exactly what's about to change before it ships.**
+**`forge-core`** 是一个小工具，夹在你的长期个人内容和 agent 真正会读的上下文文件（`CLAUDE.md` / `AGENTS.md` / …）之间。它用 build system 对待代码的方式对待这层关系：**canonical source 你来改，compiled artifact 从不手动改，中间有一道 gate 在 ship 之前让你看清即将发生什么**。
 
 ```
 ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
 │  sp/section/ │──▶│ sp/config/    │──▶│ .forge/output│
-│ (you edit    │    │ (recipe:      │    │ CLAUDE.md    │
-│  markdown    │    │  which        │    │ AGENTS.md    │
-│  files, one  │    │  sections,    │    │ …            │
-│  concern     │    │  for which    │    │  (never      │
-│  per file)   │    │  runtime)     │    │  hand-edited)│
+│ （你编辑的   │    │ （配方：      │    │ CLAUDE.md    │
+│  markdown    │    │  哪些 section,│    │ AGENTS.md    │
+│  每个文件    │    │  投给哪个     │    │ …            │
+│  一个概念）  │    │  runtime）    │    │ （不要手改） │
 └──────────────┘    └──────────────┘    └──────────────┘
                            │
                            ▼
                     ┌──────────────┐
-                    │ forge diff    │ ← see what would change
-                    │ forge approve │ ← ship + log + rebuild
-                    │ forge reject  │ ← roll back
+                    │ forge diff    │ ← 看编译后会变成什么
+                    │ forge approve │ ← ship + 记 log + 重编译
+                    │ forge reject  │ ← 回滚
                     └──────────────┘
 ```
 
-Status: **v0.1.0 alpha.** Single workspace, local-only, two target adapters. See [Roadmap](#roadmap).
+状态：**v0.1.0 alpha**。单工作区、本地运行、两个 target adapter。见下面的 [Roadmap](#roadmap)。
 
 ---
 
-## For the skeptic: "can't I do this with `make` + `git` already?"
+## 给持怀疑态度的人："`make` + `git` 不就够了吗"
 
-Yes, roughly. And if you've already wired up `make` + `git` to your agent context, you probably don't need this.
+大致可以。如果你已经用 `make` + `git` 把 agent context 的编译链路搭起来了，你大概率不需要这个工具。
 
-What `forge-core` gives you that a hand-rolled `make` + `git` doesn't:
+`forge-core` 相比一个手搓 `make` + `git` 方案多给你的东西：
 
-1. **A semantic diff, not just a text diff.** `forge diff` shows you both the source change AND a preview of how *each compiled output* would change. `git diff` shows only text; you'd have to manually re-run your build to see what the output diff looks like, and do it for every runtime target.
-2. **A single integrity contract.** An approved snapshot is a hash over the whole `sp/` tree. Any drift shows up in `forge status`. You can tell at a glance whether your compiled outputs are stale.
-3. **A structural bench built in.** When you change sections, you immediately see which sections grew/shrank, which were added/removed, total byte delta per output. No need to write that yourself.
-4. **A sharable convention.** Anyone can look at `sp/section/` + `sp/config/` + `.forge/changelog.md` and understand the system. A hand-rolled `make` setup is readable only to its author.
+1. **语义 diff，不只是文本 diff。** `forge diff` 同时展示 source 变动 AND 每个 compiled target 的变动预览。`git diff` 只看文本，你还得手动重跑 build 才能看每个 runtime 的产物变化，而且每个 target 都要跑一遍。
+2. **一个完整的 integrity contract。** 一个 approved snapshot 是整个 `sp/` 目录的 hash；`forge status` 能立即告诉你有没有漂移。
+3. **内置结构 bench。** 改了 section，立刻看到哪些 section 涨缩、是否新增删除、每个 output 的总 byte 变动。不用你自己写。
+4. **一个可分享的约定。** 任何人看 `sp/section/` + `sp/config/` + `.forge/changelog.md` 就懂整个系统怎么运转。手搓 `make` 脚本只有作者本人看得懂。
 
-**What `forge-core` is NOT pretending to be yet:**
+**v0.1 明确不是在装的东西：**
 
-- It's not a smarter compiler than your `make` rules. The compilation is deliberately dumb.
-- Its bench is *structural only* in v0.1. It measures byte / line / section deltas. It does NOT yet measure "is the agent actually smarter with the new context." That's v0.3, and it needs real agent-run harnesses that v0.1 doesn't ship. If you want LLM-graded evals today, use `promptfoo` or similar — `forge-core` is not a replacement for that, and won't be.
-- It's not a runtime memory system. It doesn't watch sessions, doesn't auto-capture, doesn't decide for you. You do the editing. `forge-core` just makes the editing safer and the compilation reproducible.
+- 不是比你的 `make` 更聪明的编译器。编译故意做得很笨。
+- v0.1 的 bench 是**结构性的**——比 byte / line / per-section 差异。它**不**告诉你 "agent 变聪明了"。那是 v0.3 的事，要真跑 agent。如果你现在就要 LLM-graded eval，用 `promptfoo` 之类的，`forge-core` 不替代它们。
+- 不是一个 runtime memory 系统。不监听会话，不自动捕获，不替你决定。你自己编辑 section，`forge-core` 只保证编辑安全、编译可复现。
 
-If "dumb compiler + semantic diff + audit log + roadmap toward real evals" sounds useful, keep reading.
+如果 "笨编译器 + 语义 diff + 审计日志 + 指向真 eval 的 roadmap" 对你有用，继续读。
 
 ---
 
-## 30-second demo
+## 30 秒 demo
 
 ```bash
 $ forge diff
@@ -61,17 +60,17 @@ $ forge diff
 --- approved/section/preferences.md
 +++ current/section/preferences.md
 @@ -9,3 +9,5 @@
- - Ground external facts in live sources.
- - No emojis unless requested.
+ - 外部事实要 ground 在 live source。
+ - 没被要求就不要加 emoji。
 +
-+- When touching shared config, always PR first.
++- 改公共配置前，先开 PR。
 
 ======== output diff ========
 --- personal ---
 @@ -19,6 +19,8 @@
- - No emojis unless requested.
+ - 没被要求就不要加 emoji。
  
-+- When touching shared config, always PR first.
++- 改公共配置前，先开 PR。
 +
 
 $ forge approve -m "add shared-config PR rule"
@@ -80,13 +79,13 @@ approved hash=82bab7145d23 at 2026-04-24T03:57:58+00:00
   wrote .forge/output/AGENTS.md
 ```
 
-That's the core loop. Every change to `sp/` shows both as a source diff and a *compiled output diff* before it ships. If the compiled diff is wrong, `forge reject` puts you back.
+核心 loop 就这样。每次 `sp/` 变动同时展示 source diff 和 **compiled output diff**，ship 之前让你看到。如果 compiled diff 不对，`forge reject` 回到上一次 approved 状态。
 
-See [`docs/demo-walkthrough.md`](docs/demo-walkthrough.md) for the full walkthrough (init → edit → diff → approve → bench snapshot → compare).
+详细走读见 [`docs/demo-walkthrough.md`](docs/demo-walkthrough.md)（init → edit → diff → approve → bench snapshot → compare 全部真实终端输出）。
 
 ---
 
-## Quickstart (2 minutes)
+## 2 分钟上手
 
 ```bash
 pip install -e .
@@ -100,7 +99,7 @@ name: about-me
 type: identity
 ---
 
-I'm a backend engineer. Prefer terse responses. No emojis.
+我是一名后端工程师。希望回答简洁。不要加 emoji。
 EOF
 
 cat > sp/config/personal.md <<'EOF'
@@ -115,97 +114,89 @@ forge init
 cat .forge/output/CLAUDE.md
 ```
 
-Now edit a section and run `forge diff`.
+然后改一下 section，跑 `forge diff`。
 
 ---
 
-## Core concepts (five small things)
+## 核心概念（5 个小东西）
 
-- **Section** — one markdown file, one concern. YAML frontmatter + body.
-- **Config** — recipe: for target X, include these sections in this order.
-- **Output** — the compiled file (`CLAUDE.md`, …). Never hand-edited. Deterministic.
-- **Gate** — `.forge/` state: approved snapshot, changelog, manifest. Every source change must pass `forge approve` before outputs regenerate.
-- **Bench** — structural before/after over compiled outputs. `snapshot` / `list` / `compare`.
+- **Section** — 一个 markdown 文件 = 一个概念。YAML frontmatter + body。
+- **Config** — 配方："给 target X，按这个顺序包含这些 section"。
+- **Output** — 一个 runtime 会读的编译产物（`CLAUDE.md` 等）。不手动改。确定性可复现。
+- **Gate** — `.forge/` 里的状态：approved snapshot、changelog、manifest。source 每次变动必须经过 `forge approve` 才会重生成 output。
+- **Bench** — 编译产物的前后结构对比。`snapshot` / `list` / `compare`。
 
-Full spec: [`docs/design.md`](docs/design.md).
+完整 spec：[`docs/design.md`](docs/design.md)。
 
 ---
 
 ## CLI
 
 ```
-forge init                      # bootstrap .forge/ from current sp/
-forge status                    # show approved hash, drift state
-forge doctor                    # schema + provenance health check
-forge build                     # render sp/ to .forge/output/ (no gate; for CI)
-forge diff                      # source diff + compiled preview
-forge approve -m "message"      # promote current sp/, rebuild, log
-forge reject                    # discard current sp/ changes, restore approved
+forge init                      # 用当前 sp/ 初始化 .forge/
+forge status                    # 显示 approved hash 和是否有漂移
+forge doctor                    # schema + provenance 健康检查
+forge build                     # 把 sp/ 编译到 .forge/output/（无 gate；用于 CI）
+forge diff                      # source diff + 编译预览
+forge approve -m "message"      # 升级当前 sp/ 为 approved, 重编译，记 log
+forge reject                    # 丢弃 sp/ 当前改动，恢复到 approved
 
-forge bench snapshot <name>     # capture current output + metadata
+forge bench snapshot <name>     # 捕获当前 output + 元数据
 forge bench list
-forge bench compare <a> <b>     # structural diff between snapshots
+forge bench compare <a> <b>     # 两个 snapshot 的结构 diff
 ```
 
 ---
 
-## Where this sits in the 2026 landscape
+## 硬核验证（不是"能跑就行"）
 
-| Tool                     | What it owns                                        | What forge-core does that it doesn't |
-|--------------------------|-----------------------------------------------------|---------------------------------------|
-| `rulesync`, `ai-rules-sync` | Format translation across 8+ runtimes         | Review gate + canonical-vs-compiled split + bench |
-| `claude-memory-compiler` | Auto-capture sessions → LLM-organize into memory    | Human review in the loop; no hidden LLM rewrites |
-| `agents-md-generator`    | Generate AGENTS.md from codebase                    | Source is your long-term content, not code |
-| `skills-to-agents`       | Compile SKILL.md → AGENTS.md                        | Full multi-section source, not just skills |
-| DSPy / BAML              | Compile *prompts / schemas*                         | Different layer — compiles *content*, not prompts |
-| Google ADK (Context Compaction) | In-session context compaction                | Cross-session canonical source, not in-flight |
+大多数"个人 AI"工具止步于"我写完了，感觉挺好"。`forge-core` 给出两层具体证据：
 
-Nothing stops you from combining forge-core with any of them: an adapter can emit Cursor rules, a watcher can feed inbox from captured sessions. See roadmap.
+**结构层**（每次改动、每次 commit 都跑）：
 
----
+| 检查                                              | 结果                   |
+|--------------------------------------------------|-----------------------|
+| 加载 section（包括带空格的文件名）               | 5 / 5                 |
+| 带 `required_sections` schema 的 config          | 2 / 2                 |
+| `forge doctor`                                    | 0 errors              |
+| 编译确定性（两次跑同 bytes）                     | pass                  |
+| **vs dxy_OS 自己 SP-compiled CLAUDE.md 的逐行 recall** | **93.5%**        |
+| 每个 section body 完整性                         | 5 / 5                 |
+| Gate 循环（diff → approve → rollback）           | pass                  |
+| Bench 循环（snapshot → compare）                 | pass                  |
+| 单元测试                                         | 60 / 60               |
 
-## Hard validation (not just "it works")
+**行为层**（一次真正的 A/B eval，v0.1）：
 
-Claims about "personal AI" tools usually stop at *"I built it and it feels good."* forge-core ships two concrete layers of evidence:
+4 个任务 × 2 个版本 = 8 次 subagent 生成 + 4 次 blind LLM 判官评分，跑在真实 personal-OS vault 上。位置随机化后，**2–2 打平**（master 旧 pipeline vs forge 新 pipeline）。没发现行为回退。完整方法论、位置偏见的诚实讨论、原始判决——见 [`docs/eval-report.md`](docs/eval-report.md)。
 
-**Structural** (every change, every commit):
-
-| Check                                          | Result                |
-|------------------------------------------------|-----------------------|
-| Sections loaded (incl. filenames with spaces)  | 5 / 5                 |
-| Configs with `required_sections` schema        | 2 / 2                 |
-| `forge doctor`                                  | 0 errors              |
-| Compile determinism (same bytes, 2 runs)       | pass                  |
-| **Line recall vs dxy_OS's own SP-compiled CLAUDE.md** | **92.5%**      |
-| Per-section body completeness                  | 5 / 5                 |
-| Gate round-trip (diff → approve → rollback)    | pass                  |
-| Bench round-trip (snapshot → compare)          | pass                  |
-| Unit test suite                                | 54 / 54               |
-
-**Behavioral** (one real A/B eval, v0.1):
-
-4 tasks × 2 versions = 8 subagent-generated answers + 4 blind LLM judges on a real personal-OS vault. After randomized position assignment, **2–2 split** between master (pre-migration pipeline) and forge (post-migration). No detectable behavioral regression. Full methodology, positional-bias caveat, and raw judgments in [`docs/eval-report.md`](docs/eval-report.md).
-
-This is not "forge compiles objectively better context" — v0.1 doesn't have the statistical power to say that. It's "forge compiles context the agent uses at least as effectively as the hand-rolled pipeline." For a migration decision, that's the claim that matters.
-
-Reproduce:
-
-```bash
-python examples/dxyos-validation/validate.py --dxyos-root ~/dxy_OS
-```
-
-The 7.5% line-recall gap is dxy_OS's own preamble text ("This file provides guidance..."), not content — the five SP sections land in full. See [`docs/migration-from-personal-os.md`](docs/migration-from-personal-os.md) for the full analysis and how to migrate your own personal-OS vault.
+**这不是** 在说"forge 编译的 context 客观上更好"——v0.1 没有那个统计功效。这是在说 **"forge 编译的 context 被 agent 使用的效果至少不比手搓 pipeline 差"**。对迁移决策来说，这才是真正需要证明的点。
 
 ---
 
-## Examples
+## 2026 生态里的定位
 
-- [`examples/basic/`](examples/basic) — minimal 4-section workspace with two configs.
-- [`examples/dxyos-validation/`](examples/dxyos-validation) — end-to-end validation against a real personal-OS vault (`dxy_OS`). Runs all the hard-validation checks above.
+| 工具                     | 它解决什么                                          | forge-core 多做什么                                   |
+|--------------------------|-----------------------------------------------------|------------------------------------------------------|
+| `rulesync`, `ai-rules-sync` | 在 8+ runtime 间同步 agent rules                 | Review gate + canonical/compiled 分层 + bench        |
+| `claude-memory-compiler` | 自动捕获会话 → LLM 整理成 memory                    | 人类 review 在 loop 里；不做隐式 LLM rewrite          |
+| `agents-md-generator`    | 从代码库生成 AGENTS.md                              | Source 是长期个人内容，不是代码                      |
+| `skills-to-agents`       | 把 SKILL.md 编译成 AGENTS.md                        | 完整多 section canonical source，不只 skill           |
+| DSPy / BAML              | 编译 **prompt / schema**                            | 不同层——编译**内容**，不是 prompt                    |
+| Google ADK (Context Compaction) | 会话内 context compaction                       | 跨会话 canonical source，不是飞行中压缩              |
 
-## Adding a custom target
+没什么阻止你把 forge-core 和这些组合用：可以写 adapter 输出 Cursor rules，可以写 watcher 把 claude-memory-compiler 捕获的内容作为 inbox 输入。见 roadmap。
 
-Adapters are the extension surface. Adding a new runtime is ~20 LoC:
+---
+
+## 示例
+
+- [`examples/basic/`](examples/basic) — 最小 4-section 工作区 + 两个 config。
+- [`examples/dxyos-validation/`](examples/dxyos-validation) — 对真实 personal-OS vault（`dxy_OS`）的端到端验证，跑完上面所有"硬核验证"。
+
+## 加一个自定义 target
+
+Adapter 是扩展面。加一个新 runtime 大约 20 行代码：
 
 ```python
 from forge.compiler.section import Section
@@ -224,27 +215,27 @@ class CursorAdapter(TargetAdapter):
 register_adapter(CursorAdapter())
 ```
 
-Then any config with `target: cursor` compiles through it. No forks, no core patches.
+随后任何 `target: cursor` 的 config 都会走这个 adapter。不 fork、不改 core。
 
 ---
 
 ## Roadmap
 
-- **v0.1 (current)** — compiler core, gate CLI, structural bench, two adapters (`claude-code`, `agents-md`).
-- **v0.2** — full governance: watcher, inbox, event-type dispatch, rollback, request-changes round-trip.
-- **v0.3** — LLM-based eval harness: agent runs against question sets, before/after quality scoring. *This is where the "evaluation as first-class layer" claim becomes real rather than aspirational.*
-- **v0.4** — adapters for external memory providers (Mem0 / Letta / Zep) as *optional sidecars*, not core.
+- **v0.1（当前）** — compiler core、gate CLI、结构 bench、两个 adapter（`claude-code`、`agents-md`）、provenance + schema + doctor、端到端 fixture（basic + dxyOS 语义等价性）。
+- **v0.2** — 完整 governance：watcher、inbox、event-type dispatch、rollback、request-changes 回合。
+- **v0.3** — LLM-based eval：agent 在问题集上真跑，前后质量打分。
+- **v0.4** — 外部 memory provider（Mem0 / Letta / Zep）作为**可选 sidecar**的 adapter，不入 core。
 
 ---
 
-## Development
+## 开发
 
 ```bash
 pip install -e '.[dev]'
 pytest
 ```
 
-45 unit tests + end-to-end dxyOS validation. Run the full hard validation with:
+60 单测 + dxyOS 端到端验证：
 
 ```bash
 python examples/dxyos-validation/validate.py --dxyos-root ~/dxy_OS
@@ -254,4 +245,8 @@ python examples/dxyos-validation/validate.py --dxyos-root ~/dxy_OS
 
 ## License
 
-MIT. See [`LICENSE`](LICENSE).
+MIT。见 [`LICENSE`](LICENSE)。
+
+---
+
+*英文版见 [`README.en.md`](README.en.md)。*

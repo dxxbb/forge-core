@@ -1,108 +1,108 @@
-# Why I built a review-gated context compiler (and why `rulesync` wasn't enough)
+# 为什么我做了一个 review-gated context compiler（以及 `rulesync` 为什么不够）
 
-*Draft — not yet published.*
+*草稿——还未发布。*
 
 ---
 
-## The thing nobody is building
+## 这件事没人在做
 
-In 2026 the agent-tooling landscape has three rich layers and one missing layer.
+2026 年的 agent 工具生态分三层成熟，少了一层。
 
-**Layer 1 — rules sync.** Tools like `rulesync` and `ai-rules-sync` take your agent instructions and mirror them across Cursor, Claude Code, Copilot, Codex, Gemini, Windsurf. One source of truth, eight generated config files. Great.
+**第一层：rules sync。** `rulesync`、`ai-rules-sync` 这类工具拿你的 agent 指令，在 Cursor、Claude Code、Copilot、Codex、Gemini、Windsurf 之间镜像。一份真相，八份生成的配置。挺好。
 
-**Layer 2 — memory compilers.** Tools like `claude-memory-compiler` hook into your sessions, extract "key decisions," and use an LLM to organize the results into structured memory articles. Also great.
+**第二层：memory 编译器。** `claude-memory-compiler` 这类工具 hook 你的会话，抽取"关键决策"，用 LLM 把结果组织成结构化的 memory 文章。也挺好。
 
-**Layer 3 — prompt compilers.** DSPy and BAML take your prompt logic and compile it into optimized call patterns. These operate at a different layer — they compile *programs*, not *content*.
+**第三层：prompt 编译器。** DSPy、BAML 把你的 prompt 逻辑编译成优化过的调用 pattern。它们在另一层——编译 **程序**，不是 **内容**。
 
-The missing layer is the one between them: **a review-gated compiler for your long-term content.**
+缺的那层夹在这三者中间：**一个给你长期内容做的 review-gated 编译器**。
 
-I don't want another tool that auto-writes to my memory file. I don't want another sync tool that shoves whatever I typed into eight runtimes. I want the thing a build system gives you for code: canonical sources I edit, compiled artifacts I never edit, and a gate between the two that tells me *what's about to change* before I ship it.
+我不想要又一个自动往我 memory 文件里写的工具。也不想要又一个把我输入的任何东西塞进八个 runtime 的 sync 工具。我想要 build system 给代码的那种东西：**我编辑的 canonical source、从不编辑的 compiled artifact、中间有一道 gate 在 ship 之前告诉我 *这次改动会变成什么***。
 
-That's `forge-core`.
+这就是 `forge-core`。
 
-## The three problems
+## 三个问题
 
-1. **Long-term content and runtime context are mixed together.** Your notes, preferences, learned rules, generated `CLAUDE.md`, and the actual conversation scratch space all sit in the same pile. There's no clear "this is truth" vs "this is a derived artifact." When something in `CLAUDE.md` looks wrong, you can't trace it back to a specific source.
+1. **长期内容和运行时 context 混在一起。** 你的笔记、偏好、学到的规则、生成的 `CLAUDE.md`、实际对话的草稿空间，全堆在一起。没有清楚的 "这是真相" vs "这是衍生产物"。当 `CLAUDE.md` 里某一行看着不对，你追溯不到一个具体来源。
 
-2. **Changes enter the system without traceability.** An agent edits your memory file during a session. Who approved it? Why? Can you roll it back? For most tools, the answer is "no — that's now your memory."
+2. **变动进入系统时没有可追溯性。** agent 在会话里改了你的 memory 文件。谁批准的？为什么？能 rollback 吗？多数工具的答案是 "不——现在那就是你的 memory 了"。
 
-3. **You can't tell if the system actually got better.** Most "personal OS" workflows stop at "feels nicer now." There is no bench, no before/after, no structural check. You made a change — did it actually shrink the bloat, add the preference, rebalance the sections?
+3. **你没法判断系统是不是变好了。** 多数 "personal OS" 流程止步于 "感觉更顺"。没有 bench，没有前后对比，没有结构检查。你做了改动——它真的让你想要的 section 改了吗，还是扩了、丢了、搞乱了 ordering？
 
-Each of these is solvable individually. None of the existing tools solve all three.
+每一个都可以单独解。现有工具没有一个同时解三个。
 
-## How forge-core works
+## forge-core 怎么工作
 
-Three directories, three concepts:
+三个目录、三个概念：
 
 ```
 sp/
-  section/          # canonical source: one concern per markdown file
+  section/          # canonical source：一个概念一个 markdown 文件
     about-me.md
     preferences.md
     workspace.md
     skills.md
-  config/           # recipe: for target X, include these sections
+  config/           # 配方：给 target X，包含这些 section
     personal.md     # → CLAUDE.md
     codex.md        # → AGENTS.md
 .forge/
-  approved/         # snapshot of last-approved sp/
-  output/           # compiled artifacts (CLAUDE.md, AGENTS.md, …)
-  changelog.md      # append-only audit
-  manifest.json     # approved hash, timestamps
+  approved/         # 上次 approved 的 sp/ 快照
+  output/           # compiled 产物（CLAUDE.md、AGENTS.md、…）
+  changelog.md      # append-only 审计
+  manifest.json     # approved hash、时间戳
 ```
 
-The loop:
+循环：
 
 ```bash
-# you edit
+# 你改
 $ vim sp/section/preferences.md
 
-# you see what would change
+# 你看会变成什么
 $ forge diff
 ======== source diff (sp/) ========
 --- approved/section/preferences.md
 +++ current/section/preferences.md
 @@ -9,3 +9,5 @@
- - Ground external facts in live sources.
- - No emojis unless explicitly requested.
+ - 外部事实 ground 在 live source。
+ - 不要加 emoji。
 +
-+- When touching shared config, always PR first.
++- 改公共配置前，先开 PR。
 
 ======== output diff ========
 --- personal ---
 +++ proposed/personal
 @@ -19,6 +19,8 @@
- - No emojis unless explicitly requested.
+ - 不要加 emoji。
  
-+- When touching shared config, always PR first.
++- 改公共配置前，先开 PR。
 +
 
-# you commit (or discard)
+# 你 commit（或丢弃）
 $ forge approve -m "add shared-config PR rule"
 approved hash=82bab7145d23 at 2026-04-24T03:57:58+00:00
   wrote .forge/output/CLAUDE.md
   wrote .forge/output/AGENTS.md
 ```
 
-That's the entire core concept: **every change to the canonical source surfaces both as a source diff and a compiled-output diff, before it ships**. If you don't like what it would do to `CLAUDE.md`, `forge reject` puts you back to the last approved state.
+核心概念就这一个：**每次 canonical source 的变动，同时以 source diff 和 compiled-output diff 的形式出现，都在 ship 之前**。如果你不喜欢它会怎么变 `CLAUDE.md`，`forge reject` 让你回到上次 approved。
 
-## Why the gate matters more than the compiler
+## 为什么 gate 比编译器更重要
 
-The compiler is straightforward. Sections are markdown with frontmatter. Configs are lists of section names. Adapters render ordered sections into target-specific format. Anyone could write that in an afternoon. You might correctly point out that `rulesync` already does the interesting part of the compilation for rules.
+编译器部分很直白。Section 是带 frontmatter 的 markdown，Config 是 section 名字的列表，Adapter 把有序 section 渲染成 target 格式。任何人下午写得完。你完全可以说 `rulesync` 在 rules 这个子集上已经做了有意思的编译部分。
 
-**The gate is the thing.** Without it, forge-core is just another markdown templater. With it, forge-core becomes the thing that prevents your agent context from being silently corrupted by one bad edit, and lets you trace every line of the compiled output back to a specific approved source snapshot.
+**Gate 才是关键。** 没有它，forge-core 就是"又一个 markdown templater"。有了它，forge-core 就变成：阻止你的 agent context 被一次坏 edit 悄悄破坏的东西，能把 compiled output 任何一行追回到具体 approved source 快照的东西。
 
-This is the same reason git matters and rsync doesn't quite. Both move bytes between states. Only one of them has a notion of "this change was reviewed and committed" with a full history you can walk backwards.
+这和 git 能做但 rsync 不完全能做的原因是一样的。两者都在状态间搬字节。只有一个带着 "这次变动经过 review 并提交了" 的概念和可走回去的完整历史。
 
-## The bench is also non-negotiable — but let me be honest about what it does
+## Bench 也不能省——但让我说清楚它做的是什么
 
-The first question anyone asks when they see a personal-AI system is: **does it actually work?** Most answers are vibes. "It feels better now." "I think the agent is sharper."
+任何人看到 personal AI 系统第一个问题是：**它真的有用吗？** 多数答案是拍脑袋。"感觉更好了"、"觉得 agent 更锋利了"。
 
-`forge-core` ships a structural bench in v0.1:
+`forge-core` v0.1 ship 一个结构 bench：
 
 ```bash
 $ forge bench snapshot before
-$ # (make some changes to sp/, approve them)
+$ # (改 sp/，approve)
 $ forge bench snapshot after
 $ forge bench compare before after
 compare before -> after
@@ -115,47 +115,59 @@ compare before -> after
   skills: 203B -> 274B (+71B)
 ```
 
-**Be clear about what this is and isn't.** The v0.1 bench measures *structural* deltas — byte count, line count, section size, added/removed sections. It does **not** measure "is the agent actually smarter with the new context." It cannot. That claim requires real agent runs against a fixed question set, with a grading harness, which is v0.3 on the roadmap.
+**清楚讲这是什么不是什么。** v0.1 的 bench 衡量**结构** delta——byte 数、行数、section size、新增/删除 section。它**不**衡量 "agent 在新 context 下真的变聪明了吗"。它做不到。那个断言需要真 agent 在固定问题集上跑、带打分 harness，那是 v0.3。
 
-I'm shipping the weak version on purpose. I'd rather ship a small bench I can point at and say "this is what it does, this is what it doesn't" than ship a fake LLM eval that's really just vibes dressed up. Even the structural version catches the most common failure mode: *I made a change and didn't notice it doubled the context size.* That's worth its weight in v0.1. Real eval in v0.3.
+我故意 ship 弱版。我宁愿 ship 一个我能指着说 "它做什么、不做什么" 的小 bench，也不 ship 一个其实只是拍脑袋的假 LLM eval。结构版本至少能抓住一个大家都撞过的 failure：*我做了一次改动，没注意 context size 翻倍了*。
 
-This is also why the tool is called `forge-core` and not `forge-eval` or `forge-bench-pro`. The core value prop in v0.1 is the gate + the compile contract. The bench is there to make sure future eval work has somewhere clean to plug in.
+所以这工具叫 `forge-core` 而不是 `forge-eval` 或 `forge-bench-pro`。v0.1 的核心卖点是 gate + compile 契约。bench 在那里是为了给 v0.3 的真 eval 留一个干净的插入点。
 
-## What about rulesync? claude-memory-compiler? skills-to-agents?
+## 但我也真跑了 A/B eval
 
-Each of those solves a slice of the problem and solves it well. `forge-core` doesn't compete with them — it sits at a layer none of them own.
+v0.1 还 ship 了一个**真实行为 A/B eval 的结果**。不是模拟。
 
-| Tool                    | What it owns                                  | What it doesn't                              |
+4 个任务（identity、workspace、grounding、ikigai-direction）× 2 个 CLAUDE.md 版本（dxyOS 迁移前 vs forge-core 编译）= 8 次真实 subagent 生成 + 4 个 blind LLM 判官。位置随机化。
+
+**结果：2-2 打平。** 两个版本行为表现持平。详细方法论、位置偏见的诚实 caveat、原始判决，都在 [`docs/eval-report.md`](eval-report.md)。
+
+是小 N。是 positional-bias-vulnerable。但它**是真的**——真 agent 行为，在真内容上，不是拍脑袋。每一个宣称 "让你的 agent 更聪明" 的 personal AI 工具至少欠这个量级的实验，**而多数没做**。forge-core v0.1 ship 了这套框架 + 一个小而诚实的结果，不是 ship 一个没法 back up 的大 claim。
+
+## `rulesync` 怎么办？`claude-memory-compiler` 呢？`skills-to-agents` 呢？
+
+它们各自解决一块，都解得挺好。`forge-core` 不跟它们竞争——它在一个它们都不占的层上。
+
+| 工具                    | 它占什么                                       | 它不占什么                                   |
 |-------------------------|------------------------------------------------|----------------------------------------------|
-| rulesync, ai-rules-sync | Format translation across 8+ runtimes         | No review gate, no canonical source layer    |
-| claude-memory-compiler  | Auto-extract + LLM-organize session memory    | No human checkpoint, no multi-runtime target |
-| agents-md-generator     | Generate AGENTS.md from codebase              | Source is code, not long-term content        |
-| skills-to-agents        | Compile SKILL.md → AGENTS.md                  | Skills only, no identity / preferences / etc. |
+| rulesync, ai-rules-sync | 8+ runtime 间的格式翻译                        | 没 review gate、没 canonical source 层       |
+| claude-memory-compiler  | 自动抓取 + LLM 整理会话 memory                 | 没人类 checkpoint、没多 runtime target       |
+| agents-md-generator     | 从代码库生成 AGENTS.md                         | source 是代码，不是长期内容                  |
+| skills-to-agents        | 编译 SKILL.md → AGENTS.md                      | 只 skill，没 identity / preferences 等       |
 
-Nothing stops you from combining them. A future forge-core watcher could consume output from claude-memory-compiler as proposed input (requiring review before it enters canonical source). A future adapter could emit Cursor `.cursorrules`. That's the point of a clean layer split.
+没什么阻止你组合用。未来的 forge-core watcher 可以把 claude-memory-compiler 捕获的内容作为 proposed input（要求 review 才能进 canonical source）。未来的 adapter 可以 emit Cursor `.cursorrules`。这就是一个干净分层的意义。
 
-## What's in v0.1 and what isn't
+## v0.1 里有什么、没有什么
 
-**Ships now:** compiler core, Claude Code + AGENTS.md adapters, review gate (init/diff/approve/reject/status/build), structural bench, 29 unit tests, a working dxyOS validation example.
+**现在 ship 的：** compiler core、Claude Code + AGENTS.md adapter、review gate（init/diff/approve/reject/status/build/doctor）、结构 bench、60 单测、端到端 dxyOS 验证（93.5% 语义 line recall + 真 A/B eval 2-2 打平）。
 
-**Doesn't ship yet:**
-- No watcher / inbox / auto-ingest. You edit `sp/section/` by hand. (v0.2)
-- No LLM-based eval. Bench is structural only. (v0.3)
-- No Mem0 / Letta / Zep adapters. Canonical source is markdown files. (v0.4, symptom-driven)
-- No CI integration, no hosted version, no web UI.
+**还没 ship：**
+- 没 watcher / inbox / auto-ingest。你手动编辑 `sp/section/`。（v0.2）
+- 没 LLM-based eval。Bench 是结构的。（v0.3）
+- 没 Mem0 / Letta / Zep adapter。Canonical source 就是 markdown。（v0.4，症状驱动）
+- 没 CI 集成、没托管版、没 Web UI。
 
-This is deliberate. The whole thesis is that the hard problem is the gate + the split + the bench contract — not the compilation itself. v0.1 ships the thesis minimally and lets me (and whoever else finds it interesting) pressure-test the concept before adding surface.
+这是刻意的。整个论点是 **真正难的问题是 gate + 分层 + bench 契约——不是编译本身**。v0.1 最小版 ship 论点，让我（以及任何觉得这有意思的人）先验证概念，再加表面。
 
-## What I want from you
+## 我想从你这里得到什么
 
-If this resonates — if you've felt the "my CLAUDE.md got silently corrupted" or "I have no idea if my last edit helped or hurt" pain — try it, push back on it, tell me where the model breaks. Issues and PRs welcome. Especially:
+如果这个方向打中你——如果你感受过 "我的 CLAUDE.md 悄悄坏了" 或 "我不知道上一次 edit 是帮了还是坏了" 的那种痛——试一下，拆台，告诉我模型哪里断。Issue 和 PR 都欢迎。特别希望看到：
 
-- Second target adapter that isn't Claude-ecosystem (Cursor, Aider, something).
-- Better diff UX (the current text diff is fine but not polished).
-- Real-world bench scenarios where structural comparison is genuinely useful vs. where it falls short.
+- 第二个 target adapter，不在 Claude 生态内（Cursor、Aider、别的）。
+- 更好的 diff UX（当前文本 diff 能用但不精致）。
+- 真实世界的 bench 场景，结构对比真正有用的地方、vs 结构对比失效的地方。
 
-Repo: *(link pending — not yet pushed to public GitHub)*.
+Repo：*(链接待定——还未 push 到 public GitHub)*.
 
 ---
 
-*Built by dxy, 2026-04-24. Status: v0.1.0 alpha.*
+*由 dxy 于 2026-04-24 编写。状态：v0.1.0 alpha。*
+
+*英文版见 [`article-draft.en.md`](article-draft.en.md)。*

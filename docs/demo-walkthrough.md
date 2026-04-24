@@ -1,6 +1,6 @@
-# Demo walkthrough
+# Demo 走读
 
-Real terminal output from the `examples/basic/` fixture. You can reproduce everything below by:
+真实终端输出，来自 `examples/basic/` fixture。你可以通过这样复现：
 
 ```bash
 pip install -e .
@@ -8,13 +8,13 @@ cd examples/basic
 rm -rf .forge
 ```
 
-Then run the commands in order.
+然后按顺序跑下面的命令。
 
 ---
 
 ## 1. `forge init`
 
-Bootstrap `.forge/` from the current `sp/`. Treats the current state as the first approved baseline.
+用当前 `sp/` 初始化 `.forge/`。把当前状态视为第一次 approved 基线。
 
 ```
 $ forge init
@@ -36,7 +36,7 @@ $ forge diff
 no changes since last approve
 ```
 
-`.forge/output/` now contains the compiled views:
+`.forge/output/` 现在有 compiled view：
 
 ```
 $ ls .forge/output/
@@ -45,23 +45,23 @@ AGENTS.md  CLAUDE.md
 
 ---
 
-## 2. Edit a section, see both diffs
+## 2. 改一个 section，同时看两个 diff
 
-Add a line to `sp/section/preferences.md`:
+往 `sp/section/preferences.md` 加一行：
 
 ```
-$ echo "- When touching shared config, always PR first." >> sp/section/preferences.md
+$ echo "- 改公共配置前，先开 PR。" >> sp/section/preferences.md
 
 $ forge diff
 ======== source diff (sp/) ========
 --- approved/section/preferences.md
 +++ current/section/preferences.md
 @@ -9,3 +9,5 @@
- - When unsure, ask. Don't guess.
- - Ground external facts in live sources (docs, repo) before asserting.
- - No emojis unless explicitly requested.
+ - 不确定就问。不要猜。
+ - 外部事实要 ground 在 live source。
+ - 不要加 emoji，除非明确要求。
 +
-+- When touching shared config, always PR first.
++- 改公共配置前，先开 PR。
 
 
 ======== output diff ========
@@ -69,38 +69,38 @@ $ forge diff
 --- approved/codex
 +++ proposed/codex
 @@ -18,6 +18,8 @@
- - Ground external facts in live sources (docs, repo) before asserting.
- - No emojis unless explicitly requested.
+ - 外部事实要 ground 在 live source。
+ - 不要加 emoji，除非明确要求。
  
-+- When touching shared config, always PR first.
++- 改公共配置前，先开 PR。
 +
  ## Skills
  
- Available skills (loaded on demand):
+ ...
 --- personal ---
 --- approved/personal
 +++ proposed/personal
 @@ -19,6 +19,8 @@
- - Ground external facts in live sources (docs, repo) before asserting.
- - No emojis unless explicitly requested.
+ - 外部事实要 ground 在 live source。
+ - 不要加 emoji，除非明确要求。
  
-+- When touching shared config, always PR first.
++- 改公共配置前，先开 PR。
 +
- ## workspace
+ ## Workspace
 
- Active projects:
+ ...
 ```
 
-Two things to notice:
+两件值得注意的事：
 
-- **Source diff** shows the raw edit to `sp/section/preferences.md`.
-- **Output diff** shows the same change landing in BOTH compiled targets (`CLAUDE.md` and `AGENTS.md`). That's the "canonical-source-to-many-runtimes" compilation visible per-file.
+- **Source diff** 展示了 `sp/section/preferences.md` 的原始改动。
+- **Output diff** 展示了**同一个**改动落进**两个** compiled target（`CLAUDE.md` 和 `AGENTS.md`）。这就是 "一份 source → 多 runtime" 的 per-file 可视化。
 
 ---
 
 ## 3. `forge approve`
 
-Promotes current `sp/` to the new approved baseline, rebuilds all outputs, appends a changelog entry.
+把当前 `sp/` 升级为新的 approved 基线，重建所有 output，在 changelog 追加一条。
 
 ```
 $ forge approve -m "add shared-config PR rule"
@@ -120,9 +120,9 @@ $ cat .forge/changelog.md
 
 ---
 
-## 4. `forge reject` — undo an in-progress change
+## 4. `forge reject` — 丢弃中途改动
 
-Make a bad edit, then reject:
+做一个不想要的 edit，然后 reject：
 
 ```
 $ echo "noise" >> sp/section/about-me.md
@@ -132,8 +132,8 @@ $ forge diff --source-only
 --- approved/section/about-me.md
 +++ current/section/about-me.md
 @@ -7,3 +7,4 @@
- I'm a senior software engineer ...
- Working language: English.
+ 我是一名后端工程师 ...
+ 工作语言：中文。
 +noise
 
 $ forge reject
@@ -146,9 +146,9 @@ no changes since last approve
 
 ---
 
-## 5. Bench: before/after structural comparison
+## 5. Bench：前后结构对比
 
-Snapshot the current state, make a real change, snapshot again, compare.
+snapshot 当前状态，做一次真实改动，再 snapshot，对比。
 
 ```
 $ forge bench snapshot v1
@@ -156,7 +156,7 @@ snapshot `v1` created at 2026-04-24T03:58:11+00:00
   outputs: ['AGENTS.md', 'CLAUDE.md']
   sections: 4
 
-$ echo "- bench-runner — compare snapshots." >> sp/section/skills.md
+$ echo "- bench-runner — 跑 bench 对比 snapshot。" >> sp/section/skills.md
 $ forge approve -m "add bench-runner skill"
 approved hash=9d489ad17c3e ...
 
@@ -173,57 +173,62 @@ compare v1 -> v2
   skills: 203B -> 274B (+71B)
 ```
 
-What this tells you:
+这告诉你：
 
-- Both compiled outputs grew by exactly 71 bytes / 2 lines (as expected — one new bullet).
-- The growth came entirely from the `skills` section.
-- No other section was affected. No accidental bloat. No missing section.
+- 两个 compiled output 都正好涨了 71 bytes / 2 行（和一个新 bullet 一致）。
+- 涨的完全来自 `skills` section。
+- 其他 section 没受影响，没意外膨胀，没丢 section。
 
-If you edit five sections at once and only one was *supposed* to change, this is where you catch the rest.
-
----
-
-## 6. What bench v0.1 does NOT do (yet)
-
-It does not answer "is the agent actually smarter." It answers "did my change to `sp/` produce the structural change I expected in the compiled outputs." That's a weaker claim, on purpose — we'd rather ship a small-but-honest bench in v0.1 than a fake "LLM eval" that's just vibes.
-
-LLM-graded evals against question sets are v0.3 (see [design.md §8](design.md#8-roadmap) and roadmap in README).
+如果你一次改 5 个 section，但只**一个**本该变，bench 就是用来抓剩下那些不该变的地方的。
 
 ---
 
-## Validation: real personal-OS vault
+## 6. Bench v0.1 **不做**的
 
-The above uses a toy fixture. To prove the same flow works on a real long-term-content vault, `examples/dxyos-validation/validate.py` runs the entire loop against [`dxy_OS`](https://github.com/dxxbb/dxy_OS) — 5 sections, filenames with spaces, 3.3KB+ per section. Excerpt:
+它**不**回答 "agent 是不是更聪明了"。它回答 "我这次 `sp/` 改动，在 compiled output 上是不是产生了我预期的结构变化"。这是个更弱的 claim，故意的——我们宁愿 ship 一个小而诚实的 bench，也不 ship 一个"假 LLM eval"其实就是拍脑袋。
+
+LLM-graded eval 在 v0.3（见 [`design.md §8-9`](design.md) 和 README 里的 roadmap）。
+
+---
+
+## 7. 验证：真实 personal-OS vault
+
+上面用的是玩具 fixture。要证明同样流程在真实长期内容 vault 上也工作，`examples/dxyos-validation/validate.py` 对 [`dxy_OS`](https://github.com/dxxbb/dxy_OS) 跑整个 loop——5 个 section、文件名带空格、每段 3.3KB+。摘录：
 
 ```
 staged 5 sections + 2 configs into .../examples/dxyos-validation/_staging
 ============================================================
-step 1/6: load sections
-  loaded `about user` (1482B, 11L)
-  loaded `knowledge base` (1504B, 22L)
-  loaded `preference` (1530B, 24L)
-  loaded `skill` (487B, 7L)
-  loaded `workspace` (3302B, 25L)
+STEP 1/7 — load sections
+  [ok] `about user` 1482B / 11L  kind=derived upstream=4
+  [ok] `knowledge base` 1504B / 22L  kind=derived upstream=1
+  [ok] `preference` 1530B / 24L  kind=derived upstream=2
+  [ok] `skill` 487B / 7L  kind=derived upstream=1
+  [ok] `workspace` 3302B / 25L  kind=derived upstream=3
 
-step 4/6: content completeness check
-  [ok]    `about user` present in both outputs
-  [ok]    `knowledge base` present in both outputs
-  [ok]    `preference` present in both outputs
-  [ok]    `skill` present in both outputs
-  [ok]    `workspace` present in both outputs
+STEP 4/7 — 语义等价性 vs dxyOS's SP output
+  line recall CLAUDE : 93.5% (threshold 90%)
+  line recall AGENTS : 93.5%
+  [ok] 语义等价性 >= 90%
 
-step 6/6: gate + bench flow on real content
-  snapshot v1: ['AGENTS.md', 'CLAUDE.md']
-  diff: 2 output file(s) would change
-  approved hash=d3729c8349fb
-  AGENTS.md delta: +24B, +3L
-  CLAUDE.md delta: +24B, +3L
+STEP 5/7 — per-section completeness
+  [ok] 5/5 section body 出现在两个 output 里
+
+STEP 6/7 — forge doctor
+  [ok] 0 errors
+
+STEP 7/7 — 真实内容上的 gate + bench 循环
+  [ok] AGENTS.md delta +24B / +3L
+  [ok] CLAUDE.md delta +24B / +3L
 
 VALIDATION PASSED
 ```
 
-Run it yourself:
+你自己跑：
 
-```
+```bash
 python examples/dxyos-validation/validate.py --dxyos-root ~/dxy_OS
 ```
+
+---
+
+*英文版见 [`demo-walkthrough.en.md`](demo-walkthrough.en.md)。*

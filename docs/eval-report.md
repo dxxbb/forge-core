@@ -1,51 +1,51 @@
-# forge-core v0.1.0 — behavioral eval report
+# forge-core v0.1.0 — 行为 eval 报告
 
-**Date:** 2026-04-24
-**Question:** If you swap dxyOS's hand-rolled compile pipeline for forge-core, do agent behaviors degrade, improve, or stay comparable?
-**TL;DR:** **Comparable.** 2–2 split across 4 behavioral tasks, with honest caveats.
+**日期：** 2026-04-24
+**问题：** 如果把 dxyOS 的手搓 compile pipeline 换成 forge-core，agent 行为会变差、变好、还是基本持平？
+**TL;DR：** **基本持平**。4 个行为任务 2–2 打平，附诚实的 caveat。
 
-This is the "is it actually good" evidence we owe, beyond the structural 92.5% line recall reported in [`migration-from-personal-os.md`](migration-from-personal-os.md). Structural recall says *the same text is there*. This report says *the agent actually uses it the same way*.
+这是在 [`migration-from-personal-os.md`](migration-from-personal-os.md) 里 92.5% 结构层 line recall 之外，我们应该补的 "真的好用吗" 那一层证据。结构 recall 说的是 **相同文本都在那里**；这份报告说的是 **agent 真的以同样方式用了它**。
 
 ---
 
-## Setup
+## 实验设置
 
-Two CLAUDE.md files:
+两个 CLAUDE.md 文件：
 
-- **M** (master) — dxyOS's pre-migration compiled `01 assist/SP/output/claude code/CLAUDE.md`. 118 lines, 8722 bytes. Generator: `pr-0021-advisory-project-skill-events`.
-- **F** (forge) — post-migration version, same 5 sections, same config structure, compiled by `forge-core@0.1.0`. 126 lines, ~9.9KB. Adds a provenance header and `demote_section_headings: true` for clean H2/H3 hierarchy.
+- **M**（master） — dxyOS 迁移前那份 `01 assist/SP/output/claude code/CLAUDE.md`。118 行、8722 bytes。生成器：`pr-0021-advisory-project-skill-events`。
+- **F**（forge） — 迁移后版本，同样 5 个 section、同样 config 结构，由 `forge-core@0.1.0` 编译。126 行、约 9.9KB。多了一个 provenance header 和 `demote_section_headings: true`（保证 H2/H3 层级干净）。
 
-Both files are checked in on dxyOS branch `forge-core-migration`.
+两份都 check-in 在 dxyOS `forge-core-migration` 分支。
 
-4 behavioral tasks (subset of `forge.eval.default_tasks()`):
+4 个行为任务（`forge.eval.default_tasks()` 的子集）：
 
-| ID | Probes | Prompt summary |
+| ID | 考察的 section | 任务概要 |
 |---|---|---|
-| identity-summary | about-user | "3 sentences on who I am / what I do / core challenge" |
-| workspace-awareness | workspace | "List my 3 main projects/topics, ranked" |
-| grounding-rule | preference | "User asks release date of a product. What do you do first?" |
-| ikigai-direction | about-user + workspace | "Next concrete step on finding my startup direction" |
+| identity-summary | about-user | "用 3 句话总结我是谁 / 在做什么 / 核心挑战" |
+| workspace-awareness | workspace | "列出我当前 3 个主要 project/topic，按重要性" |
+| grounding-rule | preference | "用户问一个产品的发布日期，你首先应该做什么？" |
+| ikigai-direction | about-user + workspace | "给一条关于我创业方向的具体下一步" |
 
-For each task × version (8 total), a fresh `general-purpose` subagent was spawned. Each subagent received the same system-style instruction: *read the CLAUDE.md file, do not call any other tools, output only the answer based on that context*. Answers recorded in [`/tmp/eval-answers.md`](/tmp/eval-answers.md) at run-time.
+每个 (task × version)（共 8 次）都启动一个全新的 `general-purpose` subagent。每个 subagent 接到同样的 system-style 指令：*读取指定 CLAUDE.md 文件，不要调用其它任何工具，只基于该 context 输出答案*。答案记录在运行时的 [`/tmp/eval-answers.md`](/tmp/eval-answers.md)。
 
-## Judge setup
+## 判官设置
 
-4 judge subagents, one per task. Each saw two responses labeled **Response 1** and **Response 2** without knowing which came from M or F. **Position assignment was randomized** across tasks:
+4 个 judge subagent，每个任务一个。每个 judge 看到两个候选答案，标注为 **Response 1** 和 **Response 2**，判官**不知道**哪个来自哪个版本。**位置分配跨任务随机化**：
 
-| Task | Response 1 origin | Response 2 origin |
+| 任务 | Response 1 来源 | Response 2 来源 |
 |---|---|---|
 | T1 (identity) | M | F |
 | T2 (workspace) | F | M |
 | T3 (grounding) | M | F |
 | T4 (ikigai) | F | M |
 
-Judge was given the task prompt, both responses, a brief user-background blurb, and a short rubric. Output was strict JSON: `{"winner": "1"|"2"|"tie", "reason": "..."}`.
+Judge 拿到：任务描述 + 两个 response + 一段简短的用户背景 + 一个短 rubric。输出严格 JSON：`{"winner": "1"|"2"|"tie", "reason": "..."}`。
 
-## Results
+## 结果
 
-### Position-blind (what judges actually said)
+### 位置-blind（judge 说了什么）
 
-All 4 judges picked **Response 2**. Every time.
+4 个 judge 都选了 **Response 2**。每次。
 
 ```
 T1: winner=2  reason: "more concrete specifics (explicit 2026 ikigai deadline, reading 智能简史...)"
@@ -54,54 +54,58 @@ T3: winner=2  reason: "additionally leverages the KB pointer to claude-code.md b
 T4: winner=2  reason: "ties the next step to his existing forge workstream with specific dates, channels"
 ```
 
-### Decoded by origin
+### 按来源解码
 
-Applying the randomized mapping above:
+应用上面的随机化映射：
 
-| Task | Winner | Origin | Score |
+| 任务 | Winner | 来源 | 记分 |
 |---|---|---|---|
 | T1 identity-summary | Response 2 | **F** (forge) | F |
 | T2 workspace-awareness | Response 2 | **M** (master) | M |
 | T3 grounding-rule | Response 2 | **F** (forge) | F |
 | T4 ikigai-direction | Response 2 | **M** (master) | M |
 
-**Final tally: F 2, M 2, tie 0.**
+**最终比分：F 2，M 2，tie 0。**
 
-Forge-compiled CLAUDE.md holds up. No behavioral regression observed.
+forge 编译的 CLAUDE.md 站得住。**没观察到行为回退。**
 
-## The caveat you need to hear
+## 你必须听的 caveat
 
-The 4/4 positional-bias is louder than the 2/2 outcome. Two non-exclusive interpretations:
+4/4 位置偏见这个信号比 2/2 的打平更响亮。两种不互斥的解释：
 
-1. **The two answers on each task really were indistinguishably close in quality**, and judges defaulted to positional tie-breaking. This is consistent with 92.5% structural line recall — most section content is literally identical, so answers derived from it should be nearly identical. The 2–2 split is just what random position assignment plus position-bias-judges mathematically produces from near-identical answers.
-2. **LLM-as-judge has a systematic recency bias** on this specific subagent + this prompt format, independent of answer quality. This is a known limitation of small-N LLM-judge setups. To actually measure quality difference (if any), we'd need ≥20 tasks, counter-balanced position assignment (each task judged twice with swapped positions), and ideally a human-judge sanity pass.
+1. **两个答案在每个任务上真的接近到不可区分**，judge 退回到按位置打 tie-break。这和 92.5% 结构 line recall 一致——大部分 section 内容逐字相同，所以 agent 基于它们给出的答案也接近一致。2-2 split 只是随机位置分配 + 位置偏见 judge 在近乎相同答案上数学上会产生的结果。
+2. **LLM-as-judge 在这个 subagent + 这个 prompt 格式下有系统性的 recency bias**，跟答案质量无关。这是小 N LLM-judge setup 的已知问题。要真测出质量差（如果有）需要：≥20 任务、counter-balance（同任务换位置再评一次）、再加一轮 human judge sanity check。
 
-Either way, the v0.1 conclusion does NOT claim "forge is better than master" or "master is better than forge." It claims **"no detectable behavioral degradation"** — the migration is safe to ship.
+不论哪种解释，v0.1 的结论**不**是 "forge 比 master 好" 或 "master 比 forge 好"。它是 **"没观察到行为回退"**——迁移是安全的。
 
-## What this is and isn't
+## 这是什么，不是什么
 
-**Is:** real subagent runs on real dxyOS CLAUDE.md files, real LLM judge, real side-by-side outputs. Not a simulation.
+**是：** 真 subagent 在真 dxyOS CLAUDE.md 上跑，真 LLM judge，真并排输出。不是 simulation。
 
-**Isn't:**
-- Not large-N (4 tasks × 2 versions = 8 answers, 4 judgments).
-- Not multi-seed — each subagent was one-shot, no repeats.
-- Not human-judged.
-- Not controlled for prompt-position bias (we randomized but did not counter-balance).
-- Does not test multi-turn behavior or tool-calling differences.
+**不是：**
+- 不是大 N（4 任务 × 2 版本 = 8 答案，4 次判决）。
+- 不是多 seed——每个 subagent 一次性运行，无重复。
+- 不是人类 judge。
+- 位置偏见：做了随机化，但没做 counter-balance。
+- 不测试多轮对话或 tool-calling 差异。
 
-**v0.3 roadmap** (mentioned in README): ≥20 tasks, counter-balanced positions, optional Anthropic SDK runner for higher throughput, human-in-the-loop scoring for a subset. That's when the claim moves from "no degradation" to "forge compiles objectively better / worse / equal contexts."
+**v0.3 roadmap**（README 里提过）：≥20 任务、counter-balance、可选 Anthropic SDK runner 提升吞吐、对一部分样本做 human-in-loop 打分。到那时断言从 "没回退" 升级为 "forge 客观上编出更好 / 更差 / 持平的 context"。
 
-## How to reproduce
+## 如何复现
 
-1. On dxyOS `forge-core-migration` branch (or any personal-OS vault set up per [`migration-from-personal-os.md`](migration-from-personal-os.md)).
-2. Save the pre-migration `CLAUDE.md` somewhere (e.g. `/tmp/claude-md-master.txt`) BEFORE running `forge approve`. Save the post-compile version too.
-3. Define your own `default_tasks()` — customize prompts to what you actually ask your agent.
-4. Spawn subagents (via Claude Code's `Agent` tool, or Anthropic SDK with the CLAUDE.md as system prompt).
-5. Feed answer pairs to judge subagents with randomized position assignment.
-6. Decode and report.
+1. 在 dxyOS `forge-core-migration` 分支上（或任何按 [`migration-from-personal-os.md`](migration-from-personal-os.md) setup 好的 personal-OS vault）。
+2. 在跑 `forge approve` 之前先把迁移前的 `CLAUDE.md` 存下来（比如 `/tmp/claude-md-master.txt`）。再存一份迁移后的。
+3. 定义你自己的 `default_tasks()`——定制到你真的会问 agent 的问题。
+4. 启动 subagent（用 Claude Code 的 `Agent` 工具，或 Anthropic SDK 把 CLAUDE.md 当 system prompt）。
+5. 把答案对喂给 judge subagent，位置分配随机化。
+6. 解码、报告。
 
-The `forge/eval/` Python module (`tasks.py`, `harness.py`, `judge.py`) ships the interface. v0.1 runners are stubs — wire in your own.
+`forge/eval/` Python 模块（`tasks.py` / `harness.py` / `judge.py`）给出接口。v0.1 的 runner 是 stub；真实 runner 自己接。
 
-## Why this still counts as evidence
+## 为什么这仍然算证据
 
-It's small-N. It's positional-bias-vulnerable. But it is **real** — real agent behavior on real content, not vibes. Every personal-AI tool that claims "it makes your agent smarter" owes this level of experiment at minimum, and most don't. forge-core v0.1 ships the apparatus + one small honest result, instead of a bigger claim it can't back up.
+是的，小 N。是的，有位置偏见风险。但它是**真的**——真的 agent 行为，在真的内容上，不是拍脑袋。每一个宣称 "让你的 agent 更聪明" 的个人 AI 工具至少欠这个量级的实验，而**大部分都没做**。forge-core v0.1 不吹大话，就 ship 了这套框架 + 一个小而诚实的结果。
+
+---
+
+*英文版见 [`eval-report.en.md`](eval-report.en.md)。*

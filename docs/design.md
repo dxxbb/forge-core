@@ -1,110 +1,106 @@
-# forge-core · Design
+# forge-core · 设计
 
-**One line.** `forge-core` is a *review-gated context compiler*. It turns long-term content (your notes, preferences, project state) into the context files that AI agents actually read (`CLAUDE.md`, `AGENTS.md`, …), with a PR-style review gate between source changes and compiled output, and a before/after bench to tell you if the compiled context actually got better.
-
----
-
-## 1. The problem
-
-Every "configure your agent" workflow today has three unsolved problems:
-
-1. **Long-term content and runtime context are mixed together.**
-   Notes, memories, rules, compiled output all sit in the same pile, no clear layer.
-2. **Changes to long-term content enter the system without traceability.**
-   An agent writes to your memory file — who approved it, why, can you roll it back? Usually: no.
-3. **You can't tell if the system actually got better.**
-   Most tools stop at "feels nicer now." There is no evaluation layer.
-
-Existing tools each cover a slice:
-
-- **`rulesync` / `ai-rules-sync`** — sync config across Cursor / Claude Code / Copilot / etc. But: no review gate, no long-term canonical source, no evaluation.
-- **`claude-memory-compiler`** — auto-capture sessions → LLM-organize into memory. But: no human review in the loop, no multi-runtime compilation contract.
-- **`agents-md-generator`, `skills-to-agents`** — generate `AGENTS.md` from code/skills. But: only one direction (code → view), not "long-term content → view".
-- **DSPy / BAML** — compile *prompts / schemas*, not *long-term content*.
-- **Google ADK Context Compaction** — in-session compaction, not cross-session canonical source.
-
-`forge-core` is the layer none of them are.
+**一句话。** `forge-core` 是一个 *review-gated context compiler*。它把长期内容（你的笔记、偏好、项目状态）编译成 agent 真正会读的 context 文件（`CLAUDE.md`、`AGENTS.md`、…），在 source 变动和 compiled 产出之间加一道 PR 风格的 review gate，再加一个结构 bench 告诉你 compiled 出来的 context 结构上是不是真的变成你想要的样子。
 
 ---
 
-## 2. Core model
+## 1. 问题
+
+每一个今天的 "配置你的 agent" 方案都有三个没解决的问题：
+
+1. **长期内容和运行时 context 混在一起。** 笔记、memory、规则、编译产物全堆在一起，没有清晰分层。
+2. **对长期内容的变动进入系统时没有可追溯性。** agent 改了你的 memory 文件——谁批准的？为什么？能 rollback 吗？多数工具的答案：不能。
+3. **你没法判断系统到底是不是变好了。** 多数工具止步于"感觉更顺"，没有 evaluation 层。
+
+现有工具各覆盖一小块：
+
+- **`rulesync` / `ai-rules-sync`** — 在 Cursor / Claude Code / Copilot / 等之间同步配置。但：没有 review gate、没有长期 canonical source、没有 evaluation。
+- **`claude-memory-compiler`** — 自动捕获会话 → LLM 整理成 memory。但：loop 里没人 review，也没有多 runtime 编译契约。
+- **`agents-md-generator` / `skills-to-agents`** — 从代码 / skill 生成 `AGENTS.md`。但：只一个方向（code → view），不是 "长期内容 → view"。
+- **DSPy / BAML** — 编译 *prompt / schema*，不是 *长期内容*。
+- **Google ADK Context Compaction** — 会话内压缩，不是跨会话 canonical source。
+
+`forge-core` 就是这几个都不占的那一层。
+
+---
+
+## 2. 核心模型
 
 ```
 ┌─────────────┐    ┌──────────────┐    ┌─────────────────┐
 │  section/   │──▶│   config/     │──▶│   output/       │
-│ (canonical  │    │ (which        │    │ (per-runtime    │
-│  source,    │    │  sections,    │    │  rendered view) │
-│  one file   │    │  how to       │    │  CLAUDE.md      │
-│  per        │    │  combine,     │    │  AGENTS.md      │
-│  concern)   │    │  for which    │    │  …              │
-│             │    │  target)      │    │                 │
+│ （canonical │    │ （哪些        │    │ （per-runtime   │
+│  source,    │    │  section，    │    │  rendered view）│
+│  一个文件   │    │  怎么组合，   │    │  CLAUDE.md      │
+│  一个概念） │    │  投给哪个     │    │  AGENTS.md      │
+│             │    │  target）     │    │  …              │
 └─────────────┘    └──────────────┘    └─────────────────┘
        ▲                                         ▲
        │                                         │
-   human writes                          agent reads this
-   long-lived                            every session
+   你写这里                               agent 每次会话读这里
+  （长期）
 ```
 
-Three concepts, three directories:
+三个概念，三个目录：
 
-- **Section** — an atomic piece of long-term content. One markdown file, one concern. Has a frontmatter (`name`, `type`, `updated_at`, optional `source`). Body is free markdown.
-- **Config** — a recipe: "for target X, include these sections in this order with these wrappers." YAML frontmatter + optional preamble/postamble markdown.
-- **Output** — the compiled file a runtime reads. Never hand-edited. Always reproducible from `section + config` via a target adapter.
+- **Section** — 一块原子级长期内容。一个 markdown 文件，一个概念。带 frontmatter（`name`、`type`、`updated_at`、可选 `source` / `upstream` / `generated_by` / `kind`）。body 是自由 markdown。
+- **Config** — 配方："给 target X，按这个顺序包含这些 section，加这些 wrapping"。YAML frontmatter + 可选 preamble / postamble markdown。
+- **Output** — 一个 runtime 读的编译文件。**从不手动改。** 永远可以从 `section + config` 通过 target adapter 重现。
 
-Why this split matters:
+这个分层的意义：
 
-- **canonical source ≠ compiled view.** You edit `section/`. The compiler produces `output/`. If someone edits `output/` directly, next rebuild wipes it — by design. This forces all truth to live in `section/`.
-- **one source, many runtimes.** The same section set renders to `CLAUDE.md` and `AGENTS.md` (and future targets) via different configs + adapters.
-- **composability.** A config is just "a list of section references." Sections are reusable across configs. You can have one config for a personal assistant, another for a project-specific agent, both reusing the same `about-me` section.
+- **canonical source ≠ compiled view。** 你编辑 `section/`。编译器产生 `output/`。如果有人直接改 `output/`，下次重编译就会覆盖——**这是设计**。它强迫所有 truth 留在 `section/`。
+- **一份 source，多个 runtime。** 同一组 section 通过不同 config + adapter 渲染成 `CLAUDE.md`、`AGENTS.md`（和未来的 target）。
+- **可组合。** 一个 config 就是 "一组 section 引用"；section 可以跨 config 复用。一个 "about-me" section 既能用在私人助手 config，也能用在项目助手 config。
 
 ---
 
-## 3. The review gate
+## 3. Review gate
 
-Every `section/` change goes through a gate before `output/` is regenerated.
+每一次 `section/` 改动都要经过 gate 才会触发 `output/` 重生成。
 
 ```
-edit section/*.md  →  forge diff         (what would change in output/?)
-                  ↓
-                   forge approve         (accept: rebuild output/ + log)
-                 or forge reject         (discard: revert section/ changes)
+编辑 section/*.md  →  forge diff         （output/ 会变成什么？）
+                    ↓
+                     forge approve        （接受：重建 output/ + 记 log）
+                   或 forge reject        （丢弃：恢复 section/ 到上次 approved）
 ```
 
-Mechanics:
+机制：
 
-- `.forge/approved/` holds the last approved snapshot of `section/` and `config/`.
-- `forge diff` compares current `section/ + config/` against `approved/`, shows both the source diff AND a preview of how `output/` would change.
-- `forge approve` promotes current state into `approved/`, rebuilds all outputs, appends an entry to `.forge/changelog.md` with timestamp + diff summary.
-- `forge reject` reverts working tree to `approved/`.
-- Provenance: every output file includes a header comment with the approval hash + timestamp, so you can trace any line in `CLAUDE.md` back to a specific approved section snapshot.
+- `.forge/approved/` 保存 `section/` 和 `config/` 的上一次 approved 快照。
+- `forge diff` 对比当前 `section/ + config/` 与 `approved/`，**同时**展示 source diff 和 `output/` 会如何变化的预览。
+- `forge approve` 将当前状态升级为 `approved/`，重建所有 output，在 `.forge/changelog.md` 追加一条（时间戳 + diff summary）。
+- `forge reject` 把工作树恢复到 `approved/`。
+- Provenance：每个 output 文件顶部有一个 header 注释，带 approval hash + 时间戳，可以把 `CLAUDE.md` 的任何一行追溯到一个具体的 approved section 快照。
 
-**What this gives you that `rulesync` doesn't:** you can't accidentally push a bad change to your agent context. You always see the compiled diff before it ships. You can always roll back.
+**这让 `rulesync` 没有的东西：** 你没法意外把坏改动推进 agent context。你永远在 ship 前看到 compiled diff。你永远可以 rollback。
 
 ---
 
-## 4. The evaluation layer
+## 4. Evaluation 层
 
-`forge bench` gives you a quantitative before/after when you change sections or configs.
+`forge bench` 在你改 section 或 config 时给你结构层的前后对比。
 
-v0.1 ships a minimal harness:
+v0.1 ship 最小 harness：
 
-- `forge bench snapshot` — capture current output + metadata (byte size, line count, section footprint) as a named baseline.
-- `forge bench compare <before> <after>` — structural diff between two snapshots: which sections grew/shrank, total size delta, section-level changes.
+- `forge bench snapshot` — 捕获当前 output + 元数据（byte 数、行数、per-section footprint）为一个命名 baseline。
+- `forge bench compare <before> <after>` — 两个 snapshot 的结构 diff：哪些 section 涨缩、总体 size delta、per-section 变化。
 
-This is deliberately *structural*, not LLM-based. v0.1 answers "did my change do what I expected structurally?" — not "is the agent smarter?" The latter belongs in v0.3 with real agent runs.
+这是**故意**结构性的，不是 LLM-based。v0.1 回答 "我这次 section 改动结构上有没有产生我期待的变化？"——不回答 "agent 变聪明了吗？"。后者在 v0.3，要真 agent 跑。
 
-**What this gives you:** when you refactor your sections, you can verify the compiled output changed the way you meant it to change, and didn't bloat or drop content.
+**这给你的价值：** 当你 refactor 你的 section，你可以验证 compiled output 是按你意图变的，没胖没掉内容。
 
 ---
 
-## 5. Target adapters
+## 5. Target adapter
 
-A target adapter knows the conventions of one runtime. v0.1 ships two:
+一个 target adapter 知道一个 runtime 的约定。v0.1 ship 两个：
 
-- **`claude-code`** → produces `CLAUDE.md` with markdown sections and optional heading normalization.
-- **`agents-md`** → produces `AGENTS.md` following the emerging cross-tool convention (plain markdown with predictable H2s).
+- **`claude-code`** → 产出 `CLAUDE.md`，markdown section + 可选 heading normalization。
+- **`agents-md`** → 产出 `AGENTS.md`，遵循新兴跨工具约定（平 markdown，固定 H2）。
 
-Adapter contract is small:
+Adapter 契约很小：
 
 ```python
 class TargetAdapter:
@@ -113,49 +109,53 @@ class TargetAdapter:
     def filename(self) -> str: ...
 ```
 
-Adding a new runtime = writing one class. No core changes.
+加一个新 runtime = 写一个类。core 不用动。
 
 ---
 
-## 6. What's explicitly NOT in v0.1
+## 6. v0.1 明确**不**包含的
 
-- No watcher / inbox / auto-ingest. You edit `section/` by hand or by script — `forge` doesn't watch for changes. (v0.2)
-- No external memory providers (Mem0, Letta, Zep). v0.1 canonical source is plain markdown files. (v0.4, symptom-driven)
-- No LLM-based eval. v0.1 bench is structural only. (v0.3)
-- No cross-tool rules sync (Cursor `.cursorrules`, Copilot, Gemini, etc.). Only Claude Code + AGENTS.md. (Can add via adapter any time.)
-- No CI / GitHub action integration. (Easy to add once API is stable.)
-
----
-
-## 7. Design principles
-
-1. **Canonical source is plain markdown.** No database, no vector store, no lock-in. You can delete `forge-core` and keep your content.
-2. **Every output is reproducible.** Given the same `section/ + config/ + adapter version`, you get the same output bytes. Deterministic.
-3. **The review gate is load-bearing.** Removing it turns `forge-core` into "another markdown templater." The gate is the concept.
-4. **Small core, adapter surface.** Core stays under 1k LoC. Runtime-specific logic lives in adapters.
-5. **Bench is first-class.** Not a plugin, not a "future feature." Ship it in v0.1 even minimal, because "does this actually work?" is the first thing anyone asks.
+- 没有 watcher / inbox / auto-ingest。你手动编辑 `section/`（或用你自己的脚本）——`forge` 不监听。（v0.2）
+- 没有外部 memory provider（Mem0 / Letta / Zep）。v0.1 的 canonical source 就是 plain markdown 文件。（v0.4，症状驱动）
+- 没有 LLM-based eval。v0.1 bench 只做结构。（v0.3）
+- 没有跨工具 rules sync（Cursor `.cursorrules`、Copilot、Gemini 等）。只有 Claude Code + AGENTS.md。（随时可通过 adapter 加。）
+- 没有 CI / GitHub Actions 集成。（API 稳定后容易加。）
 
 ---
 
-## 8. Schema + provenance (v0.1 additions)
+## 7. 设计原则
 
-After initial end-to-end validation on `dxy_OS`, two gaps emerged:
+1. **Canonical source 就是 plain markdown。** 无数据库、无 vector store、无 lock-in。你可以删掉 `forge-core`，保留内容。
+2. **每个 output 可复现。** 同样的 `section/ + config/ + adapter 版本`，每次产出同样 bytes。确定性。
+3. **Review gate 是承重墙。** 拿掉它，`forge-core` 就只是"又一个 markdown templater"。gate 才是 concept。
+4. **小 core，宽 adapter 面。** core 保持 < 1k LoC。runtime-specific 的逻辑在 adapter。
+5. **Bench 是一等公民。** 不是 plugin、不是 "以后加的 feature"。v0.1 就 ship，哪怕最小版——因为 "这东西真的有效吗" 是任何人看到都会先问的。
 
-1. **Real vault sections carry provenance metadata** (`kind`, `upstream`, `generated_by`, `last_rebuild_at`). Dropping these into an opaque `meta` bucket was wrong — they are *the* audit trail for derived content.
-2. **Configs need a schema contract.** Saying "this config requires these 5 sections" and enforcing it at a `doctor` step catches broken setups before compile time, not at runtime.
+---
 
-v0.1 ships both:
+## 8. Schema + provenance（v0.1 的补充）
 
-- **Section frontmatter** recognizes: `kind` (canonical | derived), `upstream: [...]`, `generated_by: <pipeline>`, `last_rebuild_at` (fallback for `updated_at`).
-- **Config frontmatter** recognizes: `required_sections: [...]` (`forge doctor` validates coverage).
-- **Every compiled output** starts with a machine-readable provenance header: config name, target, SHA256 digest (12 hex), timestamp, per-section name / type / kind / upstream / generated_by / bytes. Rendered as `<!-- … -->` in CLAUDE.md, `> …` in AGENTS.md.
-- **`forge doctor`** runs before-compile health checks: unknown section refs → ERROR, required_sections not covered → ERROR, unknown adapter → WARN, orphan section → WARN, derived section with empty upstream → WARN.
+在对 `dxy_OS` 做首次端到端验证后，暴露出两个 gap：
 
-Combined, these make the claim "you can trace every line of the compiled output back to a specific source snapshot" literally true, not aspirational.
+1. **真实 vault 的 section 带 provenance 元数据**（`kind`、`upstream`、`generated_by`、`last_rebuild_at`）。把这些塞进不透明 `meta` 是错的——它们**就是**衍生内容的审计链。
+2. **Config 需要 schema 契约。** 宣布 "这个 config 需要这 5 个 section"，并在 `doctor` 那一步 enforce，能在编译时捕获配置错漏，而不是 runtime。
+
+v0.1 都 ship 了：
+
+- **Section frontmatter** 识别：`kind`（canonical | derived）、`upstream: [...]`、`generated_by: <pipeline>`、`last_rebuild_at`（作为 `updated_at` 的 fallback）。
+- **Config frontmatter** 识别：`required_sections: [...]`（`forge doctor` 验证覆盖）、`output_frontmatter: {...}`（compiled 产出顶部 emit 用户指定的 YAML）、`demote_section_headings: true`（给自带 leading heading 的 section 提供干净层级）。
+- **每个 compiled output** 顶部带一个机读 provenance header：config 名、target、SHA256 digest（12 hex）、时间戳、per-section 的 name / type / kind / upstream / generated_by / bytes。在 CLAUDE.md 里是 `<!-- … -->`，在 AGENTS.md 里是 `> …`。
+- **`forge doctor`** 编译前健康检查：未知 section ref → ERROR；required_section 未覆盖 → ERROR；未注册 adapter → WARN；orphan section → WARN；kind=derived 但 upstream 为空 → WARN。
+
+合起来，"你可以把 compiled output 的每一行追溯到一个具体 source 快照" 这句话从 aspirational 变成字面为真。
 
 ## 9. Roadmap
 
-- **v0.1 (this release)** — compiler core, gate CLI, structural bench, Claude Code + AGENTS.md adapters, provenance + schema + doctor, end-to-end fixtures (basic + dxyOS semantic-equivalence).
-- **v0.2** — full governance: watcher, inbox, event-type dispatch, rollback, request-changes round-trip.
-- **v0.3** — LLM-based eval: agent runs against question sets, before/after quality scoring.
-- **v0.4** — adapters for external memory providers (Mem0 / Letta / Zep) as *optional sidecars*, not core.
+- **v0.1（本次发布）** — compiler core、gate CLI、结构 bench、两个 adapter、provenance + schema + doctor + eval 框架 stub、端到端 fixtures（basic + dxyOS 语义等价性 + 行为 A/B eval）。
+- **v0.2** — 完整 governance：watcher、inbox、event-type 分派、rollback、request-changes 回合。
+- **v0.3** — LLM-based eval：agent 在问题集上真跑，前后质量打分。
+- **v0.4** — 外部 memory provider（Mem0 / Letta / Zep）作为**可选 sidecar** 的 adapter，不入 core。
+
+---
+
+*英文版见 [`design.en.md`](design.en.md)。*
