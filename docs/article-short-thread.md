@@ -1,6 +1,10 @@
 # 8-条 X / 知乎想法 thread 草稿
 
-*待发。`[LINK]` 位置 push repo 后替换。配图建议：3、5 这两条配截图。*
+*待发。`[LINK]` 位置 push repo 后替换。*
+
+**发布策略见 [`launch-strategy.md`](launch-strategy.md)**——发之前过一遍，覆盖了时间、配图、链接、hashtag、follow-up、前置 checklist。
+
+*配图建议（从 launch-strategy 提炼）：第 1、4、8 这三条配图；其他纯文字。第 1 条用"散乱工具 logo → forge 结构"对比图；第 4 条用 `sp/section/` 目录树 + `forge diff` 输出的真实截图；第 8 条用 demo gif / asciinema。*
 
 ---
 
