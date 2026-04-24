@@ -16,7 +16,7 @@ from forge.eval.tasks import EvalTask
 class JudgeVerdict:
     task_id: str
     winner: str  # "A" | "B" | "tie"
-    reasoning: str
+    reason: str
 
 
 def judge_pair(
@@ -34,5 +34,5 @@ def sim_judge(task: EvalTask, answer_a: str, answer_b: str) -> JudgeVerdict:
     return JudgeVerdict(
         task_id=task.id,
         winner="tie",
-        reasoning="sim-judge: always returns tie",
+        reason="sim-judge: always returns tie",
     )

@@ -12,6 +12,9 @@ from forge import __version__
 from forge.gate import actions as gate
 from forge.gate.doctor import run as doctor_run
 from forge.bench import harness as bench_harness
+from forge.governance.inbox import Inbox
+from forge.governance.watcher import scan_git
+from forge.governance.rollback import rollback as rollback_fn
 
 
 def _root(path: str | None) -> Path:
@@ -199,6 +202,67 @@ def bench_compare(before: str, after: str, root: str | None, as_json: bool) -> N
             click.echo(
                 f"  {sname}: {d['bytes_before']}B -> {d['bytes_after']}B ({sign}{d['bytes_delta']}B)"
             )
+
+
+# ---------- governance (v0.1 stub) ----------
+
+@main.command()
+@click.option("--root", type=click.Path(), default=None)
+def watch(root: str | None) -> None:
+    """Scan new git commits, enqueue proposed changes to .forge/governance/inbox/."""
+    changes = scan_git(_root(root))
+    click.echo(f"scanned: {len(changes)} proposed change(s)")
+    for c in changes[:20]:
+        click.echo(f"  {c.commit_sha[:8]} {c.event_type.value:<18} {c.path}")
+    if len(changes) > 20:
+        click.echo(f"  ... and {len(changes) - 20} more")
+
+
+@main.group()
+def inbox() -> None:
+    """Inbox of proposed changes pending triage."""
+
+
+@inbox.command("list")
+@click.option("--root", type=click.Path(), default=None)
+def inbox_list(root: str | None) -> None:
+    items = Inbox(_root(root)).list()
+    if not items:
+        click.echo("(inbox is empty)")
+        return
+    for t in items:
+        click.echo(f"  {t.id:04d}  {t.event_type:<18} {t.path}")
+
+
+@inbox.command("skip")
+@click.argument("todo_id", type=int)
+@click.option("--reason", "-m", required=True)
+@click.option("--root", type=click.Path(), default=None)
+def inbox_skip(todo_id: int, reason: str, root: str | None) -> None:
+    Inbox(_root(root)).skip(todo_id, reason=reason)
+    click.echo(f"skipped inbox/{todo_id:04d}")
+
+
+@main.command()
+@click.argument("hash_prefix", required=False)
+@click.option("--root", type=click.Path(), default=None)
+def rollback(hash_prefix: str | None, root: str | None) -> None:
+    """Roll back sp/ to an earlier approved state (v0.1: latest approved only)."""
+    try:
+        result = rollback_fn(_root(root), hash_prefix)
+    except (RuntimeError, ValueError) as e:
+        click.echo(f"error: {e}", err=True)
+        sys.exit(1)
+    if not hash_prefix:
+        click.echo(f"current approved: {result['current_hash'][:12]}")
+        click.echo("available in changelog:")
+        for e in result["available"]:
+            click.echo(f"  {e['hash'][:12]}  {e['line']}")
+        return
+    if result["applied_to"]:
+        click.echo(f"rolled back to {result['applied_to'][:12]}")
+    else:
+        click.echo(result.get("diagnostic", "no-op"))
 
 
 if __name__ == "__main__":

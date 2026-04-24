@@ -19,20 +19,36 @@ from forge.eval.tasks import EvalTask, default_tasks
 from forge.eval.harness import (
     Runner,
     SimulationRunner,
+    CallableRunner,
     run_eval,
     AnswerPair,
     EvalReport,
 )
-from forge.eval.judge import JudgeVerdict, judge_pair
+from forge.eval.judge import JudgeVerdict, judge_pair, sim_judge
 
 __all__ = [
     "EvalTask",
     "default_tasks",
     "Runner",
     "SimulationRunner",
+    "CallableRunner",
     "run_eval",
     "AnswerPair",
     "EvalReport",
     "JudgeVerdict",
     "judge_pair",
+    "sim_judge",
 ]
+
+
+def __getattr__(name: str):
+    """按需 import，避免没装 anthropic 的用户 import forge.eval 时炸。"""
+    if name == "AnthropicRunner":
+        from forge.eval.anthropic_runner import AnthropicRunner
+
+        return AnthropicRunner
+    if name == "AnthropicJudge":
+        from forge.eval.anthropic_judge import AnthropicJudge
+
+        return AnthropicJudge
+    raise AttributeError(f"module 'forge.eval' has no attribute {name!r}")
