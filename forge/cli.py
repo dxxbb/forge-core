@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -298,6 +299,67 @@ def rollback(hash_prefix: str | None, root: str | None) -> None:
         click.echo(f"rolled back to {result['applied_to'][:12]}")
     else:
         click.echo(result.get("diagnostic", "no-op"))
+
+
+# ---------- skill install ----------
+
+@main.command("install-skill")
+@click.option(
+    "--symlink",
+    is_flag=True,
+    help="Symlink instead of copy. Always reflects forge-core's source — good for dev / staying current. Requires forge-core source to stay in place.",
+)
+@click.option("--force", is_flag=True, help="Overwrite existing installation without prompting.")
+@click.option(
+    "--target",
+    type=click.Path(),
+    default=None,
+    help="Override target dir (default: ~/.claude/skills/forge).",
+)
+def install_skill(symlink: bool, force: bool, target: str | None) -> None:
+    """Install or update the Claude Code skill (forge) into ~/.claude/skills/forge.
+
+    Re-run with --force to update after upgrading forge-core.
+    """
+    src = Path(__file__).parent.parent / "examples" / "skills" / "forge"
+    if not src.exists():
+        click.echo(f"error: skill source not found at {src}", err=True)
+        click.echo(
+            "  forge-core may have been installed without the examples/ dir. "
+            "Try installing from source: pip install -e <forge-core-repo>.",
+            err=True,
+        )
+        sys.exit(1)
+
+    dest = Path(target).expanduser() if target else Path.home() / ".claude" / "skills" / "forge"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    if dest.exists() or dest.is_symlink():
+        if not force:
+            click.echo(
+                f"{dest} already exists.\n"
+                f"  use --force to overwrite (re-install / update).",
+                err=True,
+            )
+            sys.exit(1)
+        if dest.is_symlink() or dest.is_file():
+            dest.unlink()
+        else:
+            shutil.rmtree(dest)
+
+    if symlink:
+        dest.symlink_to(src.resolve())
+        click.echo(f"linked {dest} -> {src.resolve()}")
+        click.echo("future updates to forge-core's skill source picked up automatically.")
+    else:
+        shutil.copytree(src, dest)
+        click.echo(f"copied skill to {dest}")
+        click.echo("to update later: `forge install-skill --force`")
+
+    click.echo()
+    click.echo("Triggers in Claude Code (any of):")
+    click.echo("  'approve my changes' / 'review my context' / '过一下' / '审一下'")
+    click.echo("  'forge approve' / 'forge diff' / 'forge reject'")
 
 
 if __name__ == "__main__":
