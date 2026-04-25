@@ -35,9 +35,13 @@ Then ask: **"Where should the workspace live? (default: `~/forge-context`)"** Wa
 
 ```bash
 forge new <path>
+cd <path>
+forge init
 ```
 
-After this completes, **briefly** describe the structure (don't dump full content):
+`forge new` lays out files; `forge init` creates `.forge/` (the approved baseline + first compiled output). Without `init`, the next `forge diff` errors out with "not initialized." Run both before moving on.
+
+After both complete, **briefly** describe the structure (don't dump full content):
 
 > "Scaffolded:
 >   - `sp/section/` — 5 source sections (about-me, preferences, workspace, knowledge-base, skills) + 1 wrapper. These are markdown files you own.
