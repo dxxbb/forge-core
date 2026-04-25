@@ -91,163 +91,130 @@ approved hash=a5769a233b78 at 2026-04-25T02:56:55+00:00
 
 ## 2 分钟上手
 
-```bash
-pip install -e .
+最快的体验：装 skill 让 Claude Code 帮你跑。
 
-forge new my-context             # 脚手架 sp/section/ + sp/config/ + template
-cd my-context
-$EDITOR sp/section/about-me.md   # 写你自己的一段（agent 每次会话都会读）
-forge init                       # snapshot 为 approved 基线 + 首次编译
-cat .forge/output/CLAUDE.md
+```bash
+pip install -e .                 # 装本工具
+forge install-skill              # 装 Claude Code skill (~/.claude/skills/forge)
 ```
 
-然后改 section，再 `forge diff` → `forge approve`。
+打开 Claude Code，跟它说：
+
+> "帮我搭一个 forge 工作区，把我现有的 ~/.claude/CLAUDE.md 用 forge 管"
+
+它会带你完整走 8 步（new → 介绍结构 → 检测现有 → 导入分类 → review → 演示 cross-runtime → approve → 同步到真 Claude Code）。**全程对话，不敲 CLI**。
+
+如果你想自己敲 CLI 看每步做什么，下面 §完整走读 §没装 skill 怎么走 有等价命令。
 
 ---
 
-## 完整走读
+## 完整走读（推荐路径：装 skill，让 Claude 帮你跑）
 
-把上面的 2 分钟上手延伸到含 reject、bench、changelog 的完整循环。**直接复制下面命令在干净环境跑能复现**（hash 必然不同，其他字段格式一致）。
+最自然的体验是装 Claude Code skill 后跟 Claude 对话，让它驱动整个流程。这一节先讲这条路径，下面 §纯 CLI 路径再讲不用 skill 的等价命令。
 
-### Step 1 — 起一个工作区
+### 装 skill
 
-```
-$ forge new my-context
-created my-context/
-
-Next:
-  cd my-context
-  $EDITOR sp/section/about-me.md   # describe yourself
-  forge init                       # snapshot baseline + compile
-  cat .forge/output/CLAUDE.md      # see the compiled view
+```bash
+pip install -e .            # 装 forge-core 本身
+forge install-skill         # 把 skill 复制到 ~/.claude/skills/forge
 ```
 
-`forge new` 已经放好了模板：`sp/section/about-me.md`（占位 identity 段）+ `sp/config/personal.md`（target=claude-code）+ `.gitignore`。
+完事。下次你打开 Claude Code 时，skill 自动加载。
 
-### Step 2 — 第一次 init
+### 跟 Claude 说一句话开始
 
-```
-$ cd my-context
-$ forge init
-initialized .forge at /tmp/my-context/.forge
+启动 Claude Code 之后，跟它说：
 
-$ ls .forge/output/
-CLAUDE.md
+> "帮我搭一个 forge 工作区，把我现有的 ~/.claude/CLAUDE.md 用 forge 管"
 
-$ forge diff
-no changes since last approve
-```
+或者英文：
 
-`forge init` 把当前 `sp/` 当作第一次 approved 基线，立即编译产物。`forge diff` 此时空。
+> "Set up forge for me, import my existing CLAUDE.md"
 
-### Step 3 — 改 section，看双 diff
+Claude 会接管接下来的 8 步，每一步问你一次。**全程在对话里完成，你不需要敲一行 CLI**。
 
-往 `sp/section/about-me.md` 加一行：
+### 它会帮你做什么（8 步）
 
-```
-$ echo "- 不要加 emoji。" >> sp/section/about-me.md
-$ forge diff
-======== source diff (sp/) ========
---- approved/section/about-me.md
-+++ current/section/about-me.md
-@@ -8,3 +8,4 @@
- having to re-explain to agents.
+1. **建工作区**：`forge new ~/forge-context`（路径它会问你）。产出 5 段 SP section（about-me / preferences / workspace / knowledge-base / skills）+ 1 个 wrapper + 2 个 config（claude-code 和 agents-md，**一份源同时编译给 Claude Code 和 Codex 等其他工具**）
+2. **介绍结构**：跟你说这些目录是干嘛的，让你建立心智模型
+3. **检测现有 context**：扫 `~/.claude/CLAUDE.md` / 项目级 `CLAUDE.md` / `.cursorrules` 等
+4. **导入并自动分类**：每份现有文件被分类塞进 5 段 section 里。**这是工作树状态，没 approve**——你像 review PR 一样可以编辑任何分错的地方
+5. **展示 diff**：源文件 diff（5 个 section 从空模板变成有内容）+ 编译产物 diff（CLAUDE.md 和 AGENTS.md 都跟着变）。**这就是审核关口**
+6. **演示 cross-runtime**：让你看到一份 source 同时产出 CLAUDE.md 和 AGENTS.md，未来切到 Codex / 别的工具不重建
+7. **approve + 写 changelog**：你确认 commit message 后，Claude 跑 `forge approve`，changelog 多一条带 hash + message 的记录。**这就是 provenance** ——3 个月后你想知道"这条规则什么时候加的"，grep 这个文件就行
+8. **告诉你怎么应用到真 Claude Code**：让你 `ln -sf <workspace>/.forge/output/CLAUDE.md ~/.claude/CLAUDE.md`。**它不替你执行**——`~/.claude/CLAUDE.md` 是你全局配置，覆盖之前要你自己确认
 
- Agents will read this section every session.
-+- 不要加 emoji。
+跑完，你有了一个：
+- 5 段结构化 source 装着你原本散落的内容
+- 完整审核 / 回滚机制可以用一辈子
+- 跨 runtime 编译能力（CLAUDE.md + AGENTS.md，加 cursor 只要一个新 config）
+- 第一条 changelog（"import existing CLAUDE.md as initial 5 sections"）
 
+下次你想改个 preference，直接 edit `sp/section/preferences.md`，跟 Claude 说 "approve" 或 "过一下"——skill 自动跑 doctor + diff + 让你确认 message + approve + 提示同步到 `~/.claude/CLAUDE.md`。
 
-======== output diff ========
---- personal ---
---- approved/personal
-+++ proposed/personal
-@@ -2,8 +2,8 @@
+### 没装 skill 怎么走（纯 CLI 等价路径）
 
- <!-- compiled by forge-core. do not edit by hand. edit sp/section/ and run `forge approve`. -->
- <!--
--forge-core provenance · config=personal target=claude-code version=0.1.0 digest=1603c5357ae0
--  - about-me · type=identity · 207B
-+forge-core provenance · config=personal target=claude-code version=0.1.0 digest=092e5cdea03d
-+  - about-me · type=identity · 228B
- -->
+如果你不用 Claude Code，或者想自己跑 CLI 看每条命令做什么：
 
- ## About me
-@@ -13,3 +13,4 @@
- having to re-explain to agents.
+```bash
+# 1. 起工作区
+forge new ~/forge-context
+cd ~/forge-context
 
- Agents will read this section every session.
-+- 不要加 emoji。
-```
+# 2. 看一眼结构
+ls sp/section/                              # 5 段 section + _preface
+ls sp/config/                               # claude-code.md + agents-md.md
 
-两段 diff：
+# 3. 第一次编译
+forge init                                  # 现在 sp 是 approved 基线
+ls .forge/output/                           # CLAUDE.md + AGENTS.md, 都从同源编出
 
-- **source diff** — 你直接改了什么
-- **output diff** — agent 会读到的 `CLAUDE.md` 会变成什么。注意 provenance digest（`1603c5357ae0` → `092e5cdea03d`）和 section 字节数（207B → 228B）也跟着变，这是**预期**的，每次源改都会刷新 provenance 让产物可追溯
+# 4. 导入现有 CLAUDE.md
+forge ingest --from ~/.claude/CLAUDE.md     # 调 Claude API 自动分类到 5 段
+                                            # 没 API key? 加 --no-llm 全部塞 workspace.md
+                                            # 自己后面拆
 
-### Step 4 — approve
+# 5. review
+forge diff                                  # 源 diff + 两个产物 diff 同时显示
 
-```
-$ forge approve -m "add no-emoji preference"
-approved hash=a5769a233b78 at 2026-04-25T02:56:55+00:00
-  wrote /tmp/my-context/.forge/output/CLAUDE.md
+# 6. (可选) 编辑分错的段
+$EDITOR sp/section/preferences.md           # 改完 forge diff 看效果
 
-$ forge diff
-no changes since last approve
+# 7. approve
+forge approve -m "import existing CLAUDE.md as initial 5 sections"
 
-$ cat .forge/changelog.md
-# forge-core changelog
+# 8. 看 audit trail
+cat .forge/changelog.md
 
-- 2026-04-25T02:56:55+00:00 init (hash=8e20dfa7f0de)
-- 2026-04-25T02:56:55+00:00 approve (hash=a5769a233b78) — add no-emoji preference
+# 9. 装到真 Claude Code
+ln -sf ~/forge-context/.forge/output/CLAUDE.md ~/.claude/CLAUDE.md
 ```
 
-`approve` 升级 `sp/` 为新基线 + 重编译 output + 在 changelog 追加一条。这条 message 是你给未来自己（或队友）的备注，3 个月后看 changelog 你能想起为什么改。
+后续日常使用：
 
-### Step 5 — reject 撤销错改
-
-```
-$ echo "garbage line" >> sp/section/about-me.md
-$ yes | forge reject
-Discard all current changes to sp/ and restore approved? [y/N]: restored sp/ from last approved
-
-$ forge diff
-no changes since last approve
+```bash
+$EDITOR sp/section/preferences.md           # 加一条 "no auto git push"
+forge diff                                  # 双 diff 看影响
+forge approve -m "no auto git push"         # ship
 ```
 
-`reject` 把 `sp/` 整个回滚到上次 approved。**会丢掉所有未 approve 的 source 改动**，谨慎。
+需要回滚最后一次：`yes | forge reject`（discard working tree 改动，回到上次 approved）。
 
-### Step 6 — bench 对比前后
+### bench：测量你改了什么
 
-```
-$ forge bench snapshot v1                            # 先存当前编译产物的快照
-snapshot `v1` created at 2026-04-25T02:56:55+00:00
-  outputs: ['CLAUDE.md']
-  sections: 1
+bench 用来在两次状态间精确对比 output bytes 和 section sizes。**正确顺序**：
 
-$ echo "- 喜欢 vim, 不要推荐 vscode" >> sp/section/about-me.md
-$ forge approve -m "add editor preference"
-approved hash=97953fd16bed at 2026-04-25T02:56:55+00:00
-
-$ forge bench snapshot v2
-snapshot `v2` created at 2026-04-25T02:56:55+00:00
-  outputs: ['CLAUDE.md']
-  sections: 1
-
-$ forge bench compare v1 v2
-compare v1 -> v2
-
-# outputs
-  CLAUDE.md: 492B -> 526B (+34B, +1L)
-
-# section size deltas
-  about-me: 228B -> 262B (+34B)
+```bash
+forge bench snapshot before               # 先快照
+$EDITOR sp/section/preferences.md         # 编辑
+forge approve -m "..."                    # 通过
+forge bench snapshot after                # 再快照
+forge bench compare before after          # 对比
 ```
 
-bench 告诉你：CLAUDE.md 从 492 涨到 526 字节，增加都来自 about-me 段。**改 5 个 section、只有一个该变时**——bench 帮你抓出"哪些不该变的也变了"。
+输出告诉你哪个 output 涨缩多少 / 哪个 section 涨缩多少。**改 5 个 section、只有一个该变时**——bench 帮你抓出"哪些不该变的也变了"。
 
-### Step 7（可选）— 装 Claude Code skill 让交互更简单
-
-如果你用 Claude Code，下面那个 skill 让你不用敲 CLI，直接说"approve" / "过一下"就跑完整流程。见下面 §Claude Code 用户。
+⚠️ 如果你 edit → snapshot → approve → snapshot 这个顺序，section 字节看起来不会变（因为两次快照间 sp/section/ 没动），只 output 字节变。先 snapshot 再编辑。
 
 ---
 

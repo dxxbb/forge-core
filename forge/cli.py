@@ -16,6 +16,7 @@ from forge.bench import harness as bench_harness
 from forge.governance.inbox import Inbox
 from forge.governance.watcher import scan_git
 from forge.governance.rollback import rollback as rollback_fn
+from forge.ingest.classifier import classify, write_sections, IngestError
 
 
 def _root(path: str | None) -> Path:
@@ -32,8 +33,21 @@ def main() -> None:
 
 @main.command("new")
 @click.argument("path", type=click.Path())
-def new_cmd(path: str) -> None:
-    """Scaffold a new forge-core workspace at PATH with template section + config."""
+@click.option(
+    "--minimal",
+    is_flag=True,
+    help="Scaffold only one section (about-me) instead of the full 5-section SP schema.",
+)
+def new_cmd(path: str, minimal: bool) -> None:
+    """Scaffold a new forge-core workspace at PATH.
+
+    Default: full 5-section SP schema (about-me, preferences, workspace,
+    knowledge-base, skills) + 1 wrapper + 2 configs (claude-code + agents-md).
+    Each section has structured TODO placeholders showing what to fill.
+
+    --minimal: just one about-me section + one config. Use when you want to
+    start fresh without templates.
+    """
     root = Path(path)
     if root.exists():
         click.echo(f"error: {root} already exists", err=True)
@@ -41,6 +55,36 @@ def new_cmd(path: str) -> None:
     (root / "sp" / "section").mkdir(parents=True)
     (root / "sp" / "config").mkdir(parents=True)
 
+    if minimal:
+        _scaffold_minimal(root)
+    else:
+        _scaffold_full(root)
+
+    (root / ".gitignore").write_text(".forge/\n", encoding="utf-8")
+
+    click.echo(f"created {root}/")
+    click.echo()
+    click.echo("Next:")
+    click.echo(f"  cd {path}")
+    if minimal:
+        click.echo(f"  $EDITOR sp/section/about-me.md   # describe yourself")
+    else:
+        click.echo(f"  ls sp/section/                   # 5 sections + 1 wrapper, all with TODO placeholders")
+        click.echo(f"  $EDITOR sp/section/about-me.md   # start with about-me, fill in your identity")
+    click.echo(f"  forge init                       # snapshot baseline + compile")
+    click.echo(f"  cat .forge/output/CLAUDE.md      # see the compiled view (also AGENTS.md if not --minimal)")
+    click.echo()
+    if not minimal:
+        click.echo(
+            "Tip: if you already have a CLAUDE.md / .cursorrules, you can pre-fill"
+        )
+        click.echo("sections by importing it (or ask Claude Code with the forge skill installed):")
+        click.echo("  forge ingest --from ~/.claude/CLAUDE.md     # auto-classify into 5 sections")
+        click.echo()
+    click.echo("Then edit, run `forge diff` to preview, `forge approve` to ship.")
+
+
+def _scaffold_minimal(root: Path) -> None:
     (root / "sp" / "section" / "about-me.md").write_text(
         "---\nname: about-me\ntype: identity\n---\n\n"
         "Replace this body with a short, honest description of yourself —\n"
@@ -53,17 +97,181 @@ def new_cmd(path: str) -> None:
         "---\nname: personal\ntarget: claude-code\nsections:\n  - about-me\n---\n",
         encoding="utf-8",
     )
-    (root / ".gitignore").write_text(".forge/\n", encoding="utf-8")
 
-    click.echo(f"created {root}/")
-    click.echo()
-    click.echo("Next:")
-    click.echo(f"  cd {path}")
-    click.echo(f"  $EDITOR sp/section/about-me.md   # describe yourself")
-    click.echo(f"  forge init                       # snapshot baseline + compile")
-    click.echo(f"  cat .forge/output/CLAUDE.md      # see the compiled view")
-    click.echo()
-    click.echo("Then edit the section, run `forge diff` to preview, `forge approve` to ship.")
+
+def _scaffold_full(root: Path) -> None:
+    """Default scaffold: 5 SP sections + 1 wrapper + 2 cross-runtime configs."""
+    sec = root / "sp" / "section"
+    cfg = root / "sp" / "config"
+
+    (sec / "_preface.md").write_text(_TEMPLATE_PREFACE, encoding="utf-8")
+    (sec / "about-me.md").write_text(_TEMPLATE_ABOUT_ME, encoding="utf-8")
+    (sec / "preferences.md").write_text(_TEMPLATE_PREFERENCES, encoding="utf-8")
+    (sec / "workspace.md").write_text(_TEMPLATE_WORKSPACE, encoding="utf-8")
+    (sec / "knowledge-base.md").write_text(_TEMPLATE_KNOWLEDGE_BASE, encoding="utf-8")
+    (sec / "skills.md").write_text(_TEMPLATE_SKILLS, encoding="utf-8")
+
+    (cfg / "claude-code.md").write_text(_TEMPLATE_CONFIG_CLAUDE, encoding="utf-8")
+    (cfg / "agents-md.md").write_text(_TEMPLATE_CONFIG_AGENTS, encoding="utf-8")
+
+
+_TEMPLATE_PREFACE = """\
+---
+name: _preface
+type: wrapper
+---
+
+This file is the agent's long-term context, compiled by forge-core from
+sp/section/. The user owns the source. To change it: edit sp/section/<name>.md,
+run `forge diff` to preview, `forge approve` to ship. Do not edit this output
+file directly.
+"""
+
+_TEMPLATE_ABOUT_ME = """\
+---
+name: about-me
+type: identity
+---
+
+[TODO: 删掉方括号内的示例文字, 写成关于你自己的真实描述。]
+
+# 你是谁
+
+写一段 agent 一句话能识别你身份的描述。例子:
+
+- 我是后端工程师, 14 年经验, 之前在字节跳动做 tech leader, 2026 年起独立。
+- 我是研究生, 研究方向是分布式系统, 在某某大学。
+- 我是产品经理, 专注 B 端 SaaS 产品。
+
+# 工作方式
+
+- 直接、简洁, 不要长 preamble
+- 系统思维, 第一性原理
+- 中文为主, 代码和技术术语保留英文
+
+# 当前阶段
+
+[TODO: 你正在专注什么, 这段时间的核心问题是什么]
+"""
+
+_TEMPLATE_PREFERENCES = """\
+---
+name: preferences
+type: preference
+---
+
+[TODO: 写下 agent 应该遵守的规则。这是你跟它磨合出来的"协议"。]
+
+# 工作方式
+
+- 多步任务开工前先说要做什么
+- 关键决策或方向转折时同步一次
+- 不要伪造引用或数据
+
+# 边界
+
+- 不可逆 / 外部发送 / 生产变更: 先写可审阅方案, 得到明确批准再动手
+- 不在没有上下文的情况下猜用户意图
+- 不要主动改 git 配置 / 改 main 分支
+
+# 输出风格
+
+- 不要加 emoji 除非明确要求
+- 不要长 preamble, 直接进重点
+- 长 markdown 输出避免过度结构化 (h1/h2 套娃)
+"""
+
+_TEMPLATE_WORKSPACE = """\
+---
+name: workspace
+type: workspace
+---
+
+[TODO: 列你当前在做的事 —— project / topic / reading 三类各列几条。]
+
+# Project
+
+- [TODO: project 名] — 一句话说明在做什么 / 当前 phase
+
+# Topic (你长期跟踪的研究方向)
+
+- [TODO: topic 名] — 为什么追
+
+# Reading
+
+- 《[TODO: 书名]》 — 当前进度
+"""
+
+_TEMPLATE_KNOWLEDGE_BASE = """\
+---
+name: knowledge-base
+type: knowledge-base
+---
+
+[TODO: 列你长期追踪的外部 topic, 一行一个 pointer。这一段是 agent
+查 KB 时的索引, 内容压缩成"哪个 topic 在哪、当前关注什么"即可。]
+
+# tech/ai
+
+- claude-code — Claude Code 能力边界 / prompt 实践 / 模型升级行为变化
+- codex — Codex 平台演进 / 战略叙事
+
+# tech/[domain]
+
+- [TODO: 你跟踪的 topic]
+"""
+
+_TEMPLATE_SKILLS = """\
+---
+name: skills
+type: skill
+---
+
+[TODO: 列你常用的 craft / workflow。每个是 one-liner pointer; 详细
+procedure 放到独立 skill 文件再引用。]
+
+# craft/
+
+- code-review — 当我说 "review the diff" 时走的流程: ...
+- writing — 当我说 "起草一篇" 时默认结构: ...
+- [TODO: 你自己的]
+"""
+
+_TEMPLATE_CONFIG_CLAUDE = """\
+---
+name: claude-code
+target: claude-code
+sections:
+  - _preface
+  - about-me
+  - preferences
+  - workspace
+  - knowledge-base
+  - skills
+required_sections:
+  - about-me
+  - preferences
+demote_section_headings: true
+---
+"""
+
+_TEMPLATE_CONFIG_AGENTS = """\
+---
+name: agents-md
+target: agents-md
+sections:
+  - _preface
+  - about-me
+  - preferences
+  - workspace
+  - knowledge-base
+  - skills
+required_sections:
+  - about-me
+  - preferences
+demote_section_headings: true
+---
+"""
 
 @main.command()
 @click.option("--root", type=click.Path(), default=None, help="Workspace root (default: cwd).")
@@ -299,6 +507,129 @@ def rollback(hash_prefix: str | None, root: str | None) -> None:
         click.echo(f"rolled back to {result['applied_to'][:12]}")
     else:
         click.echo(result.get("diagnostic", "no-op"))
+
+
+# ---------- ingest ----------
+
+@main.command("ingest")
+@click.option(
+    "--from",
+    "source",
+    type=click.Path(exists=True, dir_okay=False),
+    help="Path to the file to ingest (typically ~/.claude/CLAUDE.md or similar).",
+)
+@click.option(
+    "--from-stdin",
+    is_flag=True,
+    help="Read input from stdin instead of a file.",
+)
+@click.option(
+    "--no-llm",
+    is_flag=True,
+    help="Skip Anthropic API call. Dumps everything into sp/section/workspace.md "
+    "as one block; you split manually after. Use this if you don't have an API "
+    "key or want full control.",
+)
+@click.option(
+    "--root",
+    type=click.Path(),
+    default=None,
+    help="Workspace root (default: cwd). Must already have sp/section/ (run `forge new` first).",
+)
+@click.option(
+    "--overwrite",
+    is_flag=True,
+    help="Overwrite non-template sections that already have user content.",
+)
+@click.option(
+    "--model",
+    default="claude-opus-4-7",
+    show_default=True,
+    help="Model for LLM classification path.",
+)
+def ingest(
+    source: str | None,
+    from_stdin: bool,
+    no_llm: bool,
+    root: str | None,
+    overwrite: bool,
+    model: str,
+) -> None:
+    """Import an existing CLAUDE.md / .cursorrules into 5 SP sections.
+
+    Workflow:
+        1. Read input (file or stdin).
+        2. Classify into 5 sections (about-me / preferences / workspace /
+           knowledge-base / skills) — via Claude API by default, or dump into
+           one bucket with --no-llm.
+        3. Write each non-empty section to sp/section/<name>.md (working tree).
+        4. You then run `forge diff` to review the proposal, edit any section
+           that's wrong, and `forge approve` to ship.
+
+    The classification doesn't need to be perfect — that's what the gate is for.
+    """
+    if source and from_stdin:
+        click.echo("error: pass either --from or --from-stdin, not both", err=True)
+        sys.exit(1)
+    if not source and not from_stdin:
+        click.echo("error: must pass --from <file> or --from-stdin", err=True)
+        sys.exit(1)
+
+    workspace = _root(root)
+    if not (workspace / "sp" / "section").exists():
+        click.echo(
+            f"error: {workspace} is not a forge workspace. "
+            f"Run `forge new {workspace}` first.",
+            err=True,
+        )
+        sys.exit(1)
+
+    # Read input
+    if source:
+        text = Path(source).read_text(encoding="utf-8")
+        source_path: Path | None = Path(source).resolve()
+        click.echo(f"reading {source_path} ({len(text)} chars)")
+    else:
+        text = sys.stdin.read()
+        source_path = None
+        click.echo(f"read {len(text)} chars from stdin")
+
+    if not text.strip():
+        click.echo("error: input is empty", err=True)
+        sys.exit(1)
+
+    # Classify
+    try:
+        if no_llm:
+            click.echo("classifying with --no-llm: dumping into one section, no API call")
+        else:
+            click.echo(f"classifying via {model}, this may take 10-30s...")
+        result = classify(text, use_llm=not no_llm, model=model)
+        result.source_path = source_path
+    except IngestError as e:
+        click.echo(f"error: {e}", err=True)
+        sys.exit(1)
+
+    # Write
+    try:
+        written = write_sections(result, workspace, overwrite=overwrite)
+    except IngestError as e:
+        click.echo(f"error: {e}", err=True)
+        sys.exit(1)
+
+    if not written:
+        click.echo("(nothing classified — input was empty or all sections were empty)")
+        return
+
+    click.echo(f"\nwrote {len(written)} section(s) into {workspace}/sp/section/:")
+    for p in written:
+        body_size = len(p.read_text("utf-8"))
+        click.echo(f"  {p.name}  ({body_size}B)")
+
+    click.echo()
+    click.echo("Next:")
+    click.echo("  forge diff           # review what was classified, edit any section that's wrong")
+    click.echo("  forge approve -m \"import existing context\"")
 
 
 # ---------- skill install ----------
