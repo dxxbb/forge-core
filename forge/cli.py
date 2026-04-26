@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -324,8 +325,33 @@ def doctor(root: str | None) -> None:
 @click.option("--root", type=click.Path(), default=None)
 @click.option("--source-only", is_flag=True, help="Only show source diff, not output diff.")
 @click.option("--output-only", is_flag=True, help="Only show output diff.")
-def diff(root: str | None, source_only: bool, output_only: bool) -> None:
-    """Show what would change on approve (source diff + compiled preview)."""
+@click.option("--config", "config_filter", default=None, help="Only show output diff for this config name.")
+@click.option("--no-color", is_flag=True, help="Disable colored +/- lines.")
+@click.option(
+    "--full-provenance",
+    is_flag=True,
+    help="Show provenance digest/byte lines (folded by default — they're noise on every diff).",
+)
+@click.option(
+    "--no-pager",
+    is_flag=True,
+    help="Print directly to stdout instead of paging through less.",
+)
+def diff(
+    root: str | None,
+    source_only: bool,
+    output_only: bool,
+    config_filter: str | None,
+    no_color: bool,
+    full_provenance: bool,
+    no_pager: bool,
+) -> None:
+    """Show what would change on approve.
+
+    Prints a one-line summary, then source diff (your sp/ edits) and output
+    diff (each compiled config). Provenance digest/byte lines are folded to
+    one collapsed marker — pass --full-provenance to see them.
+    """
     try:
         result = gate.diff_summary(_root(root))
     except RuntimeError as e:
@@ -334,21 +360,145 @@ def diff(root: str | None, source_only: bool, output_only: bool) -> None:
     if not result.changed:
         click.echo("no changes since last approve")
         return
+
+    use_color = (not no_color) and click.get_text_stream("stdout").isatty()
+    if no_pager:
+        use_color = use_color and not no_color  # only color if tty AND not disabled
+    else:
+        use_color = not no_color  # paging through less -R supports color
+
+    output = _format_diff(
+        result=result,
+        source_only=source_only,
+        output_only=output_only,
+        config_filter=config_filter,
+        use_color=use_color,
+        full_provenance=full_provenance,
+    )
+
+    if no_pager or not click.get_text_stream("stdout").isatty():
+        click.echo(output)
+    else:
+        click.echo_via_pager(output, color=use_color)
+
+
+def _format_diff(
+    result,
+    source_only: bool,
+    output_only: bool,
+    config_filter: str | None,
+    use_color: bool,
+    full_provenance: bool,
+) -> str:
+    """Render a DiffResult as a colored, summarized string."""
+    out: list[str] = []
+
+    # ---- summary header ----
+    summary = _summarize_diff(result)
+    out.append(click.style(summary, bold=True) if use_color else summary)
+    out.append("")
+
     if not output_only:
-        click.echo("=" * 8 + " source diff (sp/) " + "=" * 8)
-        for line in result.source_diff_lines:
-            click.echo(line)
+        out.append(click.style("── source diff (sp/) ──", fg="cyan", bold=True) if use_color else "── source diff (sp/) ──")
         if not result.source_diff_lines:
-            click.echo("(no source changes)")
+            out.append("(no source changes)")
+        else:
+            for line in result.source_diff_lines:
+                out.append(_color_diff_line(line, use_color))
+        out.append("")
+
     if not source_only:
-        click.echo()
-        click.echo("=" * 8 + " output diff " + "=" * 8)
+        out.append(click.style("── output diff ──", fg="cyan", bold=True) if use_color else "── output diff ──")
         if not result.output_diffs:
-            click.echo("(no output changes)")
-        for cname, lines in result.output_diffs.items():
-            click.echo(f"--- {cname} ---")
-            for line in lines:
-                click.echo(line)
+            out.append("(no output changes)")
+        else:
+            shown = 0
+            for cname, lines in result.output_diffs.items():
+                if config_filter and cname != config_filter:
+                    continue
+                shown += 1
+                header = f"  ▸ {cname}"
+                out.append(click.style(header, fg="yellow", bold=True) if use_color else header)
+                folded_lines = lines if full_provenance else _fold_provenance_block(lines)
+                for line in folded_lines:
+                    out.append(_color_diff_line(line, use_color))
+                out.append("")
+            if config_filter and shown == 0:
+                out.append(f"  (no output changes for config `{config_filter}`)")
+
+    return "\n".join(out)
+
+
+def _summarize_diff(result) -> str:
+    """One-line summary: how many sections changed, how many configs affected."""
+    section_files = set()
+    for line in result.source_diff_lines:
+        if line.startswith("--- approved/") or line.startswith("+++ current/"):
+            # extract section name from "approved/section/foo.md"
+            path = line.split("/", 1)[1] if "/" in line else line
+            if path.startswith("section/"):
+                section_files.add(path[len("section/"):])
+            elif path.startswith("config/"):
+                section_files.add("config:" + path[len("config/"):])
+    n_sections = len(section_files)
+    n_configs = len(result.output_diffs)
+    parts: list[str] = []
+    if n_sections:
+        parts.append(f"{n_sections} {'section' if n_sections == 1 else 'sections'} changed")
+        parts.append(f"({', '.join(sorted(section_files))})")
+    if n_configs:
+        parts.append(f"→ {n_configs} {'config' if n_configs == 1 else 'configs'} affected: {', '.join(sorted(result.output_diffs))}")
+    if not parts:
+        return "no detectable changes"
+    return "summary: " + " ".join(parts)
+
+
+def _color_diff_line(line: str, use_color: bool) -> str:
+    if not use_color:
+        return line
+    if line.startswith("+++") or line.startswith("---"):
+        return click.style(line, fg="white", bold=True)
+    if line.startswith("@@"):
+        return click.style(line, fg="cyan")
+    if line.startswith("+"):
+        return click.style(line, fg="green")
+    if line.startswith("-"):
+        return click.style(line, fg="red")
+    return line
+
+
+def _fold_provenance_block(lines: list[str]) -> list[str]:
+    """Collapse the per-output provenance digest/byte hunk to a single line.
+
+    Provenance digest changes on every approve (because hashes embed timestamps
+    or section bytes) — useful when debugging adapters, pure noise during review.
+    Detection: a hunk where every -/+ line either contains 'digest=' or matches
+    `>  - <name> · type=<type> · <NNN>B`.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(lines)
+    PROVENANCE_RE = re.compile(r"^[+-].*(digest=|· type=.*· \d+B$)")
+    while i < n:
+        line = lines[i]
+        if line.startswith("@@"):
+            # collect this hunk
+            hunk_end = i + 1
+            while hunk_end < n and not lines[hunk_end].startswith("@@") and not lines[hunk_end].startswith(("---", "+++")):
+                hunk_end += 1
+            hunk = lines[i + 1 : hunk_end]
+            mod_lines = [ln for ln in hunk if ln.startswith(("+", "-"))]
+            if mod_lines and all(PROVENANCE_RE.match(ln) for ln in mod_lines):
+                out.append(line)
+                out.append(f"  … {len(mod_lines)} provenance lines folded (--full-provenance to expand) …")
+                i = hunk_end
+                continue
+            out.append(line)
+            i += 1
+        else:
+            out.append(line)
+            i += 1
+    return out
 
 
 @main.command()
