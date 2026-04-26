@@ -1370,70 +1370,73 @@ def _format_review(rev, use_color: bool) -> str:
 
 
 def _format_review_compact(rev, use_color: bool) -> str:
-    """Compact one-screen review (~10 lines). Designed to fit inline in chat
-    tools that fold long output. Drops the raw diff entirely; user can ask for
-    [d] to get full diff."""
+    """Ultra-compact review (4 lines). Action menu on LINE 1 so it's visible
+    even when chat tools (Claude Code Bash output) fold to a preview.
+
+    Layout:
+        Line 1: summary + action menu  ← always visible even when folded
+        Line 2: per-section deltas (one-liners, ⚠ for ≥50% change)
+        Line 3: outputs deltas
+        Line 4: origin (where this came from)
+    """
     def style(s: str, **kw):
         return click.style(s, **kw) if use_color else s
 
     out: list[str] = []
 
-    # Header: 1 line summary
+    # Line 1: counts + ACTION MENU (this is what survives folding)
     n = len(rev.section_changes)
-    n_cfg = len(rev.output_changes)
-    out.append(
-        style(
-            f"forge review · {n} section{'s' if n != 1 else ''} changed → "
-            f"{n_cfg} output{'s' if n_cfg != 1 else ''} affected",
-            bold=True,
-        )
+    n_warn = sum(
+        1 for sc in rev.section_changes
+        if abs(sc.growth_pct) >= 50 and sc.bytes_before > 0
     )
+    warn_marker = style(f" ⚠ {n_warn}", fg="yellow", bold=True) if (n_warn and use_color) else (f" ⚠ {n_warn}" if n_warn else "")
 
-    # Origin: 1 line
-    if rev.origin_events:
-        ev = rev.origin_events[0]
-        # strip "(agent will classify)" suffix to keep it tight
-        origin_short = ev.summary.replace(" (agent will classify)", "")
-        out.append(f"  origin: {origin_short}")
-    else:
-        out.append(f"  origin: hand edit")
-
-    # Section deltas: 1 line each
-    for sc in rev.section_changes:
-        sign = "+" if sc.bytes_delta >= 0 else ""
-        warn = ""
-        if abs(sc.growth_pct) >= 50 and sc.bytes_before > 0:
-            warn_str = f" ⚠ {sc.growth_pct:+.0f}%"
-            warn = style(warn_str, fg="yellow", bold=True) if use_color else warn_str
-        # Trim section summary to fit
-        summary = sc.summary
-        if len(summary) > 50:
-            summary = summary[:47] + "..."
-        out.append(
-            f"  • {sc.name:18} {sign}{sc.bytes_delta:>5}B{warn}  ({summary})"
-        )
-
-    # Output: condensed onto 1 line
-    if rev.output_changes:
-        outputs_str = ", ".join(
-            f"{oc.filename} {('+' if oc.bytes_delta >= 0 else '')}{oc.bytes_delta}B"
-            for oc in rev.output_changes
-        )
-        out.append(f"  outputs: {outputs_str}")
-
-    # Targets: 1 line if bound
-    if rev.target_bindings:
-        tb_str = ", ".join(f"{tb.path} [{tb.mode}]" for tb in rev.target_bindings)
-        out.append(f"  → sync: {tb_str}")
-
-    # Action menu: 1 line
     a = style("[a]", fg="green", bold=True) if use_color else "[a]"
     r = style("[r]", fg="red", bold=True) if use_color else "[r]"
     e = style("[e]", fg="cyan", bold=True) if use_color else "[e]"
     d = style("[d]", fg="white", bold=True) if use_color else "[d]"
     q = style("[q]", fg="white") if use_color else "[q]"
-    out.append("")
-    out.append(f"reply: {a}pprove  {r}eject  {e}dit  {d}iff (full)  {q}uit")
+    menu = f"{a}pprove {r}eject {e}dit {d}iff {q}uit"
+
+    out.append(
+        style(f"forge review · {n} changed{warn_marker}", bold=True)
+        + f"  ·  reply {menu}"
+    )
+
+    # Line 2: per-section deltas, separated by " · "
+    if rev.section_changes:
+        parts = []
+        for sc in rev.section_changes:
+            sign = "+" if sc.bytes_delta >= 0 else ""
+            warn = ""
+            if abs(sc.growth_pct) >= 50 and sc.bytes_before > 0:
+                w = "⚠"
+                warn = style(w, fg="yellow", bold=True) if use_color else w
+            parts.append(f"{sc.name} {sign}{sc.bytes_delta}B{warn}")
+        out.append("  " + " · ".join(parts))
+
+    # Line 3: outputs
+    if rev.output_changes:
+        outputs_str = ", ".join(
+            f"{oc.filename} {('+' if oc.bytes_delta >= 0 else '')}{oc.bytes_delta}B"
+            for oc in rev.output_changes
+        )
+        line = f"  outputs: {outputs_str}"
+        if rev.target_bindings:
+            tb = rev.target_bindings[0]
+            line += f"  →  {tb.path}"
+        out.append(line)
+
+    # Line 4: origin (truncate to keep one-line)
+    if rev.origin_events:
+        ev = rev.origin_events[0]
+        origin_short = ev.summary.replace(" (agent will classify)", "")
+        if len(origin_short) > 80:
+            origin_short = origin_short[:77] + "..."
+        out.append(f"  from: {origin_short}")
+    else:
+        out.append("  from: hand edit")
 
     return "\n".join(out)
 
