@@ -109,14 +109,14 @@ Before approve, demo the cross-runtime point. Run:
 
 ```bash
 forge build
-ls .forge/output/
+ls output/
 ```
 
 Show:
 
 > "Same source compiled into two runtime views:
->   - `.forge/output/CLAUDE.md` — what Claude Code reads
->   - `.forge/output/AGENTS.md` — what Codex / OpenCode / etc. read
+>   - `output/CLAUDE.md` — what Claude Code reads
+>   - `output/AGENTS.md` — what Codex / OpenCode / etc. read
 >
 > If you change `sp/section/preferences.md`, both outputs update on the next approve. **You're not maintaining two parallel files.** That's the cross-runtime point of forge."
 
@@ -141,26 +141,38 @@ forge approve -m "<message>"
 Show output. Then:
 
 ```bash
-cat .forge/changelog.md
+cat CHANGELOG.md
 ```
 
-> "This changelog is your audit trail. In 3 months, when you wonder 'when did I add the no-emoji rule?', `grep .forge/changelog.md`. **That's the provenance point.**"
+> "This changelog is your audit trail. In 3 months, when you wonder 'when did I add the no-emoji rule?', `grep CHANGELOG.md`. **That's the provenance point.** It lives at the workspace root so PRs reviewing your context show this changelog inline."
 
-### Step 8 — Tell user how to wire to real Claude Code
+### Step 8 — Wire output to live Claude Code (no symlink ceremony)
 
-**Do not auto-wire.** Tell user explicitly:
+Ask the user **once**:
 
-> "Your forge workspace's compiled output lives at `<workspace>/.forge/output/CLAUDE.md`. But Claude Code reads `~/.claude/CLAUDE.md`. To bridge:
->
-> Option A (one-time copy each approve):
->   `cp <workspace>/.forge/output/CLAUDE.md ~/.claude/CLAUDE.md`
->
-> Option B (symlink, recommended — auto-updates on every forge approve):
->   `ln -sf <workspace>/.forge/output/CLAUDE.md ~/.claude/CLAUDE.md`
->
-> I'm not running this for you — `~/.claude/CLAUDE.md` is your global config and overwriting it without your explicit OK feels wrong. Run whichever you prefer."
+> "Want me to install `output/CLAUDE.md` to `~/.claude/CLAUDE.md` so future approves automatically refresh what Claude Code reads? (Recommended: yes, in symlink mode — every approve takes effect with no extra step.)"
 
-End the onboarding with: "You're set up. From here on, edit `sp/section/<name>.md` whenever your context changes, then say 'approve' and I'll run the review flow for you."
+If yes, run:
+
+```bash
+forge target install claude-code --to ~/.claude/CLAUDE.md --mode symlink
+```
+
+(If `~/.claude/CLAUDE.md` already exists with their old content, the command refuses. Either:
+1. Move it aside first: `mv ~/.claude/CLAUDE.md ~/.claude/CLAUDE.md.bak` — then re-run install.
+2. Pass `--force` if user explicitly OKs overwrite.)
+
+Tell them what `install` does:
+
+> "Recorded the binding in `.forge/manifest.json`. From now on, every `forge approve` automatically refreshes `~/.claude/CLAUDE.md`. To unbind later: `forge target remove claude-code`."
+
+If the user says "not now," show the equivalent manual command and stop:
+
+> "Run `forge target install claude-code --to ~/.claude/CLAUDE.md --mode symlink` whenever you're ready. Until then, your output lives at `output/CLAUDE.md` and Claude Code reads `~/.claude/CLAUDE.md` — they're disconnected."
+
+**Don't auto-install without asking.** `~/.claude/CLAUDE.md` is global config; overwriting it silently is a trust violation.
+
+End the onboarding with: "You're set up. Edit `sp/section/<name>.md` when context changes, say 'approve' or '过一下', and I'll run the review flow."
 
 ## Review flow (when user already has a workspace)
 
@@ -217,11 +229,11 @@ Wait for user.
 forge approve -m "<final message>"
 ```
 
-Show approved hash and `wrote` lines.
+Show approved hash, `wrote` lines, and `synced →` lines (any configured `forge target` bindings auto-pushed in this same approve).
 
-If workspace appears to be a vault (heuristic: workspace path is `~/dxy_OS` or contains `02 user/`), remind: "Run `cp .forge/output/CLAUDE.md ~/.claude/CLAUDE.md` to refresh global Claude Code (or use a symlink — see onboarding §8)."
+If `forge target list` is empty and the user is on a personal workstation, mention once: "You don't have a target binding. Want me to install one so future approves auto-refresh `~/.claude/CLAUDE.md`? (`forge target install claude-code --to ~/.claude/CLAUDE.md --mode symlink`)" Don't repeat this hint after they decline.
 
-If workspace is a git repo: ask once "Want me to also `git add` and commit `sp/` + `.forge/changelog.md`?" Don't push without explicit asking.
+If workspace is a git repo: ask once "Want me to also `git add` and commit `sp/`, `output/`, and `CHANGELOG.md`?" Don't push without explicit asking.
 
 #### Reject
 
@@ -246,7 +258,7 @@ Exception: if you're mid-task on a longer multi-edit (e.g. user said "rewrite my
 - ❌ Don't auto-approve without showing diff (R3 must run first)
 - ❌ Don't run `forge approve` if `forge doctor` returned errors
 - ❌ Don't `git push` without explicit user request
-- ❌ Don't auto-symlink `~/.claude/CLAUDE.md` — show the command, user runs it
+- ❌ Don't run `forge target install` without asking the user first — it touches `~/.claude/` (or wherever they install to), which is global config
 - ❌ Don't edit `02 user/**` or `06 system/**` in dxyOS-style vaults — those have separate write rules
 - ❌ Don't propose changes to `sp/config/master.md` schema unless user asked
 

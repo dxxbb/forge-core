@@ -63,11 +63,11 @@ def test_approve_promotes_and_rebuilds(workspace: Path) -> None:
     assert result.approved_hash
     # after approve, diff should be clean
     assert not gate.diff_summary(workspace).changed
-    # output reflects new content
-    compiled = (workspace / ".forge" / "output" / "CLAUDE.md").read_text("utf-8")
+    # output reflects new content (now at workspace root, visible)
+    compiled = (workspace / "output" / "CLAUDE.md").read_text("utf-8")
     assert "Alpha v2" in compiled
-    # changelog has the note
-    log = (workspace / ".forge" / "changelog.md").read_text("utf-8")
+    # changelog has the note (now at workspace root, git-trackable)
+    log = (workspace / "CHANGELOG.md").read_text("utf-8")
     assert "v2" in log
 
 

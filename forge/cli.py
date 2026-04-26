@@ -72,7 +72,7 @@ def new_cmd(path: str, minimal: bool) -> None:
         click.echo(f"  ls sp/section/                   # 5 sections + 1 wrapper, all with TODO placeholders")
         click.echo(f"  $EDITOR sp/section/about-me.md   # start with about-me, fill in your identity")
     click.echo(f"  forge init                       # snapshot baseline + compile")
-    click.echo(f"  cat .forge/output/CLAUDE.md      # see the compiled view (also AGENTS.md if not --minimal)")
+    click.echo(f"  cat output/CLAUDE.md             # see the compiled view (also AGENTS.md if not --minimal)")
     click.echo()
     if not minimal:
         click.echo(
@@ -82,6 +82,10 @@ def new_cmd(path: str, minimal: bool) -> None:
         click.echo("  forge ingest --from ~/.claude/CLAUDE.md     # auto-classify into 5 sections")
         click.echo()
     click.echo("Then edit, run `forge diff` to preview, `forge approve` to ship.")
+    click.echo(
+        "To wire compiled output to live Claude Code: "
+        "`forge target install claude-code --to ~/.claude/CLAUDE.md`"
+    )
 
 
 def _scaffold_minimal(root: Path) -> None:
@@ -360,6 +364,8 @@ def approve(root: str | None, note: str) -> None:
     click.echo(f"approved hash={result.approved_hash[:12]} at {result.approved_at}")
     for p in result.outputs_written:
         click.echo(f"  wrote {p}")
+    for adapter, path in result.targets_synced:
+        click.echo(f"  synced → {path} (adapter: {adapter})")
 
 
 @main.command()
@@ -633,6 +639,83 @@ def ingest(
 
 
 # ---------- skill install ----------
+
+# ---------- target sync (output → external paths) ----------
+
+@main.group()
+def target() -> None:
+    """Bind a compiled output to an external path (e.g. ~/.claude/CLAUDE.md).
+
+    Once bound, every `forge approve` automatically refreshes the external
+    file. No manual `cp` or `ln -sf` after each approve.
+    """
+
+
+@target.command("install")
+@click.argument("adapter")
+@click.option("--to", "to", type=click.Path(), required=True, help="Path to install at (e.g. ~/.claude/CLAUDE.md).")
+@click.option(
+    "--mode",
+    type=click.Choice(["copy", "symlink"]),
+    default="copy",
+    help="copy = write a fresh copy on each approve. symlink = always live (recommended for personal use).",
+)
+@click.option("--force", is_flag=True, help="Overwrite if target file already exists.")
+@click.option("--root", type=click.Path(), default=None)
+def target_install(adapter: str, to: str, mode: str, force: bool, root: str | None) -> None:
+    """Install an adapter's output to an external path (one-time).
+
+    \b
+    forge target install claude-code --to ~/.claude/CLAUDE.md
+    forge target install claude-code --to ~/.claude/CLAUDE.md --mode symlink
+    """
+    from forge.gate.sync import install_target, TargetError
+
+    try:
+        binding = install_target(
+            _root(root), adapter, Path(to).expanduser(), mode=mode, force=force
+        )
+    except TargetError as e:
+        click.echo(f"error: {e}", err=True)
+        sys.exit(1)
+    click.echo(f"installed: {binding['adapter']} → {binding['path']} ({binding['mode']})")
+    click.echo("future `forge approve` will refresh this target automatically.")
+
+
+@target.command("list")
+@click.option("--root", type=click.Path(), default=None)
+def target_list(root: str | None) -> None:
+    """Show all configured target bindings."""
+    from forge.gate.sync import list_targets
+
+    bindings = list_targets(_root(root))
+    if not bindings:
+        click.echo("no targets configured.")
+        click.echo("  install one: forge target install <adapter> --to <path>")
+        return
+    for b in bindings:
+        click.echo(f"  {b['adapter']:15} → {b['path']:60} [{b['mode']}]")
+
+
+@target.command("remove")
+@click.argument("adapter")
+@click.option("--delete-file", is_flag=True, help="Also delete the target file (default: leave it in place).")
+@click.option("--root", type=click.Path(), default=None)
+def target_remove(adapter: str, delete_file: bool, root: str | None) -> None:
+    """Remove a target binding from manifest."""
+    from forge.gate.sync import remove_target, TargetError
+
+    try:
+        removed = remove_target(_root(root), adapter, delete_file=delete_file)
+    except TargetError as e:
+        click.echo(f"error: {e}", err=True)
+        sys.exit(1)
+    if removed is None:
+        click.echo(f"no binding for adapter `{adapter}`")
+        sys.exit(1)
+    suffix = " (file deleted)" if delete_file else " (file left in place)"
+    click.echo(f"removed: {adapter} → {removed['path']}{suffix}")
+
 
 @main.command("install-skill")
 @click.option(

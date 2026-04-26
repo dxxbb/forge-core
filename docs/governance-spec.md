@@ -72,8 +72,8 @@ inbox（排队 + 分派）           ◀── v0.1: Inbox enqueue/list/skip
 ```
 
 两个 changelog 分开：
-- **`.forge/changelog.md`** —— gate 层（init、approve、reject）
-- **`.forge/governance/changelog.md`** —— governance 层（skip、watcher run）
+- **`<root>/CHANGELOG.md`** —— gate 层（init、approve、reject）。在工作区根，git 跟踪，PR 里直接可见。
+- **`.forge/governance/changelog.md`** —— governance 层（skip、watcher run）。runtime 状态，gitignored。
 
 这样翻审计时更清楚每条记录的因果层。
 

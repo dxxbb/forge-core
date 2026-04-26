@@ -77,7 +77,11 @@ def test_forge_new_output_compiles_immediately(tmp_path: Path) -> None:
 
     result = runner.invoke(main, ["init", "--root", str(target)])
     assert result.exit_code == 0, result.output
-    assert (target / ".forge" / "output" / "CLAUDE.md").exists()
+    # output/ is now at workspace root, visible (not hidden in .forge/)
+    assert (target / "output" / "CLAUDE.md").exists()
 
-    compiled = (target / ".forge" / "output" / "CLAUDE.md").read_text("utf-8")
+    compiled = (target / "output" / "CLAUDE.md").read_text("utf-8")
     assert "About me" in compiled
+
+    # CHANGELOG.md is also at workspace root, git-trackable
+    assert (target / "CHANGELOG.md").exists()

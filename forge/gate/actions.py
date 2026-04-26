@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -11,6 +11,7 @@ from forge.compiler.loader import load_sections, load_all_configs
 from forge.compiler.renderer import render
 from forge.gate.diff import source_diff, output_diff
 from forge.gate.state import GateState, hash_sp
+from forge.gate.sync import sync_targets
 from forge.targets import get_adapter
 
 
@@ -26,6 +27,7 @@ class ApproveResult:
     approved_hash: str
     approved_at: str
     outputs_written: list[Path]
+    targets_synced: list[tuple[str, Path]] = field(default_factory=list)
 
 
 def init(root: Path, force: bool = False) -> GateState:
@@ -36,6 +38,7 @@ def init(root: Path, force: bool = False) -> GateState:
             f".forge/ already initialized at {state.forge_dir}. Use force=True to re-init."
         )
     state.forge_dir.mkdir(exist_ok=True)
+    state.migrate_layout()
     if state.approved_sp.exists():
         shutil.rmtree(state.approved_sp)
     if state.current_sp.exists():
@@ -58,6 +61,7 @@ def diff_summary(root: Path) -> DiffResult:
     """Return a full diff: source-level + per-config output-level."""
     state = GateState(root)
     _require_initialized(state)
+    state.migrate_layout()
     src_diff = source_diff(state.approved_sp, state.current_sp)
 
     approved_sections = load_sections(state.approved_sp.parent)
@@ -83,9 +87,10 @@ def diff_summary(root: Path) -> DiffResult:
 
 
 def approve(root: Path, note: str = "") -> ApproveResult:
-    """Promote current sp/ to approved/, rebuild outputs, log."""
+    """Promote current sp/ to approved/, rebuild outputs, log, sync targets."""
     state = GateState(root)
     _require_initialized(state)
+    state.migrate_layout()
 
     # 1. compute hash of proposed state
     new_hash = hash_sp(state.current_sp)
@@ -108,11 +113,21 @@ def approve(root: Path, note: str = "") -> ApproveResult:
     line = f"- {now} approve (hash={new_hash[:12]})"
     if note:
         line += f" — {note}"
+    if not state.changelog_path.exists():
+        state.changelog_path.write_text(
+            f"# forge-core changelog\n\n", encoding="utf-8"
+        )
     with state.changelog_path.open("a", encoding="utf-8") as f:
         f.write(line + "\n")
 
+    # 6. push to configured external targets (e.g. ~/.claude/CLAUDE.md)
+    synced = sync_targets(state)
+
     return ApproveResult(
-        approved_hash=new_hash, approved_at=now, outputs_written=written
+        approved_hash=new_hash,
+        approved_at=now,
+        outputs_written=written,
+        targets_synced=synced,
     )
 
 
@@ -132,6 +147,7 @@ def build(root: Path) -> list[Path]:
     from approved state (it reads `sp/` not `.forge/approved/sp/`).
     """
     state = GateState(root)
+    state.migrate_layout()
     if not state.output_dir.exists():
         state.output_dir.mkdir(parents=True, exist_ok=True)
     return _rebuild_outputs(state)

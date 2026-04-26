@@ -21,7 +21,7 @@ def rollback(root: Path, target_hash_prefix: str | None = None) -> dict:
                              如果为 None，不做真实回滚；只返回可用的目标列表。
 
     v0.1 实际做的事:
-        1. 读 .forge/changelog.md 里的 "approve (hash=X) — msg" 行
+        1. 读 <root>/CHANGELOG.md 里的 "approve (hash=X) — msg" 行
         2. 如果 target_hash_prefix 对应某一条 approve 记录，把 .forge/approved/
            里对应的快照还原到 sp/
         3. 如果 target_hash_prefix 是当前 approved，就把当前 sp/ 恢复到 approved
