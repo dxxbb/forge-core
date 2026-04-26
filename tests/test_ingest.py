@@ -128,3 +128,55 @@ def test_classify_extract_json_handles_inline() -> None:
     out = 'Sure, here it is: {"about_me": "x"} done'
     parsed = _extract_json(out)
     assert parsed == {"about_me": "x"}
+
+
+# ---------- forge ingest --detect ----------
+
+def test_ingest_detect_finds_real_file_in_cwd(tmp_path: Path, monkeypatch) -> None:
+    """A real CLAUDE.md in cwd should be detected."""
+    runner = CliRunner()
+    real = tmp_path / "CLAUDE.md"
+    real.write_text("# real claude.md\n" + ("filler\n" * 50), encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(main, ["ingest", "--detect"])
+    assert result.exit_code == 0
+    assert "found 1 importable" in result.output
+    assert "CLAUDE.md" in result.output
+
+
+def test_ingest_detect_skips_broken_symlink(tmp_path: Path, monkeypatch) -> None:
+    """Broken symlinks should be reported as skipped, not break detection."""
+    runner = CliRunner()
+    bad = tmp_path / "CLAUDE.md"
+    bad.symlink_to(tmp_path / "does-not-exist")
+
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(main, ["ingest", "--detect"])
+    assert result.exit_code == 0
+    assert "no importable files found" in result.output
+    assert "broken symlink" in result.output
+
+
+def test_ingest_detect_skips_too_small_files(tmp_path: Path, monkeypatch) -> None:
+    """Files under threshold (~200B) are placeholders, skip them."""
+    runner = CliRunner()
+    tiny = tmp_path / "CLAUDE.md"
+    tiny.write_text("hi\n", encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(main, ["ingest", "--detect"])
+    assert result.exit_code == 0
+    assert "placeholder?" in result.output
+
+
+def test_ingest_detect_zero_found_gives_two_next_steps(tmp_path: Path, monkeypatch) -> None:
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    # also patch home so ~/.claude/CLAUDE.md doesn't bleed in from real env
+    monkeypatch.setenv("HOME", str(tmp_path))
+    result = runner.invoke(main, ["ingest", "--detect"])
+    assert result.exit_code == 0
+    assert "no importable files found" in result.output
+    assert "forge ingest --from" in result.output
+    assert "$EDITOR sp/section/" in result.output

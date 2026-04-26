@@ -661,6 +661,12 @@ def inbox_skip(todo_id: int, reason: str, root: str | None) -> None:
     help="Read input from stdin instead of a file.",
 )
 @click.option(
+    "--detect",
+    is_flag=True,
+    help="Scan standard locations and print importable candidates. Does NOT "
+    "ingest. Use to find sources cleanly (skips broken symlinks, empty files).",
+)
+@click.option(
     "--no-llm",
     is_flag=True,
     help="Skip Anthropic API call. Dumps everything into sp/section/workspace.md "
@@ -687,6 +693,7 @@ def inbox_skip(todo_id: int, reason: str, root: str | None) -> None:
 def ingest(
     source: str | None,
     from_stdin: bool,
+    detect: bool,
     no_llm: bool,
     root: str | None,
     overwrite: bool,
@@ -705,11 +712,15 @@ def ingest(
 
     The classification doesn't need to be perfect — that's what the gate is for.
     """
+    if detect:
+        _ingest_detect()
+        return
+
     if source and from_stdin:
         click.echo("error: pass either --from or --from-stdin, not both", err=True)
         sys.exit(1)
     if not source and not from_stdin:
-        click.echo("error: must pass --from <file> or --from-stdin", err=True)
+        click.echo("error: must pass --from <file> or --from-stdin (or --detect to list candidates)", err=True)
         sys.exit(1)
 
     workspace = _root(root)
@@ -790,6 +801,68 @@ def ingest(
     click.echo("Next:")
     click.echo("  forge review         # see origin + semantic summary + diff + bench in one view")
     click.echo("  forge approve -m \"import existing context\"")
+
+
+# ---------- ingest detection helper ----------
+
+_DETECT_CANDIDATES = [
+    ("~/.claude/CLAUDE.md", "Claude Code (global)"),
+    ("./CLAUDE.md", "Claude Code (project-local)"),
+    ("~/.cursorrules", "Cursor (legacy)"),
+    ("./.cursorrules", "Cursor (project-local)"),
+    ("./AGENTS.md", "AGENTS.md (Codex / OpenCode / project-local)"),
+]
+
+_MIN_BYTES = 200  # files smaller than this are likely placeholders, not real context
+
+
+def _ingest_detect() -> None:
+    """List importable context files. Resolves symlinks; skips broken/empty."""
+    import os
+
+    found: list[tuple[Path, str, int]] = []
+    skipped: list[tuple[str, str]] = []
+
+    for raw_path, label in _DETECT_CANDIDATES:
+        p = Path(os.path.expanduser(raw_path))
+        if not p.exists():
+            try:
+                if p.is_symlink():
+                    skipped.append((raw_path, "broken symlink"))
+                else:
+                    skipped.append((raw_path, "not present"))
+            except OSError:
+                skipped.append((raw_path, "not present"))
+            continue
+        try:
+            real = p.resolve(strict=True)
+            size = real.stat().st_size
+        except (OSError, FileNotFoundError):
+            skipped.append((raw_path, "broken symlink"))
+            continue
+        if size < _MIN_BYTES:
+            skipped.append((raw_path, f"only {size}B (placeholder?)"))
+            continue
+        found.append((p, label, size))
+
+    if found:
+        click.echo(f"found {len(found)} importable file{'s' if len(found) != 1 else ''}:")
+        click.echo()
+        for i, (p, label, size) in enumerate(found, start=1):
+            kb = f"{size / 1024:.1f}KB" if size >= 1024 else f"{size}B"
+            click.echo(f"  {i}. {p}  ({kb}, {label})")
+        click.echo()
+        click.echo("to ingest one: forge ingest --from <path>")
+    else:
+        click.echo("no importable files found in standard locations.")
+        click.echo()
+        if skipped:
+            click.echo("checked but skipped:")
+            for raw_path, reason in skipped:
+                click.echo(f"  {raw_path}  — {reason}")
+            click.echo()
+        click.echo("if you have a context file elsewhere, run: forge ingest --from <path>")
+        click.echo("or skip import and edit sections directly: $EDITOR sp/section/<name>.md")
 
 
 # ---------- skill install ----------

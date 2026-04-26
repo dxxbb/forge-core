@@ -57,50 +57,29 @@ After reply:
 - **write** → tell them which file to open first (`$EDITOR sp/section/about-me.md`), then they call you back when ready to review.
 - **explore** → run `cat sp/section/about-me.md` so they see the placeholder format, then say "edit any section, then say 'review' or 'over'."
 
-### Step 4 — (only if user said A or named a file) Detect + ingest
+### Step 4 — (only after user said "import") Detect + ingest
 
-This step **only runs** after the user agreed to import. If they said B or stayed silent, skip to Step 5 (let them edit).
-
-#### 4a. Detect what's importable
-
-Now scan for sources (only after user consent):
-- `~/.claude/CLAUDE.md`
-- `<cwd>/CLAUDE.md` (project-level if user is in a repo)
-- `~/.cursor/rules/` (or `.cursor/rules/` in cwd)
-- `<workspace>/AGENTS.md` and similar
-
-Show what you found and **ask one more time** if there's anything sensitive:
-
-> "Found:
->   - `~/.claude/CLAUDE.md` (8.2 KB) — your global Claude Code instructions
->   - `./CLAUDE.md` (1.4 KB) — this project's CLAUDE.md
->   - No .cursorrules
->
-> I'll send each through `forge ingest` (which calls Claude API to classify into 5 sections). Anything you don't want imported? Reply 'skip <name>' or 'all good'."
-
-Wait for their reply. Default to "all good" only if the user explicitly says go.
-
-#### 4b. Run ingest
-
-For each approved file, run:
+User said "import". **Don't** ls / Read / stat files yourself — `forge ingest --detect` already does it cleanly (resolves symlinks, skips broken/empty, classifies labels). Run it and paste the stdout verbatim.
 
 ```bash
-cd <workspace>
+forge ingest --detect
+```
+
+Three possible results:
+
+**Found 1 file** → ask: "Ingest this one? [yes / give me a different path / skip]"
+**Found 2+ files** → ask: "Which? Reply with the number, or 'all', or a path, or 'skip'."
+**Found 0 files** → output already lists what was skipped and why. Pass it through, then ask: "Got a context file elsewhere? Give me a path. Or 'skip' to start fresh."
+
+Once user picks (or pastes a path):
+
+```bash
 forge ingest --from <path>
 ```
 
-(If user has no `ANTHROPIC_API_KEY` and `forge ingest` errors out, fall back to `--no-llm` and tell them "I'll dump everything into workspace.md, you'll split it manually." Wait for OK on this fallback before running it.)
+If `forge ingest` errors with `ANTHROPIC_API_KEY not set`, ask: "No API key in your env. Want me to dump everything into workspace.md and you'll split manually (`--no-llm`), or set the key and retry?"
 
-If you (the agent) prefer to do classification yourself instead of calling the API, you may — read the source with Read tool, classify mentally per the schema in `forge/ingest/classifier.py`, write to `<workspace>/sp/section/<name>.md` directly. Do **not** use the Read tool to read source files until the user has consented to import.
-
-After ingest, summarize what landed where:
-
-> "Imported:
->   - `about-me.md` (340 lines from `~/.claude/CLAUDE.md` § About User)
->   - `preferences.md` (180 lines from § Preference)
->   - `workspace.md` (90 lines from § Workspace)
->   - `knowledge-base.md` (60 lines from § Knowledge Base)
->   - `skills.md` (20 lines from § Skills)"
+After ingest succeeds, the CLI prints a "wrote N section(s)" summary — paste that to the user, then go to Step 5 (review). **Don't** re-summarize what landed where; the CLI output is already the right info. Don't read source files with Read tool just to summarize — `forge review` will show the section diff in Step 5.
 
 ### Step 5 — Show the review screen
 
