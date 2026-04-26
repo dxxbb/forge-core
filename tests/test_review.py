@@ -130,7 +130,7 @@ def test_review_with_ingest_event(tmp_path: Path) -> None:
     src.write_text("imported content", encoding="utf-8")
     runner.invoke(
         main,
-        ["ingest", "--from", str(src), "--no-llm", "--root", str(ws)],
+        ["ingest", "--from", str(src), "--root", str(ws)],
     )
     rev = build_review(ws)
     assert rev.has_changes
@@ -211,7 +211,7 @@ def test_forge_review_origin_panel_shows_ingest_command(tmp_path: Path) -> None:
     src.write_text("imported content for test", encoding="utf-8")
     runner.invoke(
         main,
-        ["ingest", "--from", str(src), "--no-llm", "--root", str(ws)],
+        ["ingest", "--from", str(src), "--root", str(ws)],
     )
     res = runner.invoke(
         main,
@@ -220,4 +220,4 @@ def test_forge_review_origin_panel_shows_ingest_command(tmp_path: Path) -> None:
     assert res.exit_code == 0
     assert "forge ingest --from" in res.output
     assert "import-source.md" in res.output
-    assert "no-llm" in res.output  # warning about no-llm method
+    assert "(dump)" in res.output  # method indicator in origin summary

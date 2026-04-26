@@ -661,28 +661,27 @@ def inbox_skip(todo_id: int, reason: str, root: str | None) -> None:
     help="Read input from stdin instead of a file.",
 )
 @click.option(
-    "--detect",
-    is_flag=True,
-    help="Scan standard locations and print importable candidates. Does NOT "
-    "ingest. Use to find sources cleanly (skips broken symlinks, empty files).",
-)
-@click.option(
     "--from-claude-memory",
     is_flag=True,
-    help="Ingest Claude Code's auto-memory files (~/.claude/projects/*/memory/*.md). "
-    "These are already-distilled markdown, much cleaner than raw transcripts.",
+    help="Read Claude Code's auto-memory (~/.claude/projects/*/memory/*.md). "
+    "Already-distilled markdown across all projects.",
 )
 @click.option(
     "--claude-project",
     default=None,
-    help="With --from-claude-memory, restrict to a single project slug (see `forge ingest --detect`).",
+    help="With --from-claude-memory, restrict to one project slug.",
 )
 @click.option(
-    "--no-llm",
+    "--detect",
     is_flag=True,
-    help="Skip Anthropic API call. Dumps everything into sp/section/workspace.md "
-    "as one block; you split manually after. Use this if you don't have an API "
-    "key or want full control.",
+    help="Scan standard locations and print importable candidates. Doesn't read content.",
+)
+@click.option(
+    "--emit",
+    is_flag=True,
+    help="Print the source text to stdout (with provenance headers) and exit. "
+    "Workspace not modified. Use when an agent (you) wants to read the text and "
+    "classify into 5 sections in its own context, then Write each section file.",
 )
 @click.option(
     "--root",
@@ -695,35 +694,34 @@ def inbox_skip(todo_id: int, reason: str, root: str | None) -> None:
     is_flag=True,
     help="Overwrite non-template sections that already have user content.",
 )
-@click.option(
-    "--model",
-    default="claude-opus-4-7",
-    show_default=True,
-    help="Model for LLM classification path.",
-)
 def ingest(
     source: str | None,
     from_stdin: bool,
-    detect: bool,
     from_claude_memory: bool,
     claude_project: str | None,
-    no_llm: bool,
+    detect: bool,
+    emit: bool,
     root: str | None,
     overwrite: bool,
-    model: str,
 ) -> None:
-    """Import an existing CLAUDE.md / .cursorrules into 5 SP sections.
+    """Read context source(s); either dump into workspace.md or emit for agent classification.
 
-    Workflow:
-        1. Read input (file or stdin).
-        2. Classify into 5 sections (about-me / preferences / workspace /
-           knowledge-base / skills) — via Claude API by default, or dump into
-           one bucket with --no-llm.
-        3. Write each non-empty section to sp/section/<name>.md (working tree).
-        4. You then run `forge diff` to review the proposal, edit any section
-           that's wrong, and `forge approve` to ship.
+    forge does NOT call an LLM. Two paths:
 
-    The classification doesn't need to be perfect — that's what the gate is for.
+    \b
+    1. Default (CLI-direct, no agent):
+       Reads input → dumps everything into sp/section/workspace.md as one
+       block. You split manually with $EDITOR, then `forge review`.
+
+    \b
+    2. --emit (agent-driven, recommended in skill flow):
+       Reads input → prints to stdout with `--- from: <name> ---` provenance
+       headers → exits. Workspace untouched. Agent reads stdout, classifies
+       into 5 sections in its own context, writes per-section files via Write
+       tool, then runs `forge review`.
+
+    Sources: --from <path> | --from-stdin | --from-claude-memory.
+    Use --detect first to list candidates without reading.
     """
     if detect:
         _ingest_detect()
@@ -742,6 +740,54 @@ def ingest(
         )
         sys.exit(1)
 
+    # Read input
+    if source:
+        text = Path(source).read_text(encoding="utf-8")
+        source_path: Path | None = Path(source).resolve()
+        if not emit:
+            click.echo(f"reading {source_path} ({len(text)} chars)", err=True)
+    elif from_claude_memory:
+        text, source_path, file_count = _read_claude_memory(claude_project)
+        if not text.strip():
+            click.echo("error: no Claude Code memory files found", err=True)
+            sys.exit(1)
+        scope = f"project={claude_project}" if claude_project else "all projects"
+        if not emit:
+            click.echo(f"reading {file_count} Claude memory file(s) ({scope}, {len(text)} chars total)", err=True)
+    else:
+        text = sys.stdin.read()
+        source_path = None
+        if not emit:
+            click.echo(f"read {len(text)} chars from stdin", err=True)
+
+    if not text.strip():
+        click.echo("error: input is empty", err=True)
+        sys.exit(1)
+
+    # ---- emit path: print to stdout, no disk write ----
+    if emit:
+        click.echo(text, nl=False)
+
+        # Record a "pending agent classification" event so review surfaces
+        # the source even though no sections written yet
+        workspace = _root(root)
+        if (workspace / "sp" / "section").exists():
+            from forge.gate.origin import record_event
+            if from_claude_memory:
+                scope = f" (project={claude_project})" if claude_project else " (all projects)"
+                summary = f"forge ingest --emit --from-claude-memory{scope} (agent will classify)"
+                details = {"source": "claude-code-memory", "claude_project": claude_project,
+                           "method": "emit", "input_chars": len(text)}
+            elif source_path:
+                summary = f"forge ingest --emit --from {source_path} (agent will classify)"
+                details = {"source": str(source_path), "method": "emit", "input_chars": len(text)}
+            else:
+                summary = "forge ingest --emit --from-stdin (agent will classify)"
+                details = {"source": "<stdin>", "method": "emit", "input_chars": len(text)}
+            record_event(workspace, kind="ingest", summary=summary, details=details)
+        return
+
+    # ---- default path: dump everything into workspace.md ----
     workspace = _root(root)
     if not (workspace / "sp" / "section").exists():
         click.echo(
@@ -751,34 +797,8 @@ def ingest(
         )
         sys.exit(1)
 
-    # Read input
-    if source:
-        text = Path(source).read_text(encoding="utf-8")
-        source_path: Path | None = Path(source).resolve()
-        click.echo(f"reading {source_path} ({len(text)} chars)")
-    elif from_claude_memory:
-        text, source_path, file_count = _read_claude_memory(claude_project)
-        if not text.strip():
-            click.echo("error: no Claude Code memory files found", err=True)
-            sys.exit(1)
-        scope = f"project={claude_project}" if claude_project else "all projects"
-        click.echo(f"reading {file_count} Claude memory file(s) ({scope}, {len(text)} chars total)")
-    else:
-        text = sys.stdin.read()
-        source_path = None
-        click.echo(f"read {len(text)} chars from stdin")
-
-    if not text.strip():
-        click.echo("error: input is empty", err=True)
-        sys.exit(1)
-
-    # Classify
     try:
-        if no_llm:
-            click.echo("classifying with --no-llm: dumping into one section, no API call")
-        else:
-            click.echo(f"classifying via {model}, this may take 10-30s...")
-        result = classify(text, use_llm=not no_llm, model=model)
+        result = classify(text)
         result.source_path = source_path
     except IngestError as e:
         click.echo(f"error: {e}", err=True)
@@ -792,7 +812,7 @@ def ingest(
         sys.exit(1)
 
     if not written:
-        click.echo("(nothing classified — input was empty or all sections were empty)")
+        click.echo("(nothing to write — input was empty)")
         return
 
     click.echo(f"\nwrote {len(written)} section(s) into {workspace}/sp/section/:")
@@ -800,33 +820,21 @@ def ingest(
         body_size = len(p.read_text("utf-8"))
         click.echo(f"  {p.name}  ({body_size}B)")
 
-    # Record origin so `forge review` can show "this came from `forge ingest <path>`"
+    # Record origin so `forge review` can show "this came from `forge ingest ...`"
     from forge.gate.origin import record_event
 
     sections_touched = [p.stem for p in written]
     if from_claude_memory:
         scope = f" (project={claude_project})" if claude_project else " (all projects)"
-        # source_path here is the first memory file scanned; use it as a representative
-        # but compose the summary around the multi-file ingest
-        summary = f"forge ingest --from-claude-memory{scope}"
-        details = {
-            "source": "claude-code-memory",
-            "claude_project": claude_project,
-            "method": result.method,
-            "model": model if not no_llm else None,
-            "input_chars": len(text),
-        }
+        summary = f"forge ingest --from-claude-memory{scope} (dump)"
+        details = {"source": "claude-code-memory", "claude_project": claude_project,
+                   "method": "dump", "input_chars": len(text)}
     elif source_path:
-        summary = f"forge ingest --from {source_path}"
-        details = {
-            "source": str(source_path),
-            "method": result.method,
-            "model": model if not no_llm else None,
-            "input_chars": len(text),
-        }
+        summary = f"forge ingest --from {source_path} (dump)"
+        details = {"source": str(source_path), "method": "dump", "input_chars": len(text)}
     else:
-        summary = "forge ingest --from-stdin"
-        details = {"source": "<stdin>", "method": result.method, "input_chars": len(text)}
+        summary = "forge ingest --from-stdin (dump)"
+        details = {"source": "<stdin>", "method": "dump", "input_chars": len(text)}
     record_event(
         workspace,
         kind="ingest",
@@ -837,8 +845,8 @@ def ingest(
 
     click.echo()
     click.echo("Next:")
-    click.echo("  forge review         # see origin + semantic summary + diff + bench in one view")
-    click.echo("  forge approve -m \"import existing context\"")
+    click.echo("  forge review         # see origin + diff + bench")
+    click.echo("  $EDITOR sp/section/workspace.md   # split into 5 sections, then approve")
 
 
 # ---------- ingest detection helper ----------
@@ -1277,8 +1285,10 @@ def _format_review(rev, use_color: bool) -> str:
             ts = ev.at.replace("T", " ").rsplit("+", 1)[0]
             sects = ", ".join(ev.sections_touched) if ev.sections_touched else "(none recorded)"
             out.append(f"│           at {ts} UTC, touched: {sects}")
-            if ev.kind == "ingest" and ev.details.get("method") == "no-llm":
-                out.append(f"│           {style('⚠', fg='yellow')} method=no-llm: classification dumped to one section, review carefully")
+            if ev.kind == "ingest" and ev.details.get("method") == "dump":
+                out.append(f"│           {style('⚠', fg='yellow')} method=dump: everything in workspace.md, split into 5 sections via $EDITOR")
+            elif ev.kind == "ingest" and ev.details.get("method") == "emit":
+                out.append(f"│           {style('▸', fg='cyan')} method=emit: agent classifies in own context, then writes per-section files")
     else:
         out.append(f"│ Origin:  hand edit (no recorded ingest/event)")
     n_sections = len(rev.section_changes)

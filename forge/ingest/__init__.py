@@ -1,16 +1,15 @@
-"""forge ingest: import an existing CLAUDE.md / .cursorrules / similar file
-into a forge workspace by classifying it into the 5 SP MVP sections.
+"""forge ingest: read existing context files, dump or emit. NO LLM call.
+
+The agent (Claude Code, Codex, etc.) IS the LLM. forge does not duplicate.
 
 Two paths:
-- LLM path (default): call Anthropic API with a fixed classification prompt,
-  get JSON back, write each non-empty section to sp/section/<name>.md.
-- --no-llm path: dump everything into sp/section/imported.md as one block,
-  user splits manually.
+- Default (CLI-direct): dump everything into sp/section/workspace.md. User
+  splits manually with $EDITOR.
+- --emit (agent-driven): print to stdout with provenance headers; agent reads,
+  classifies in own context, writes per-section files via Write tool.
 
-The LLM path is what the project's "review-gate" architecture is *built for*:
-the LLM proposes a classification, forge writes it to working tree, user
-reviews via `forge diff`, edits anything wrong, then `forge approve`. Bad
-classification doesn't matter — it lands in working tree, not approved state.
+Sources: --from <path>, --from-stdin, --from-claude-memory.
+Discovery: --detect lists candidates without reading.
 """
 
 from forge.ingest.classifier import classify, write_sections, IngestError

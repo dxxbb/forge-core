@@ -1,4 +1,4 @@
-"""Test forge ingest classifier (no-llm path + workspace integration)."""
+"""Test forge ingest: dump path (default) + emit path (agent-driven)."""
 
 from __future__ import annotations
 
@@ -11,17 +11,16 @@ from forge.cli import main
 from forge.ingest import classify, write_sections, IngestError
 
 
-def test_no_llm_path_dumps_to_workspace(tmp_path: Path) -> None:
-    text = "I am a backend engineer. I prefer Python. Currently working on forge."
-    result = classify(text, use_llm=False)
-    assert result.method == "no-llm"
+def test_default_classify_dumps_into_workspace_section() -> None:
+    text = "I am a backend engineer. I prefer Python."
+    result = classify(text)
+    assert result.method == "dump"
     assert result.sections["workspace"] == text
-    # Other sections empty
     for k in ("about-me", "preferences", "knowledge-base", "skills"):
         assert result.sections[k] == ""
 
 
-def test_no_llm_writes_into_workspace(tmp_path: Path) -> None:
+def test_dump_writes_into_workspace(tmp_path: Path) -> None:
     runner = CliRunner()
     runner.invoke(main, ["new", str(tmp_path / "ws")])
     src = tmp_path / "input.md"
@@ -29,12 +28,12 @@ def test_no_llm_writes_into_workspace(tmp_path: Path) -> None:
 
     result = runner.invoke(
         main,
-        ["ingest", "--from", str(src), "--no-llm", "--root", str(tmp_path / "ws"), "--overwrite"],
+        ["ingest", "--from", str(src), "--root", str(tmp_path / "ws"), "--overwrite"],
     )
     assert result.exit_code == 0, result.output
     workspace_md = (tmp_path / "ws" / "sp" / "section" / "workspace.md").read_text("utf-8")
     assert "Some content here." in workspace_md
-    assert "Review carefully" in workspace_md  # source-attribution note
+    assert "Review carefully" in workspace_md  # provenance note
 
 
 def test_ingest_refuses_missing_workspace(tmp_path: Path) -> None:
@@ -44,7 +43,7 @@ def test_ingest_refuses_missing_workspace(tmp_path: Path) -> None:
     runner = CliRunner()
     result = runner.invoke(
         main,
-        ["ingest", "--from", str(src), "--no-llm", "--root", str(tmp_path / "no-ws")],
+        ["ingest", "--from", str(src), "--root", str(tmp_path / "no-ws")],
     )
     assert result.exit_code == 1
     assert "not a forge workspace" in result.output
@@ -54,7 +53,7 @@ def test_ingest_refuses_missing_input(tmp_path: Path) -> None:
     runner = CliRunner()
     runner.invoke(main, ["new", str(tmp_path / "ws")])
 
-    result = runner.invoke(main, ["ingest", "--no-llm", "--root", str(tmp_path / "ws")])
+    result = runner.invoke(main, ["ingest", "--root", str(tmp_path / "ws")])
     assert result.exit_code == 1
     assert "must pass --from" in result.output
 
@@ -63,7 +62,6 @@ def test_ingest_overwrite_refused_for_user_content(tmp_path: Path) -> None:
     runner = CliRunner()
     runner.invoke(main, ["new", str(tmp_path / "ws")])
     workspace_md = tmp_path / "ws" / "sp" / "section" / "workspace.md"
-    # Replace template with user content (no [TODO: marker)
     workspace_md.write_text(
         "---\nname: workspace\ntype: workspace\n---\n\nuser real content\n",
         encoding="utf-8",
@@ -74,7 +72,7 @@ def test_ingest_overwrite_refused_for_user_content(tmp_path: Path) -> None:
 
     result = runner.invoke(
         main,
-        ["ingest", "--from", str(src), "--no-llm", "--root", str(tmp_path / "ws")],
+        ["ingest", "--from", str(src), "--root", str(tmp_path / "ws")],
     )
     assert result.exit_code == 1
     assert "already exists" in result.output
@@ -83,20 +81,18 @@ def test_ingest_overwrite_refused_for_user_content(tmp_path: Path) -> None:
 def test_ingest_overwrites_template_placeholder(tmp_path: Path) -> None:
     runner = CliRunner()
     runner.invoke(main, ["new", str(tmp_path / "ws")])
-    # Default template has [TODO: marker, so overwriting workspace section
-    # is allowed without --overwrite
 
     src = tmp_path / "input.md"
     src.write_text("imported content", encoding="utf-8")
 
     result = runner.invoke(
         main,
-        ["ingest", "--from", str(src), "--no-llm", "--root", str(tmp_path / "ws")],
+        ["ingest", "--from", str(src), "--root", str(tmp_path / "ws")],
     )
     assert result.exit_code == 0, result.output
     workspace_md = (tmp_path / "ws" / "sp" / "section" / "workspace.md").read_text("utf-8")
     assert "imported content" in workspace_md
-    assert "[TODO:" not in workspace_md  # template was replaced
+    assert "[TODO:" not in workspace_md
 
 
 def test_ingest_stdin(tmp_path: Path) -> None:
@@ -105,7 +101,7 @@ def test_ingest_stdin(tmp_path: Path) -> None:
 
     result = runner.invoke(
         main,
-        ["ingest", "--from-stdin", "--no-llm", "--root", str(tmp_path / "ws"), "--overwrite"],
+        ["ingest", "--from-stdin", "--root", str(tmp_path / "ws"), "--overwrite"],
         input="content from stdin",
     )
     assert result.exit_code == 0, result.output
@@ -113,33 +109,80 @@ def test_ingest_stdin(tmp_path: Path) -> None:
     assert "content from stdin" in workspace_md
 
 
-def test_classify_extract_json_handles_fenced_response() -> None:
-    """LLM might wrap JSON in fenced block; classifier should still parse."""
-    from forge.ingest.classifier import _extract_json
-
-    out = '```json\n{"about_me": "x"}\n```'
-    parsed = _extract_json(out)
-    assert parsed == {"about_me": "x"}
+# ---------- forge ingest --emit (agent-driven) ----------
 
 
-def test_classify_extract_json_handles_inline() -> None:
-    from forge.ingest.classifier import _extract_json
+def test_emit_prints_to_stdout_no_disk_write(tmp_path: Path) -> None:
+    runner = CliRunner()
+    runner.invoke(main, ["new", str(tmp_path / "ws")])
+    src = tmp_path / "input.md"
+    src.write_text("the source content", encoding="utf-8")
 
-    out = 'Sure, here it is: {"about_me": "x"} done'
-    parsed = _extract_json(out)
-    assert parsed == {"about_me": "x"}
+    workspace_md = tmp_path / "ws" / "sp" / "section" / "workspace.md"
+    before = workspace_md.read_text("utf-8")
+
+    result = runner.invoke(
+        main,
+        ["ingest", "--from", str(src), "--emit", "--root", str(tmp_path / "ws")],
+    )
+    assert result.exit_code == 0, result.output
+    assert "the source content" in result.output  # printed to stdout
+    # disk untouched (workspace.md still has TODO template)
+    assert workspace_md.read_text("utf-8") == before
+
+
+def test_emit_records_origin_event_for_review(tmp_path: Path) -> None:
+    """--emit should still record an origin event so `forge review` shows
+    'agent will classify' even before agent writes the sections."""
+    from forge.gate.origin import read_pending
+
+    runner = CliRunner()
+    runner.invoke(main, ["new", str(tmp_path / "ws")])
+    src = tmp_path / "input.md"
+    src.write_text("source content", encoding="utf-8")
+
+    runner.invoke(
+        main,
+        ["ingest", "--from", str(src), "--emit", "--root", str(tmp_path / "ws")],
+    )
+    events = read_pending(tmp_path / "ws")
+    assert len(events) == 1
+    assert "--emit" in events[0].summary
+    assert "agent will classify" in events[0].summary
+
+
+def test_emit_with_claude_memory(tmp_path: Path, monkeypatch) -> None:
+    runner = CliRunner()
+    runner.invoke(main, ["new", str(tmp_path / "ws")])
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    mem_dir = tmp_path / ".claude" / "projects" / "-test" / "memory"
+    mem_dir.mkdir(parents=True)
+    (mem_dir / "feedback.md").write_text("user prefers Python", encoding="utf-8")
+    (mem_dir / "user_role.md").write_text("user is backend engineer", encoding="utf-8")
+
+    result = runner.invoke(
+        main,
+        ["ingest", "--from-claude-memory", "--emit", "--root", str(tmp_path / "ws")],
+    )
+    assert result.exit_code == 0, result.output
+    # both files appear in stdout, with provenance headers
+    assert "user prefers Python" in result.output
+    assert "user is backend engineer" in result.output
+    assert "from: -test/feedback.md" in result.output
+    assert "from: -test/user_role.md" in result.output
 
 
 # ---------- forge ingest --detect ----------
 
+
 def test_ingest_detect_finds_real_file_in_cwd(tmp_path: Path, monkeypatch) -> None:
-    """A real CLAUDE.md in cwd should be detected."""
     runner = CliRunner()
     real = tmp_path / "CLAUDE.md"
     real.write_text("# real claude.md\n" + ("filler\n" * 50), encoding="utf-8")
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("HOME", str(tmp_path))  # isolate from real ~/.claude/
+    monkeypatch.setenv("HOME", str(tmp_path))
     result = runner.invoke(main, ["ingest", "--detect"])
     assert result.exit_code == 0
     assert "found 1 importable" in result.output
@@ -147,7 +190,6 @@ def test_ingest_detect_finds_real_file_in_cwd(tmp_path: Path, monkeypatch) -> No
 
 
 def test_ingest_detect_skips_broken_symlink(tmp_path: Path, monkeypatch) -> None:
-    """Broken symlinks should be reported as skipped, not break detection."""
     runner = CliRunner()
     bad = tmp_path / "CLAUDE.md"
     bad.symlink_to(tmp_path / "does-not-exist")
@@ -161,7 +203,6 @@ def test_ingest_detect_skips_broken_symlink(tmp_path: Path, monkeypatch) -> None
 
 
 def test_ingest_detect_skips_too_small_files(tmp_path: Path, monkeypatch) -> None:
-    """Files under threshold (~200B) are placeholders, skip them."""
     runner = CliRunner()
     tiny = tmp_path / "CLAUDE.md"
     tiny.write_text("hi\n", encoding="utf-8")
@@ -176,7 +217,6 @@ def test_ingest_detect_skips_too_small_files(tmp_path: Path, monkeypatch) -> Non
 def test_ingest_detect_zero_found_gives_two_next_steps(tmp_path: Path, monkeypatch) -> None:
     runner = CliRunner()
     monkeypatch.chdir(tmp_path)
-    # patch home so real ~/.claude/* doesn't bleed in
     monkeypatch.setenv("HOME", str(tmp_path))
     result = runner.invoke(main, ["ingest", "--detect"])
     assert result.exit_code == 0
@@ -186,12 +226,10 @@ def test_ingest_detect_zero_found_gives_two_next_steps(tmp_path: Path, monkeypat
 
 
 def test_ingest_detect_finds_claude_memory(tmp_path: Path, monkeypatch) -> None:
-    """When ~/.claude/projects/*/memory/*.md exists, detect should surface it."""
     runner = CliRunner()
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("HOME", str(tmp_path))
 
-    # build a fake Claude Code memory layout
     mem_dir = tmp_path / ".claude" / "projects" / "-test-project" / "memory"
     mem_dir.mkdir(parents=True)
     (mem_dir / "MEMORY.md").write_text("- [Some memory](file.md)\n", encoding="utf-8")
@@ -204,8 +242,8 @@ def test_ingest_detect_finds_claude_memory(tmp_path: Path, monkeypatch) -> None:
     assert "forge ingest --from-claude-memory" in result.output
 
 
-def test_ingest_from_claude_memory_writes_section(tmp_path: Path, monkeypatch) -> None:
-    """`forge ingest --from-claude-memory --no-llm` should pull all memory into a section."""
+def test_ingest_from_claude_memory_dump_writes_section(tmp_path: Path, monkeypatch) -> None:
+    """Default dump mode: --from-claude-memory should pull all memory into workspace.md."""
     runner = CliRunner()
     ws = tmp_path / "ws"
     runner.invoke(main, ["new", str(ws)])
@@ -217,10 +255,9 @@ def test_ingest_from_claude_memory_writes_section(tmp_path: Path, monkeypatch) -
 
     result = runner.invoke(
         main,
-        ["ingest", "--from-claude-memory", "--no-llm", "--root", str(ws), "--overwrite"],
+        ["ingest", "--from-claude-memory", "--root", str(ws), "--overwrite"],
     )
     assert result.exit_code == 0, result.output
-    assert "1 Claude memory file" in result.output
     workspace_md = (ws / "sp" / "section" / "workspace.md").read_text("utf-8")
     assert "user prefers Python" in workspace_md
-    assert "from: -test/feedback_x.md" in workspace_md  # provenance header preserved
+    assert "from: -test/feedback_x.md" in workspace_md

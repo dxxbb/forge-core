@@ -57,45 +57,87 @@ After reply:
 - **write** → tell them which file to open first (`$EDITOR sp/section/about-me.md`), then they call you back when ready to review.
 - **explore** → run `cat sp/section/about-me.md` so they see the placeholder format, then say "edit any section, then say 'review' or 'over'."
 
-### Step 4 — (only after user said "import") Detect + ingest
+### Step 4 — (only after user said "import") Detect → Emit → Classify → Write
 
-User said "import". **Don't** ls / Read / stat files yourself — `forge ingest --detect` already does it cleanly (resolves symlinks, skips broken/empty, scans Claude Code memory across projects). Run it and paste stdout verbatim.
+User said "import". forge does NOT call an LLM — **you** do. The flow:
+
+1. **Detect** what's importable
+2. **Emit** the source text from forge to your context
+3. **Classify** in your own context into 5 sections
+4. **Write** each section file via Write tool
+
+#### 4a. Detect
+
+Don't ls / Read / stat yourself. Run:
 
 ```bash
 forge ingest --detect
 ```
 
-The output lists found sources by number. Three families of source:
+Paste stdout verbatim. The output lists three families: static files (`CLAUDE.md`, `.cursorrules`, etc.), Claude Code auto-memory (`~/.claude/projects/*/memory/*.md`, often the richest single source), transcripts (counted, v0.4-only).
 
-- **Static files**: `~/.claude/CLAUDE.md`, `./CLAUDE.md`, `~/.codex/AGENTS.md`, `.cursorrules` etc. — single-file context.
-- **Claude Code auto-memory**: `~/.claude/projects/*/memory/*.md` — already-distilled markdown, organized per project. Often the **richest single source** for users who've used Claude Code for a while.
-- **Transcripts**: counted but not yet ingestible (v0.4 — too noisy for direct LLM call).
+Ask user:
 
-Based on the output, ask the user:
-
-> "Found N sources (paste detect output above). Which to import? Reply:
+> "Found N sources. Which to import? Reply:
 > - **all** → all Claude memory across projects
 > - **<project-slug>** → just one project's memory
 > - **<n>** → numbered file from the list
 > - **<path>** → some other file you have
 > - **skip** → start fresh"
 
-Once user picks:
+#### 4b. Emit (forge prints source text to stdout)
+
+Once user picks, run with `--emit`:
 
 ```bash
 # numbered file or arbitrary path
-forge ingest --from <path>
+forge ingest --from <path> --emit
 
 # all Claude memory
-forge ingest --from-claude-memory
+forge ingest --from-claude-memory --emit
 
 # one project's memory
-forge ingest --from-claude-memory --claude-project <slug>
+forge ingest --from-claude-memory --claude-project <slug> --emit
 ```
 
-If `forge ingest` errors with `ANTHROPIC_API_KEY not set`, ask: "No API key. Want me to dump everything into workspace.md (`--no-llm`, you split manually), or set the key and retry?"
+stdout is the raw concatenated source with `--- from: <name> ---` provenance headers between files. Workspace is **not** modified by emit. forge has recorded a "pending" origin event.
 
-After ingest, the CLI prints "wrote N section(s)". Paste that, then go to Step 5 (review). **Don't** re-summarize what landed where — `forge review` shows the section diff in Step 5.
+#### 4c. Classify (you do this in your own context)
+
+Read the emit stdout. Split into 5 sections per this schema:
+
+| Section | What goes here |
+|---|---|
+| `about-me` | identity. Who they are, role, work style. |
+| `preferences` | agent rules. Boundaries, output style, "don't / always". |
+| `workspace` | current active projects, focus areas. |
+| `knowledge-base` | long-term topic indexes, domain references. |
+| `skills` | reusable craft / workflows / procedures. |
+
+Preserve user's actual words. Don't paraphrase. Empty section is fine. For multi-source ingests (Claude memory across projects), use the `--- from: ... ---` headers as provenance — keep them or summarize, your call.
+
+#### 4d. Write (per-section files via Write tool)
+
+For each non-empty section, use Write to create `<workspace>/sp/section/<name>.md` with this frontmatter:
+
+```yaml
+---
+name: <name>
+type: <identity|preference|workspace|knowledge-base|skill>
+---
+
+<body>
+```
+
+Type mapping: `about-me`→identity, `preferences`→preference, `workspace`→workspace, `knowledge-base`→knowledge-base, `skills`→skill.
+
+If a section file already exists with non-template content (no `[TODO:` marker), warn the user before overwriting.
+
+After writing, go to Step 5 (`forge review`). The Origin panel will show your `--emit` event; review will show what each section now contains and how output/ will change.
+
+#### Fallback: dump mode (no agent classification)
+
+If you're in a non-agent context (CLI-direct user, or you want forge to handle it without your own classification work), run **without** `--emit` — forge dumps everything into `sp/section/workspace.md` and the user splits with $EDITOR. Use this if the user explicitly says "I'll split it myself".
 
 ### Step 5 — Show the review screen
 
