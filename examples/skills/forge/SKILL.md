@@ -38,52 +38,24 @@ forge new <path>
 cd <path>
 ```
 
-v0.2: `forge new` does **everything** — scaffolds files, runs `git init`, builds output, makes the first commit. No separate `forge init` needed. The workspace is a git repo from minute zero (any approve = a real git commit, viewable in `git log`, lazygit, GitHub PRs).
+`forge new` does everything in one go: scaffold + git init + first commit. Output is 4 lines — show it verbatim and don't pile on more explanation. The user sees a fresh empty workspace, not a wall of text.
 
-After it runs, **briefly** describe the structure:
+(Mental note for you, **don't dump on the user**: workspace is a git repo, has 5 SP sections + 2 cross-runtime configs, output/ already built with placeholders, `.forge/` is gitignored runtime state, history lives in git log. You'll surface these facts as the user encounters them, not all at once.)
 
-> "Scaffolded:
->   - `sp/section/` — 5 source sections (about-me, preferences, workspace, knowledge-base, skills) + 1 wrapper. Markdown files you own.
->   - `sp/config/` — 2 configs: one outputs `CLAUDE.md` (Claude Code), one outputs `AGENTS.md` (Codex / OpenCode / etc.). Same 5 sections, two views.
->   - `output/` — compiled views (rebuilt on every approve, git-tracked).
->   - `.git/` — your audit trail. `git log -- sp/` is `forge changelog`.
->   - `.forge/` — runtime state (target bindings + origin tracking). Gitignored.
->
-> Each section has a TODO placeholder. We'll fill them by importing your existing context next."
+### Step 3 — One short question, wait for answer
 
-### Step 3 — Show the empty workspace, ask permission to import
+After `forge new` prints its 4 lines, send exactly this (don't add structure descriptions, don't list commands, don't paraphrase):
 
-**STOP HERE before doing anything else.** After `forge new` finishes, the user has an empty 5-section workspace with TODO placeholders. **Show them what they have**, then **ask** whether to import existing context. Don't move on without an explicit yes.
+> Workspace ready at `<path>`. 5 sections sitting empty.
+>
+> Want me to import your existing CLAUDE.md / .cursorrules to fill them, or will you write fresh? Reply: **import** / **write** / **explore**
 
-First, summarize what they actually got. Read enough of `sp/section/*.md` to confirm structure (or use `ls`); then output a message like:
+**Then stop.** No tool calls until the user replies. Specifically: **do not** read `~/.claude/CLAUDE.md` or any other personal file, **do not** run `forge ingest`, **do not** preview structure with Read/ls. The workspace exists; that's enough for them to decide.
 
-> "Workspace scaffolded at `~/forge-context/`. Here's the frame:
->
-> ```
-> sp/section/
->   about-me.md       — identity (TODO placeholder)
->   preferences.md    — agent rules (TODO placeholder)
->   workspace.md      — current projects (TODO placeholder)
->   knowledge-base.md — long-term topics (TODO placeholder)
->   skills.md         — reusable craft (TODO placeholder)
->   _preface.md       — wrapper, prepends to compiled output
-> sp/config/
->   claude-code.md    — compiles to output/CLAUDE.md
->   agents-md.md      — compiles to output/AGENTS.md
-> output/             — already built (placeholders rendered)
-> ```
->
-> The workspace is also a git repo (initial commit `<short-hash>`).
->
-> Two ways to fill the placeholders:
->
-> **A. Import what you have already.** I can scan `~/.claude/CLAUDE.md`, project-level `./CLAUDE.md`, `.cursorrules`, etc. and split them into the 5 sections. You review the split, edit anything wrong, then approve. **This is the fastest path if you've been hand-maintaining `CLAUDE.md`.**
->
-> **B. Write fresh.** Open each section yourself in $EDITOR.
->
-> Which? Reply with **A** (and I'll detect what's importable first), **B** (you'll edit), or tell me a specific path you want to import (e.g. 'import ~/notes/preferences.md')."
-
-**Then wait for the user's reply.** Don't run `forge ingest`, don't read existing CLAUDE.md / .cursorrules, don't preview anything beyond what you've already shown. The user is in control of whether import happens at all.
+After reply:
+- **import** → Step 4 (detect, confirm sources, ingest)
+- **write** → tell them which file to open first (`$EDITOR sp/section/about-me.md`), then they call you back when ready to review.
+- **explore** → run `cat sp/section/about-me.md` so they see the placeholder format, then say "edit any section, then say 'review' or 'over'."
 
 ### Step 4 — (only if user said A or named a file) Detect + ingest
 

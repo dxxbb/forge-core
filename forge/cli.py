@@ -79,30 +79,13 @@ def new_cmd(path: str, minimal: bool) -> None:
         trailers={"forge-provenance": "version=0.2.0 source=forge-new"},
     )
 
-    click.echo(f"created {root}/  (git initialized, first commit {initial_hash[:12]})")
-    click.echo()
-    click.echo("Next:")
-    click.echo(f"  cd {path}")
-    if minimal:
-        click.echo(f"  $EDITOR sp/section/about-me.md   # describe yourself")
-    else:
-        click.echo(f"  ls sp/section/                   # 5 sections + 1 wrapper, all with TODO placeholders")
-        click.echo(f"  $EDITOR sp/section/about-me.md   # start with about-me, fill in your identity")
-    click.echo(f"  forge review                     # see what you changed before committing")
-    click.echo(f"  forge approve -m \"<message>\"     # commit (= git commit, you can git log it later)")
-    click.echo(f"  cat output/CLAUDE.md             # see the compiled view")
-    click.echo()
-    if not minimal:
-        click.echo(
-            "Tip: if you already have a CLAUDE.md / .cursorrules, you can pre-fill"
-        )
-        click.echo("sections by importing it (or ask Claude Code with the forge skill installed):")
-        click.echo("  forge ingest --from ~/.claude/CLAUDE.md     # auto-classify into 5 sections")
-        click.echo()
+    section_count = 1 if minimal else 5
     click.echo(
-        "To wire compiled output to live Claude Code: "
-        "`forge target install claude-code --to ~/.claude/CLAUDE.md`"
+        f"✓ {root}  (git: {initial_hash[:7]}, {section_count} empty section{'s' if section_count != 1 else ''})"
     )
+    click.echo()
+    click.echo(f"  Edit a section, then: forge review")
+    click.echo(f"  See all commands:     forge --help")
 
 
 def _scaffold_minimal(root: Path) -> None:
