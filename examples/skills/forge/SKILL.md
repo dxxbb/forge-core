@@ -59,27 +59,43 @@ After reply:
 
 ### Step 4 — (only after user said "import") Detect + ingest
 
-User said "import". **Don't** ls / Read / stat files yourself — `forge ingest --detect` already does it cleanly (resolves symlinks, skips broken/empty, classifies labels). Run it and paste the stdout verbatim.
+User said "import". **Don't** ls / Read / stat files yourself — `forge ingest --detect` already does it cleanly (resolves symlinks, skips broken/empty, scans Claude Code memory across projects). Run it and paste stdout verbatim.
 
 ```bash
 forge ingest --detect
 ```
 
-Three possible results:
+The output lists found sources by number. Three families of source:
 
-**Found 1 file** → ask: "Ingest this one? [yes / give me a different path / skip]"
-**Found 2+ files** → ask: "Which? Reply with the number, or 'all', or a path, or 'skip'."
-**Found 0 files** → output already lists what was skipped and why. Pass it through, then ask: "Got a context file elsewhere? Give me a path. Or 'skip' to start fresh."
+- **Static files**: `~/.claude/CLAUDE.md`, `./CLAUDE.md`, `~/.codex/AGENTS.md`, `.cursorrules` etc. — single-file context.
+- **Claude Code auto-memory**: `~/.claude/projects/*/memory/*.md` — already-distilled markdown, organized per project. Often the **richest single source** for users who've used Claude Code for a while.
+- **Transcripts**: counted but not yet ingestible (v0.4 — too noisy for direct LLM call).
 
-Once user picks (or pastes a path):
+Based on the output, ask the user:
+
+> "Found N sources (paste detect output above). Which to import? Reply:
+> - **all** → all Claude memory across projects
+> - **<project-slug>** → just one project's memory
+> - **<n>** → numbered file from the list
+> - **<path>** → some other file you have
+> - **skip** → start fresh"
+
+Once user picks:
 
 ```bash
+# numbered file or arbitrary path
 forge ingest --from <path>
+
+# all Claude memory
+forge ingest --from-claude-memory
+
+# one project's memory
+forge ingest --from-claude-memory --claude-project <slug>
 ```
 
-If `forge ingest` errors with `ANTHROPIC_API_KEY not set`, ask: "No API key in your env. Want me to dump everything into workspace.md and you'll split manually (`--no-llm`), or set the key and retry?"
+If `forge ingest` errors with `ANTHROPIC_API_KEY not set`, ask: "No API key. Want me to dump everything into workspace.md (`--no-llm`, you split manually), or set the key and retry?"
 
-After ingest succeeds, the CLI prints a "wrote N section(s)" summary — paste that to the user, then go to Step 5 (review). **Don't** re-summarize what landed where; the CLI output is already the right info. Don't read source files with Read tool just to summarize — `forge review` will show the section diff in Step 5.
+After ingest, the CLI prints "wrote N section(s)". Paste that, then go to Step 5 (review). **Don't** re-summarize what landed where — `forge review` shows the section diff in Step 5.
 
 ### Step 5 — Show the review screen
 

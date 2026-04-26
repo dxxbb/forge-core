@@ -139,6 +139,7 @@ def test_ingest_detect_finds_real_file_in_cwd(tmp_path: Path, monkeypatch) -> No
     real.write_text("# real claude.md\n" + ("filler\n" * 50), encoding="utf-8")
 
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))  # isolate from real ~/.claude/
     result = runner.invoke(main, ["ingest", "--detect"])
     assert result.exit_code == 0
     assert "found 1 importable" in result.output
@@ -152,9 +153,10 @@ def test_ingest_detect_skips_broken_symlink(tmp_path: Path, monkeypatch) -> None
     bad.symlink_to(tmp_path / "does-not-exist")
 
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
     result = runner.invoke(main, ["ingest", "--detect"])
     assert result.exit_code == 0
-    assert "no importable files found" in result.output
+    assert "no importable sources found" in result.output
     assert "broken symlink" in result.output
 
 
@@ -165,6 +167,7 @@ def test_ingest_detect_skips_too_small_files(tmp_path: Path, monkeypatch) -> Non
     tiny.write_text("hi\n", encoding="utf-8")
 
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
     result = runner.invoke(main, ["ingest", "--detect"])
     assert result.exit_code == 0
     assert "placeholder?" in result.output
@@ -173,10 +176,51 @@ def test_ingest_detect_skips_too_small_files(tmp_path: Path, monkeypatch) -> Non
 def test_ingest_detect_zero_found_gives_two_next_steps(tmp_path: Path, monkeypatch) -> None:
     runner = CliRunner()
     monkeypatch.chdir(tmp_path)
-    # also patch home so ~/.claude/CLAUDE.md doesn't bleed in from real env
+    # patch home so real ~/.claude/* doesn't bleed in
     monkeypatch.setenv("HOME", str(tmp_path))
     result = runner.invoke(main, ["ingest", "--detect"])
     assert result.exit_code == 0
-    assert "no importable files found" in result.output
+    assert "no importable sources found" in result.output
     assert "forge ingest --from" in result.output
     assert "$EDITOR sp/section/" in result.output
+
+
+def test_ingest_detect_finds_claude_memory(tmp_path: Path, monkeypatch) -> None:
+    """When ~/.claude/projects/*/memory/*.md exists, detect should surface it."""
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    # build a fake Claude Code memory layout
+    mem_dir = tmp_path / ".claude" / "projects" / "-test-project" / "memory"
+    mem_dir.mkdir(parents=True)
+    (mem_dir / "MEMORY.md").write_text("- [Some memory](file.md)\n", encoding="utf-8")
+    (mem_dir / "feedback_x.md").write_text("Some feedback content here\n", encoding="utf-8")
+
+    result = runner.invoke(main, ["ingest", "--detect"])
+    assert result.exit_code == 0
+    assert "Claude auto-memory" in result.output
+    assert "-test-project" in result.output
+    assert "forge ingest --from-claude-memory" in result.output
+
+
+def test_ingest_from_claude_memory_writes_section(tmp_path: Path, monkeypatch) -> None:
+    """`forge ingest --from-claude-memory --no-llm` should pull all memory into a section."""
+    runner = CliRunner()
+    ws = tmp_path / "ws"
+    runner.invoke(main, ["new", str(ws)])
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    mem_dir = tmp_path / ".claude" / "projects" / "-test" / "memory"
+    mem_dir.mkdir(parents=True)
+    (mem_dir / "feedback_x.md").write_text("user prefers Python\n", encoding="utf-8")
+
+    result = runner.invoke(
+        main,
+        ["ingest", "--from-claude-memory", "--no-llm", "--root", str(ws), "--overwrite"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "1 Claude memory file" in result.output
+    workspace_md = (ws / "sp" / "section" / "workspace.md").read_text("utf-8")
+    assert "user prefers Python" in workspace_md
+    assert "from: -test/feedback_x.md" in workspace_md  # provenance header preserved

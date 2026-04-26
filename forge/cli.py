@@ -667,6 +667,17 @@ def inbox_skip(todo_id: int, reason: str, root: str | None) -> None:
     "ingest. Use to find sources cleanly (skips broken symlinks, empty files).",
 )
 @click.option(
+    "--from-claude-memory",
+    is_flag=True,
+    help="Ingest Claude Code's auto-memory files (~/.claude/projects/*/memory/*.md). "
+    "These are already-distilled markdown, much cleaner than raw transcripts.",
+)
+@click.option(
+    "--claude-project",
+    default=None,
+    help="With --from-claude-memory, restrict to a single project slug (see `forge ingest --detect`).",
+)
+@click.option(
     "--no-llm",
     is_flag=True,
     help="Skip Anthropic API call. Dumps everything into sp/section/workspace.md "
@@ -694,6 +705,8 @@ def ingest(
     source: str | None,
     from_stdin: bool,
     detect: bool,
+    from_claude_memory: bool,
+    claude_project: str | None,
     no_llm: bool,
     root: str | None,
     overwrite: bool,
@@ -716,11 +729,17 @@ def ingest(
         _ingest_detect()
         return
 
-    if source and from_stdin:
-        click.echo("error: pass either --from or --from-stdin, not both", err=True)
+    # Mutual exclusion check across input modes
+    input_modes = [bool(source), from_stdin, from_claude_memory]
+    if sum(input_modes) > 1:
+        click.echo("error: pick exactly one input mode (--from / --from-stdin / --from-claude-memory)", err=True)
         sys.exit(1)
-    if not source and not from_stdin:
-        click.echo("error: must pass --from <file> or --from-stdin (or --detect to list candidates)", err=True)
+    if sum(input_modes) == 0:
+        click.echo(
+            "error: must pass --from <file> / --from-stdin / --from-claude-memory "
+            "(or --detect to list candidates)",
+            err=True,
+        )
         sys.exit(1)
 
     workspace = _root(root)
@@ -737,6 +756,13 @@ def ingest(
         text = Path(source).read_text(encoding="utf-8")
         source_path: Path | None = Path(source).resolve()
         click.echo(f"reading {source_path} ({len(text)} chars)")
+    elif from_claude_memory:
+        text, source_path, file_count = _read_claude_memory(claude_project)
+        if not text.strip():
+            click.echo("error: no Claude Code memory files found", err=True)
+            sys.exit(1)
+        scope = f"project={claude_project}" if claude_project else "all projects"
+        click.echo(f"reading {file_count} Claude memory file(s) ({scope}, {len(text)} chars total)")
     else:
         text = sys.stdin.read()
         source_path = None
@@ -778,7 +804,19 @@ def ingest(
     from forge.gate.origin import record_event
 
     sections_touched = [p.stem for p in written]
-    if source_path:
+    if from_claude_memory:
+        scope = f" (project={claude_project})" if claude_project else " (all projects)"
+        # source_path here is the first memory file scanned; use it as a representative
+        # but compose the summary around the multi-file ingest
+        summary = f"forge ingest --from-claude-memory{scope}"
+        details = {
+            "source": "claude-code-memory",
+            "claude_project": claude_project,
+            "method": result.method,
+            "model": model if not no_llm else None,
+            "input_chars": len(text),
+        }
+    elif source_path:
         summary = f"forge ingest --from {source_path}"
         details = {
             "source": str(source_path),
@@ -805,64 +843,172 @@ def ingest(
 
 # ---------- ingest detection helper ----------
 
-_DETECT_CANDIDATES = [
-    ("~/.claude/CLAUDE.md", "Claude Code (global)"),
+_FILE_CANDIDATES = [
+    ("~/.claude/CLAUDE.md", "Claude Code (global instructions)"),
     ("./CLAUDE.md", "Claude Code (project-local)"),
+    ("~/.codex/AGENTS.md", "Codex CLI (global)"),
+    ("./AGENTS.md", "AGENTS.md (Codex / OpenCode / project-local)"),
     ("~/.cursorrules", "Cursor (legacy)"),
     ("./.cursorrules", "Cursor (project-local)"),
-    ("./AGENTS.md", "AGENTS.md (Codex / OpenCode / project-local)"),
 ]
 
-_MIN_BYTES = 200  # files smaller than this are likely placeholders, not real context
+_MIN_BYTES = 200  # files smaller than this are likely placeholders
 
 
 def _ingest_detect() -> None:
-    """List importable context files. Resolves symlinks; skips broken/empty."""
+    """List importable context sources. Surfaces files + Claude Code memory + transcripts.
+
+    Output is structured so the agent can paste it verbatim and the user can
+    pick a numbered option, paste a path, or skip.
+    """
     import os
 
-    found: list[tuple[Path, str, int]] = []
-    skipped: list[tuple[str, str]] = []
+    file_found: list[tuple[Path, str, int]] = []
+    file_skipped: list[tuple[str, str]] = []
 
-    for raw_path, label in _DETECT_CANDIDATES:
+    for raw_path, label in _FILE_CANDIDATES:
         p = Path(os.path.expanduser(raw_path))
         if not p.exists():
             try:
                 if p.is_symlink():
-                    skipped.append((raw_path, "broken symlink"))
+                    file_skipped.append((raw_path, "broken symlink"))
                 else:
-                    skipped.append((raw_path, "not present"))
+                    file_skipped.append((raw_path, "not present"))
             except OSError:
-                skipped.append((raw_path, "not present"))
+                file_skipped.append((raw_path, "not present"))
             continue
         try:
             real = p.resolve(strict=True)
             size = real.stat().st_size
         except (OSError, FileNotFoundError):
-            skipped.append((raw_path, "broken symlink"))
+            file_skipped.append((raw_path, "broken symlink"))
             continue
         if size < _MIN_BYTES:
-            skipped.append((raw_path, f"only {size}B (placeholder?)"))
+            file_skipped.append((raw_path, f"only {size}B (placeholder?)"))
             continue
-        found.append((p, label, size))
+        file_found.append((p, label, size))
 
-    if found:
-        click.echo(f"found {len(found)} importable file{'s' if len(found) != 1 else ''}:")
+    # Claude Code auto-memory: ~/.claude/projects/<slug>/memory/*.md
+    claude_memory_projects = _scan_claude_memory()
+
+    # Claude Code transcripts (jsonl) — count only, not yet supported as ingest source
+    transcripts = _count_claude_transcripts()
+
+    # ---------- output ----------
+
+    n_sources = len(file_found) + (1 if claude_memory_projects else 0)
+
+    if n_sources == 0:
+        click.echo("no importable sources found.")
         click.echo()
-        for i, (p, label, size) in enumerate(found, start=1):
-            kb = f"{size / 1024:.1f}KB" if size >= 1024 else f"{size}B"
-            click.echo(f"  {i}. {p}  ({kb}, {label})")
-        click.echo()
-        click.echo("to ingest one: forge ingest --from <path>")
-    else:
-        click.echo("no importable files found in standard locations.")
-        click.echo()
-        if skipped:
+        if file_skipped:
             click.echo("checked but skipped:")
-            for raw_path, reason in skipped:
+            for raw_path, reason in file_skipped:
                 click.echo(f"  {raw_path}  — {reason}")
+            click.echo()
+        if transcripts > 0:
+            click.echo(f"(found {transcripts} Claude Code transcripts but transcript-distill is v0.4 — too noisy yet)")
             click.echo()
         click.echo("if you have a context file elsewhere, run: forge ingest --from <path>")
         click.echo("or skip import and edit sections directly: $EDITOR sp/section/<name>.md")
+        return
+
+    click.echo(f"found {n_sources} importable source{'s' if n_sources != 1 else ''}:")
+    click.echo()
+
+    idx = 0
+    for p, label, size in file_found:
+        idx += 1
+        kb = f"{size / 1024:.1f}KB" if size >= 1024 else f"{size}B"
+        click.echo(f"  {idx}. {p}  ({kb}, {label})")
+
+    if claude_memory_projects:
+        idx += 1
+        total_files = sum(n for _, n, _ in claude_memory_projects)
+        total_bytes = sum(b for _, _, b in claude_memory_projects)
+        kb = f"{total_bytes / 1024:.1f}KB"
+        click.echo(
+            f"  {idx}. ~/.claude/projects/*/memory/  ({total_files} files, {kb}, "
+            f"Claude auto-memory, {len(claude_memory_projects)} projects)"
+        )
+        for slug, n, _ in claude_memory_projects:
+            click.echo(f"       • {slug}  ({n} files)")
+
+    if transcripts > 0:
+        click.echo()
+        click.echo(
+            f"  (also: {transcripts} Claude Code transcripts found but transcript-distill is v0.4 — skipped for now)"
+        )
+
+    click.echo()
+    click.echo("to ingest:")
+    click.echo("  forge ingest --from <path>            # one file (use a path from above)")
+    if claude_memory_projects:
+        click.echo("  forge ingest --from-claude-memory     # all auto-memory across projects")
+        click.echo("  forge ingest --from-claude-memory --claude-project <slug>   # one project")
+
+
+def _scan_claude_memory() -> list[tuple[str, int, int]]:
+    """Return [(project_slug, file_count, total_bytes), ...] sorted by file_count desc."""
+    base = Path.home() / ".claude" / "projects"
+    if not base.exists():
+        return []
+    out: list[tuple[str, int, int]] = []
+    for project_dir in base.iterdir():
+        if not project_dir.is_dir():
+            continue
+        memory_dir = project_dir / "memory"
+        if not memory_dir.is_dir():
+            continue
+        files = list(memory_dir.glob("*.md"))
+        if not files:
+            continue
+        total_bytes = sum(f.stat().st_size for f in files if f.is_file())
+        out.append((project_dir.name, len(files), total_bytes))
+    out.sort(key=lambda t: -t[1])
+    return out
+
+
+def _count_claude_transcripts() -> int:
+    base = Path.home() / ".claude" / "projects"
+    if not base.exists():
+        return 0
+    return sum(1 for _ in base.glob("*/*.jsonl"))
+
+
+def _read_claude_memory(project_filter: str | None) -> tuple[str, Path | None, int]:
+    """Read all Claude Code auto-memory markdown files into one text blob.
+
+    Returns (concatenated_text, representative_source_path, file_count).
+    Each file is prefixed with a `--- from: <project>/<file> ---` header so
+    the LLM classifier knows provenance.
+    """
+    base = Path.home() / ".claude" / "projects"
+    if not base.exists():
+        return "", None, 0
+    parts: list[str] = []
+    count = 0
+    repr_path: Path | None = None
+    for project_dir in sorted(base.iterdir()):
+        if not project_dir.is_dir():
+            continue
+        if project_filter and project_dir.name != project_filter:
+            continue
+        memory_dir = project_dir / "memory"
+        if not memory_dir.is_dir():
+            continue
+        for f in sorted(memory_dir.glob("*.md")):
+            try:
+                content = f.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            if not content.strip():
+                continue
+            parts.append(f"--- from: {project_dir.name}/{f.name} ---\n{content}\n")
+            count += 1
+            if repr_path is None:
+                repr_path = f
+    return "\n".join(parts), repr_path, count
 
 
 # ---------- skill install ----------
