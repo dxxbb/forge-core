@@ -151,14 +151,30 @@ If the user later asks "show diff" or "show the raw diff," run `forge review` (w
 
 `forge review` is the **primary review surface**, not `forge diff`. It shows in one screen: where the change came from (Origin panel — picks up the ingest event from Step 4 automatically), what it does semantically (filled N TODO placeholders, +/- bullet rules), which agents will read it (CLAUDE.md → Claude Code, AGENTS.md → Codex), and per-section bench.
 
-After the user reads the panels, ask: **"Approve / Reject / Edit a section / See raw diff / Open TUI?"**
+The review output ends with a single-letter action menu:
 
-- **"show diff" or "raw diff"**: run `forge review` (no `--summary-only`), paste the full output verbatim, including the diff section at the bottom.
-- **"edit first"**: tell them which file to edit; they edit; you re-run `forge review` and paste again.
-- **"approve"**: jump to Step 7.
-- **"tui"**: tell them to run `forge review --tui` in their **own terminal** (not in chat — TUI needs a real TTY, agent's Bash tool can't drive it). The TUI shows the same panels + diff with keyboard shortcuts: `a` approve, `r` reject, `e` edit section, `d` diff-only, `q` quit. They come back and tell you what they did.
+```
+══ Reply with a single letter ══
+  [a] approve     ship this change (will prompt for commit message)
+  [r] reject      discard, restore HEAD
+  [e] edit        pick a section to edit (preferences, workspace, ...)
+  [d] diff        show full unified diff
+  [q] quit        do nothing, exit
+```
 
-(`forge diff` still exists as a thinner command for users who only want the raw diff with no panel context — but skill flows always go through `forge review` because Origin / Affects / Bench are exactly the missing context.)
+Don't paraphrase or expand this menu. Paste it verbatim along with the panels. Treat the user's reply as a single-letter command:
+
+- **"a"** or **"a: <message>"** → run `forge approve -m "<message>"` (if no message, ask them once for one, then run)
+- **"r"** → confirm once ("discard all working-tree changes? y/n"), then `yes | forge reject`
+- **"e"** → ask "which section?", let them pick a name, run `$EDITOR sp/section/<name>.md` (Bash tool can't actually open $EDITOR; tell them to do it themselves and `say 'done' when ready`), then re-run `forge review` and paste again
+- **"d"** → run `forge review` without `--summary-only` and paste the full diff portion
+- **"q"** → say "leaving working tree as-is — say 'review' when ready"
+
+Free-form replies still work ("approve with message X", "discard", "let me edit preferences"). Single letters are just the shortcut path.
+
+For users who want a real keyboard-driven TUI (live editing, instant feedback): `forge review --tui` in their own terminal. Tell them about it once if they keep going through review iterations. Don't auto-suggest — text panels work fine for one-shot review.
+
+(`forge diff` still exists as a thinner command for raw diff with no panel context — skill flows always go through `forge review`.)
 
 ### Step 6 — Cross-runtime: show one source, two outputs
 

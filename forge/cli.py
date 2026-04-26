@@ -1360,20 +1360,43 @@ def _format_review(rev, use_color: bool) -> str:
 
 
 def _format_review_actions(rev, use_color: bool) -> str:
-    """Footer line: what the user can do next."""
+    """Action menu footer — single-letter shortcuts.
+
+    Designed so an agent can paste this verbatim, then interpret a one-letter
+    user reply (a / r / e / d / q) as the chosen action without parsing
+    free-form text.
+    """
     def style(s: str, **kw):
         return click.style(s, **kw) if use_color else s
 
+    a = style("[a]", fg="green", bold=True) if use_color else "[a]"
+    r = style("[r]", fg="red", bold=True) if use_color else "[r]"
+    e = style("[e]", fg="cyan", bold=True) if use_color else "[e]"
+    d = style("[d]", fg="white", bold=True) if use_color else "[d]"
+    q = style("[q]", fg="white") if use_color else "[q]"
+
+    section_names = sorted({sc.name for sc in rev.section_changes})
+    sections_hint = ""
+    if section_names:
+        sections_hint = " (" + ", ".join(section_names[:3]) + (", ..." if len(section_names) > 3 else "") + ")"
+
     lines = [
-        style("══ Next ══", bold=True),
-        f"  {style('forge approve -m \"<message>\"', fg='green', bold=True)}    accept this change",
-        f"  {style('forge reject', fg='red', bold=True)}                         discard, restore last approved",
-        f"  $EDITOR sp/section/<name>.md         edit a section, then re-run `forge review`",
+        style("══ Reply with a single letter ══", bold=True),
+        f"  {a} approve     ship this change (will prompt for commit message)",
+        f"  {r} reject      discard, restore HEAD",
+        f"  {e} edit        pick a section to edit{sections_hint}",
+        f"  {d} diff        show full unified diff (skipped above if --summary-only)",
+        f"  {q} quit        do nothing, exit",
     ]
     if not rev.target_bindings:
+        lines.append("")
         lines.append(
-            f"  {style('forge target install <adapter> --to <path>', fg='yellow')}   bind output to live agent file"
+            f"  (no external target bound — `forge target install claude-code "
+            f"--to ~/.claude/CLAUDE.md --mode symlink` if you want "
+            f"approve to auto-sync to live Claude Code)"
         )
+    lines.append("")
+    lines.append(style("Tip: ", bold=True) + "for a real keyboard-driven TUI in your own terminal: forge review --tui")
     return "\n".join(lines)
 
 
