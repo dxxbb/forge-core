@@ -147,21 +147,50 @@ If you're in a non-agent context (CLI-direct user, or you want forge to handle i
 forge review --json
 ```
 
-Parse the JSON. Then compose your reply message in **this exact shape** (fill from the JSON):
+Parse the JSON. Each `section_changes[]` entry has a `diff` field (unified diff of that section's source file vs HEAD). Use it.
+
+Compose your message in **this exact shape**:
 
 ```markdown
 ## Review · `<workspace path>`
 
 **Origin**: `<origin[0].summary>` _<format origin[0].at as "YYYY-MM-DD HH:MM UTC">_
+(if multiple origin events, list each on its own line)
 
-### Sections changed (<N>)
+### Summary
 
-| Section | Δ bytes | Lines | What changed |
+| Section | Δ bytes | Lines | Note |
 |---|---|---|---|
 | `about-me` | -71B | +4 / -10 | filled 2 TODO placeholders, −3 bullets |
-| `knowledge-base` | **+376B** ⚠ +137% | +11 / -7 | filled 1 TODO, +4 bullet rules |
-| `preferences` | **-223B** ⚠ -71% | +3 / -16 | filled 1 TODO, −7 bullet rules |
-| `workspace` | **+894B** ⚠ +385% | +18 / -5 | filled 4 TODO, +6 bullet rules |
+| `knowledge-base` | **+376B** ⚠ +137% | +11 / -7 | filled 1 TODO, +4 bullets |
+| `preferences` | **-223B** ⚠ -71% | +3 / -16 | filled 1 TODO, −7 bullets |
+| `workspace` | **+894B** ⚠ +385% | +18 / -5 | filled 4 TODO, +6 bullets |
+
+### Detailed changes
+
+#### `about-me.md` (-71B)
+
+```diff
+<paste section_changes[0].diff verbatim>
+```
+
+#### `knowledge-base.md` (+376B ⚠ +137%)
+
+```diff
+<paste section_changes[1].diff verbatim>
+```
+
+#### `preferences.md` (-223B ⚠ -71%)
+
+```diff
+<paste section_changes[2].diff verbatim>
+```
+
+#### `workspace.md` (+894B ⚠ +385%)
+
+```diff
+<paste section_changes[3].diff verbatim>
+```
 
 ### Outputs (rebuild on approve)
 
@@ -172,19 +201,20 @@ Parse the JSON. Then compose your reply message in **this exact shape** (fill fr
 
 ---
 
-Reply: **a**pprove · **r**eject · **e**dit `<section>` · **d**iff · **q**uit
+Reply: **a**pprove · **r**eject · **e**dit `<section>` · **q**uit (no `d` here — the diff IS shown above)
 ```
 
-**Render rules** (when filling the template):
+**Render rules**:
 
-- ⚠ marker on the bytes column when `section.warn === true` (≥50% byte change). Bold the bytes value when warned.
-- "What changed" column = `section.summary` from JSON.
-- For multiple `origin` events (rare; happens after multiple ingests in one working tree): list each on its own line under **Origin**.
+- The summary table comes first so the user gets the shape at a glance.
+- Each section's actual diff (added/removed lines) goes into a `diff` code block under "Detailed changes". Markdown renders +/- lines with color in chat.
+- ⚠ marker on bytes column when `section.warn === true`. Bold the bytes value when warned.
+- "Note" column = `section.summary` from JSON.
 - If `targets` non-empty: replace the `> No external target bound...` blockquote with `**Sync target**: \`<targets[0].path>\` \`[<mode>]\``.
-- **Don't include the raw diff** in this initial message — it's separate, the user requests it via [d].
-- Bold + tables + headings render natively in chat. Don't wrap any of this in a fenced code block (that'd kill the table).
+- Each `diff` field is already a unified diff (`--- approved/sp/section/...` / `+++ current/sp/section/...` / `@@ ... @@` / +/- lines). Paste verbatim into the code fence; don't truncate (the user wants to see actual changes).
+- Don't wrap the whole markdown message in a fence (only the per-section diffs are fenced). Tables / headings need to render.
 
-This message stays inline because it's chat content. No Bash widget, no folding.
+This is the review the user actually wants — concrete added/removed lines per section, not just "+377B".
 
 #### When user replies
 

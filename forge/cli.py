@@ -1267,7 +1267,7 @@ def review(
         sys.exit(1)
 
     if as_json:
-        click.echo(_review_to_json(rev))
+        click.echo(_review_to_json(rev, root=_root(root)))
         return
 
     if not rev.has_changes:
@@ -1381,8 +1381,20 @@ def _format_review(rev, use_color: bool) -> str:
     return "\n".join(out)
 
 
-def _review_to_json(rev) -> str:
-    """Emit ReviewSummary as JSON for agent rendering."""
+def _review_to_json(rev, root: Path | None = None) -> str:
+    """Emit ReviewSummary as JSON for agent rendering. Includes per-section
+    diff text (so agent can render actual changed lines, not just byte deltas)."""
+    from forge.gate import _git as _git_mod
+
+    section_diffs: dict[str, str] = {}
+    if root is not None and _git_mod.is_git_repo(root):
+        for sc in (rev.section_changes or []):
+            try:
+                d = _git_mod.diff_paths(root, [f"sp/section/{sc.name}.md"])
+                section_diffs[sc.name] = _strip_git_diff_header(d)
+            except Exception:
+                section_diffs[sc.name] = ""
+
     payload = {
         "has_changes": rev.has_changes,
         "origin": [
@@ -1406,6 +1418,7 @@ def _review_to_json(rev) -> str:
                 "lines_removed": sc.lines_removed,
                 "growth_pct": round(sc.growth_pct, 1) if sc.bytes_before > 0 else None,
                 "warn": abs(sc.growth_pct) >= 50 and sc.bytes_before > 0,
+                "diff": section_diffs.get(sc.name, ""),
             }
             for sc in (rev.section_changes or [])
         ],
@@ -1427,6 +1440,21 @@ def _review_to_json(rev) -> str:
         ],
     }
     return json.dumps(payload, indent=2, ensure_ascii=False)
+
+
+def _strip_git_diff_header(diff_text: str) -> str:
+    """Drop git's diff header lines (`diff --git ...`, `index ...`) but keep
+    the unified diff body (---, +++, @@, content). Easier to render as a
+    `diff` code block in markdown."""
+    if not diff_text:
+        return ""
+    lines = diff_text.splitlines()
+    out: list[str] = []
+    for line in lines:
+        if line.startswith("diff --git ") or line.startswith("index "):
+            continue
+        out.append(line)
+    return "\n".join(out)
 
 
 def _format_review_compact(rev, use_color: bool) -> str:
