@@ -152,8 +152,9 @@ def approve(root: Path, note: str = "") -> ApproveResult:
     # 6. push to configured external targets
     synced = sync_targets(state)
 
-    # 7. clear pending-change log
+    # 7. clear pending-change log + stale REVIEW.md
     clear_origin(root)
+    _clear_review_md(root)
 
     return ApproveResult(
         approved_hash=new_hash,
@@ -170,6 +171,19 @@ def reject(root: Path) -> None:
     state.migrate_layout()
     _git.restore_to_head(root, ["sp", "output"])
     clear_origin(root)
+    _clear_review_md(root)
+
+
+def _clear_review_md(root: Path) -> None:
+    """Delete REVIEW.md (the agent-rendered review doc) — it's stale once
+    approve/reject runs. The .gitignore entry stays so future writes don't
+    pollute git either."""
+    p = root / "REVIEW.md"
+    if p.exists():
+        try:
+            p.unlink()
+        except OSError:
+            pass
 
 
 def build(root: Path) -> list[Path]:

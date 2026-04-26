@@ -139,9 +139,36 @@ After writing, go to Step 5 (`forge review`). The Origin panel will show your `-
 
 If you're in a non-agent context (CLI-direct user, or you want forge to handle it without your own classification work), run **without** `--emit` — forge dumps everything into `sp/section/workspace.md` and the user splits with $EDITOR. Use this if the user explicitly says "I'll split it myself".
 
-### Step 5 — Render review as rich markdown in chat
+### Step 5 — Write the review as a markdown file the user opens in Obsidian
 
-**The review IS your message, not a Bash output dump.** Claude Code folds long Bash output into "+N lines" widgets — useless for review. Don't fight that. Instead: forge gives you JSON, you render markdown (tables, headings, bold) inside your message. Inline, full, never folded.
+**Don't try to render the full review in chat.** Long diffs get folded by Claude Code, and tables-with-diffs don't survive the round-trip well. Instead: forge writes a markdown file at `<workspace>/REVIEW.md`, the user opens it in Obsidian / VS Code / any markdown viewer where it renders fully (tables, code-fenced diffs with +/-, headings).
+
+```bash
+cd <workspace>
+forge review --md
+```
+
+This writes `<workspace>/REVIEW.md` and adds it to `.gitignore`. The file contains:
+
+- Header + workspace path
+- Origin (where the change came from)
+- Summary table (section · Δ bytes · lines · note)
+- **Detailed changes**: per-section diff in `diff` code block — actual added/removed lines
+- Outputs (rebuild on approve)
+- Sync target status
+- Action footer (a/r/e/q + how to reply)
+
+Tell the user **two short sentences**:
+
+> "Wrote review to `<workspace>/REVIEW.md` — open it in Obsidian (or `cat` it). Reply here with **a** / **r** / **e** `<section>` / **q** when ready."
+
+Don't paste the file contents. Don't summarize it. The whole point is the user reads it in their own editor where folding doesn't apply.
+
+**Fallback (chat-only)**: if user replies "show it here" / "贴出来" / "我没装 Obsidian", parse the JSON from `forge review --json` and render an inline markdown summary (table only, no per-section diff — that's what would fold). Tell them they can also `cat REVIEW.md` if they want the full diff.
+
+### Legacy: parse JSON and render in chat
+
+(Kept for cases where the user explicitly wants the review in chat. For most cases use `--md` above.)
 
 ```bash
 forge review --json
@@ -313,14 +340,14 @@ If errors: stop, show them, ask user to fix or offer to fix together (only edit 
 ### Step R3 — Show diff
 
 ```bash
-forge review --json
+forge review --md
 ```
 
-If `has_changes` is false: tell user "nothing to review", stop.
+If output says "no changes": tell user "nothing to review", stop.
 
-Else: render as rich markdown in your message — same template as Step 5 (`## Review · path`, sections table, outputs list, action menu). Don't paste the JSON; render it. The ⚠ markers (≥50% byte change) get pulled from `section.warn`; flag in narration text if any are ≥100% (e.g. "preferences grew 740% — sure?").
+Else: tell the user "wrote `<workspace>/REVIEW.md` — open in Obsidian / `cat` it. Reply here with **a** / **r** / **e** `<section>` / **q**." Don't paste the file. The point is they read it in their editor where folding doesn't apply.
 
-For "diff" / `d`: `forge review` (no flags), excerpts in fenced block, warn long.
+If user pushes back ("贴出来" / "no Obsidian"), fall back to `forge review --json` + chat-rendered table (no per-section diff in chat — too long, will fold).
 
 ### Step R4 — Suggest message
 

@@ -1232,6 +1232,20 @@ def rollback(hash_prefix: str | None, root: str | None) -> None:
     "parse and render as rich markdown (tables, headings) inside chat.",
 )
 @click.option(
+    "--md",
+    "as_md",
+    is_flag=True,
+    help="Write a full markdown review to <workspace>/REVIEW.md (gitignored). "
+    "Open in Obsidian / VS Code / any markdown viewer — no folding, no length cap, "
+    "annotatable. Recommended when chat folding gets in the way of long diffs.",
+)
+@click.option(
+    "--md-out",
+    type=click.Path(),
+    default=None,
+    help="With --md, override the output path (default: <workspace>/REVIEW.md).",
+)
+@click.option(
     "--full-provenance",
     is_flag=True,
     help="Don't fold provenance digest/byte hunks in the raw diff.",
@@ -1249,6 +1263,8 @@ def review(
     summary_only: bool,
     compact: bool,
     as_json: bool,
+    as_md: bool,
+    md_out: str | None,
     full_provenance: bool,
     tui: bool,
 ) -> None:
@@ -1268,6 +1284,26 @@ def review(
 
     if as_json:
         click.echo(_review_to_json(rev, root=_root(root)))
+        return
+
+    if as_md:
+        ws = _root(root)
+        out_path = Path(md_out).expanduser() if md_out else (ws / "REVIEW.md")
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        if not rev.has_changes:
+            out_path.write_text("# forge review\n\nno changes since last approve\n", encoding="utf-8")
+            click.echo(f"wrote {out_path} (no changes)")
+            return
+        md = _render_review_markdown(rev, ws)
+        out_path.write_text(md, encoding="utf-8")
+        # Add to .gitignore if not already there (so reviews don't pollute git)
+        _ensure_gitignore_entry(ws, "REVIEW.md")
+        click.echo(f"wrote {out_path}")
+        click.echo()
+        click.echo("Open it:")
+        click.echo(f"  • Obsidian / VS Code / cat {out_path}")
+        click.echo()
+        click.echo("Reply (in chat or terminal): a approve · r reject · e <section> edit · q quit")
         return
 
     if not rev.has_changes:
@@ -1379,6 +1415,125 @@ def _format_review(rev, use_color: bool) -> str:
     out.append(style("└──────────────────────────────────────────────────────", fg="cyan"))
 
     return "\n".join(out)
+
+
+def _render_review_markdown(rev, root: Path) -> str:
+    """Render a ReviewSummary as a long-form markdown document.
+
+    Unlike --json (data for agent rendering) or --compact (4-line CLI), this
+    produces the actual document the user reads in Obsidian / VS Code. Includes
+    summary table, per-section diff, outputs, action menu.
+    """
+    from forge.gate import _git as _git_mod
+
+    parts: list[str] = []
+    parts.append(f"# Review · `{root}`")
+    parts.append("")
+
+    # Origin
+    if rev.origin_events:
+        parts.append("## Origin")
+        parts.append("")
+        for ev in rev.origin_events:
+            ts = ev.at.replace("T", " ").rsplit("+", 1)[0] + " UTC"
+            parts.append(f"- `{ev.summary}` _{ts}_")
+        parts.append("")
+    else:
+        parts.append("## Origin")
+        parts.append("")
+        parts.append("- hand edit (no recorded ingest/event)")
+        parts.append("")
+
+    # Summary table
+    if rev.section_changes:
+        parts.append("## Summary")
+        parts.append("")
+        parts.append("| Section | Δ bytes | Lines | Note |")
+        parts.append("|---|---|---|---|")
+        for sc in rev.section_changes:
+            sign = "+" if sc.bytes_delta >= 0 else ""
+            cell = f"{sign}{sc.bytes_delta}B"
+            if abs(sc.growth_pct) >= 50 and sc.bytes_before > 0:
+                cell = f"**{cell}** ⚠ {sc.growth_pct:+.0f}%"
+            parts.append(
+                f"| `{sc.name}` | {cell} | +{sc.lines_added} / -{sc.lines_removed} | {sc.summary} |"
+            )
+        parts.append("")
+
+    # Per-section diffs
+    if rev.section_changes and _git_mod.is_git_repo(root):
+        parts.append("## Detailed changes")
+        parts.append("")
+        for sc in rev.section_changes:
+            sign = "+" if sc.bytes_delta >= 0 else ""
+            label = f"{sign}{sc.bytes_delta}B"
+            if abs(sc.growth_pct) >= 50 and sc.bytes_before > 0:
+                label = f"**{label}** ⚠ {sc.growth_pct:+.0f}%"
+            parts.append(f"### `{sc.name}.md` ({label})")
+            parts.append("")
+            try:
+                diff_text = _git_mod.diff_paths(root, [f"sp/section/{sc.name}.md"])
+                diff_text = _strip_git_diff_header(diff_text)
+            except Exception:
+                diff_text = "(diff unavailable)"
+            parts.append("```diff")
+            parts.append(diff_text.rstrip())
+            parts.append("```")
+            parts.append("")
+
+    # Outputs
+    if rev.output_changes:
+        parts.append("## Outputs (rebuild on approve)")
+        parts.append("")
+        for oc in rev.output_changes:
+            sign = "+" if oc.bytes_delta >= 0 else ""
+            parts.append(
+                f"- `output/{oc.filename}` **{sign}{oc.bytes_delta}B** ← {oc.runtime_description}"
+            )
+        parts.append("")
+
+    # Targets
+    if rev.target_bindings:
+        parts.append("## Sync targets (auto-pushed on approve)")
+        parts.append("")
+        for tb in rev.target_bindings:
+            parts.append(f"- `{tb.path}` `[{tb.mode}]` ← {tb.adapter}")
+        parts.append("")
+    else:
+        parts.append(
+            "> **No external target bound.** `forge approve` only updates `output/`. "
+            "Bind one with `forge target install claude-code --to ~/.claude/CLAUDE.md "
+            "--mode symlink` for auto-sync."
+        )
+        parts.append("")
+
+    # Action footer
+    parts.append("---")
+    parts.append("")
+    parts.append("**Reply** (in chat or terminal):")
+    parts.append("")
+    parts.append("- `a` or `forge approve -m \"<msg>\"` — ship this change")
+    parts.append("- `r` or `forge reject` — discard, restore HEAD")
+    parts.append("- `e <section>` — edit a section (then re-run `forge review --md`)")
+    parts.append("- `q` — leave as-is, decide later")
+    parts.append("")
+    parts.append("_Generated by `forge review --md`. Auto-cleared on approve / reject._")
+
+    return "\n".join(parts) + "\n"
+
+
+def _ensure_gitignore_entry(root: Path, entry: str) -> None:
+    """Append `entry` to <root>/.gitignore if not already there."""
+    gi = root / ".gitignore"
+    existing = gi.read_text(encoding="utf-8") if gi.exists() else ""
+    lines = [ln.strip() for ln in existing.splitlines()]
+    if entry in lines:
+        return
+    new = existing
+    if new and not new.endswith("\n"):
+        new += "\n"
+    new += entry + "\n"
+    gi.write_text(new, encoding="utf-8")
 
 
 def _review_to_json(rev, root: Path | None = None) -> str:
