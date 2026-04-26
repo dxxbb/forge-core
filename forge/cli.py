@@ -1223,16 +1223,27 @@ def rollback(hash_prefix: str | None, root: str | None) -> None:
     is_flag=True,
     help="Don't fold provenance digest/byte hunks in the raw diff.",
 )
+@click.option(
+    "--tui",
+    is_flag=True,
+    help="Open keyboard-driven TUI (textual): panels + diff + [a]pprove / [r]eject / "
+    "[e]dit shortcuts. Requires real terminal — run yourself, not via an agent's Bash.",
+)
 def review(
     root: str | None,
     no_color: bool,
     no_pager: bool,
     summary_only: bool,
     full_provenance: bool,
+    tui: bool,
 ) -> None:
     """One-screen review: where the change came from, what it does, who reads it,
     how big it is, plus the raw diff. Run before `forge approve`."""
     from forge.gate.review import build_review
+
+    if tui:
+        from forge import tui as tui_module
+        sys.exit(tui_module.run(_root(root)))
 
     try:
         rev = build_review(_root(root))

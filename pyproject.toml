@@ -20,6 +20,7 @@ classifiers = [
 dependencies = [
     "pyyaml>=6.0",
     "click>=8.1",
+    "textual>=0.50",
 ]
 
 [project.optional-dependencies]

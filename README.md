@@ -286,6 +286,8 @@ forge build                     # sp/ → output/（不走审核，给 CI 用）
 forge review                    # 推荐入口：一屏看 Origin/What changed/
                                 #   Affects/Bench + 完整 diff
 forge review --summary-only     # 只看 panels，跳过 raw diff
+forge review --tui              # 键盘驱动 TUI：a 通过 / r 拒 / e 编辑 / q 退
+                                #   (需真终端, 不能在 agent Bash 里跑)
 forge diff                      # 老入口（内部 = git diff HEAD -- sp/）
 forge approve -m "说明"         # = git commit 带 forge-provenance trailer，
                                 #   重编译 output/，自动同步 target

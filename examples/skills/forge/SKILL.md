@@ -151,11 +151,12 @@ If the user later asks "show diff" or "show the raw diff," run `forge review` (w
 
 `forge review` is the **primary review surface**, not `forge diff`. It shows in one screen: where the change came from (Origin panel — picks up the ingest event from Step 4 automatically), what it does semantically (filled N TODO placeholders, +/- bullet rules), which agents will read it (CLAUDE.md → Claude Code, AGENTS.md → Codex), and per-section bench.
 
-After the user reads the panels, ask: **"Approve / Reject / Edit a section / See raw diff?"**
+After the user reads the panels, ask: **"Approve / Reject / Edit a section / See raw diff / Open TUI?"**
 
 - **"show diff" or "raw diff"**: run `forge review` (no `--summary-only`), paste the full output verbatim, including the diff section at the bottom.
 - **"edit first"**: tell them which file to edit; they edit; you re-run `forge review` and paste again.
 - **"approve"**: jump to Step 7.
+- **"tui"**: tell them to run `forge review --tui` in their **own terminal** (not in chat — TUI needs a real TTY, agent's Bash tool can't drive it). The TUI shows the same panels + diff with keyboard shortcuts: `a` approve, `r` reject, `e` edit section, `d` diff-only, `q` quit. They come back and tell you what they did.
 
 (`forge diff` still exists as a thinner command for users who only want the raw diff with no panel context — but skill flows always go through `forge review` because Origin / Affects / Bench are exactly the missing context.)
 
