@@ -89,36 +89,31 @@ After ingest, briefly summarize what landed where:
 >   - `knowledge-base.md` (60 lines from § Knowledge Base)
 >   - `skills.md` (20 lines from § Skills)"
 
-### Step 5 — Show diff
+### Step 5 — Show the review screen
 
 ```bash
-forge diff
+forge review --summary-only
 ```
 
-The output is long. Don't dump verbatim. Instead:
+`forge review` is the **primary review surface**, not `forge diff`. It shows in one screen: where the change came from (Origin panel — picks up the ingest event from Step 4 automatically), what it does semantically (filled N TODO placeholders, +/- bullet rules), which agents will read it (CLAUDE.md → Claude Code, AGENTS.md → Codex), and per-section bench. `--summary-only` skips the raw diff for the first pass.
 
-1. Run the command and capture output.
-2. Summarize: "X sections changed. Y bytes total. The biggest changes are in `<section>` (...)."
-3. Ask: **"Want to see the full source/output diff before deciding? Or jump to approve?"**
-4. If "show diff": echo the full output.
-5. If "let me edit first": tell them which file to edit; they edit; you re-run `forge diff`.
+Run it, then echo the full output to the user verbatim — it's already structured into panels. Don't summarize it on top of the panels; that's redundant.
+
+After they read it, ask: **"Want to see the raw diff to verify what changed line-by-line? Or jump to approve / edit a section?"**
+
+- **"show diff"**: run `forge review` (without `--summary-only`) — same panels + raw diff at bottom.
+- **"edit first"**: tell them which file to edit; they edit; you re-run `forge review`.
+- **"approve"**: jump to Step 7.
+
+(`forge diff` still exists as a thinner command for users who only want the raw diff with no panel context — but skill flows always go through `forge review` because Origin / Affects / Bench are exactly the missing context.)
 
 ### Step 6 — Cross-runtime: show one source, two outputs
 
-Before approve, demo the cross-runtime point. Run:
+The Affects panel in Step 5 already showed both `output/CLAUDE.md` and `output/AGENTS.md` will rebuild. Reinforce the point briefly:
 
-```bash
-forge build
-ls output/
-```
+> "Notice the Affects panel listed both `output/CLAUDE.md` and `output/AGENTS.md` rebuilding from the same source change. **One markdown edit, two runtime views.** Add a `cursor` adapter config and you'd see a third line — no source duplication."
 
-Show:
-
-> "Same source compiled into two runtime views:
->   - `output/CLAUDE.md` — what Claude Code reads
->   - `output/AGENTS.md` — what Codex / OpenCode / etc. read
->
-> If you change `sp/section/preferences.md`, both outputs update on the next approve. **You're not maintaining two parallel files.** That's the cross-runtime point of forge."
+Skip a separate `forge build` demo unless the user explicitly asks. The review panel already conveyed the point.
 
 ### Step 7 — Approve
 
@@ -193,16 +188,18 @@ If errors: stop, show them, ask user to fix or offer to fix together (only edit 
 ### Step R3 — Show diff
 
 ```bash
-forge diff
+forge review --summary-only
 ```
 
 If `no changes since last approve`: tell user "nothing to review", stop.
 
-Else: see Onboarding §Step 5 for handling.
+Else: echo the panels output verbatim. The Origin panel will say `hand edit (no recorded ingest/event)` for typical edit-then-review cycles, which is correct. The Bench panel will flag any section with ≥50% byte change with ⚠ — call that out explicitly if any: "the workspace section grew 76% — sure that's intended?"
+
+If user asks to see raw diff: re-run `forge review` (no `--summary-only`).
 
 ### Step R4 — Suggest message
 
-Read source diff, propose a short imperative-mood message (≤ 60 chars). Examples:
+Read the **What changed** panel from Step R3 (or rerun `forge review --summary-only`), propose a short imperative-mood message (≤ 60 chars). Examples:
 
 | Diff content | Suggested |
 |---|---|
