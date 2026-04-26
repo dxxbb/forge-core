@@ -51,37 +51,77 @@ After it runs, **briefly** describe the structure:
 >
 > Each section has a TODO placeholder. We'll fill them by importing your existing context next."
 
-### Step 3 — Detect existing context
+### Step 3 — Show the empty workspace, ask permission to import
 
-Check for these files (in order):
+**STOP HERE before doing anything else.** After `forge new` finishes, the user has an empty 5-section workspace with TODO placeholders. **Show them what they have**, then **ask** whether to import existing context. Don't move on without an explicit yes.
+
+First, summarize what they actually got. Read enough of `sp/section/*.md` to confirm structure (or use `ls`); then output a message like:
+
+> "Workspace scaffolded at `~/forge-context/`. Here's the frame:
+>
+> ```
+> sp/section/
+>   about-me.md       — identity (TODO placeholder)
+>   preferences.md    — agent rules (TODO placeholder)
+>   workspace.md      — current projects (TODO placeholder)
+>   knowledge-base.md — long-term topics (TODO placeholder)
+>   skills.md         — reusable craft (TODO placeholder)
+>   _preface.md       — wrapper, prepends to compiled output
+> sp/config/
+>   claude-code.md    — compiles to output/CLAUDE.md
+>   agents-md.md      — compiles to output/AGENTS.md
+> output/             — already built (placeholders rendered)
+> ```
+>
+> The workspace is also a git repo (initial commit `<short-hash>`).
+>
+> Two ways to fill the placeholders:
+>
+> **A. Import what you have already.** I can scan `~/.claude/CLAUDE.md`, project-level `./CLAUDE.md`, `.cursorrules`, etc. and split them into the 5 sections. You review the split, edit anything wrong, then approve. **This is the fastest path if you've been hand-maintaining `CLAUDE.md`.**
+>
+> **B. Write fresh.** Open each section yourself in $EDITOR.
+>
+> Which? Reply with **A** (and I'll detect what's importable first), **B** (you'll edit), or tell me a specific path you want to import (e.g. 'import ~/notes/preferences.md')."
+
+**Then wait for the user's reply.** Don't run `forge ingest`, don't read existing CLAUDE.md / .cursorrules, don't preview anything beyond what you've already shown. The user is in control of whether import happens at all.
+
+### Step 4 — (only if user said A or named a file) Detect + ingest
+
+This step **only runs** after the user agreed to import. If they said B or stayed silent, skip to Step 5 (let them edit).
+
+#### 4a. Detect what's importable
+
+Now scan for sources (only after user consent):
 - `~/.claude/CLAUDE.md`
 - `<cwd>/CLAUDE.md` (project-level if user is in a repo)
 - `~/.cursor/rules/` (or `.cursor/rules/` in cwd)
 - `<workspace>/AGENTS.md` and similar
 
-Tell the user what you found:
+Show what you found and **ask one more time** if there's anything sensitive:
 
 > "Found:
 >   - `~/.claude/CLAUDE.md` (8.2 KB) — your global Claude Code instructions
 >   - `./CLAUDE.md` (1.4 KB) — this project's CLAUDE.md
 >   - No .cursorrules
 >
-> I'll import each into the workspace. The classification (which paragraph goes to which section) is automatic — if anything lands wrong you can edit it before approving."
+> I'll send each through `forge ingest` (which calls Claude API to classify into 5 sections). Anything you don't want imported? Reply 'skip <name>' or 'all good'."
 
-### Step 4 — Ingest
+Wait for their reply. Default to "all good" only if the user explicitly says go.
 
-For each found file, run:
+#### 4b. Run ingest
+
+For each approved file, run:
 
 ```bash
 cd <workspace>
 forge ingest --from <path>
 ```
 
-(If user has no `ANTHROPIC_API_KEY` and `forge ingest` errors out, fall back to `--no-llm` and tell user "I'll dump everything into one section, you'll need to split manually after.")
+(If user has no `ANTHROPIC_API_KEY` and `forge ingest` errors out, fall back to `--no-llm` and tell them "I'll dump everything into workspace.md, you'll split it manually." Wait for OK on this fallback before running it.)
 
-If you (the agent) prefer to do classification yourself instead of calling the API via `forge ingest`, that's fine — read the source file with the Read tool, classify into the 5 sections in your head following the schema in `forge/ingest/classifier.py`, write to `<workspace>/sp/section/<name>.md` directly. The user just needs the result; doesn't matter who classified.
+If you (the agent) prefer to do classification yourself instead of calling the API, you may — read the source with Read tool, classify mentally per the schema in `forge/ingest/classifier.py`, write to `<workspace>/sp/section/<name>.md` directly. Do **not** use the Read tool to read source files until the user has consented to import.
 
-After ingest, briefly summarize what landed where:
+After ingest, summarize what landed where:
 
 > "Imported:
 >   - `about-me.md` (340 lines from `~/.claude/CLAUDE.md` § About User)
@@ -257,6 +297,7 @@ Exception: if you're mid-task on a longer multi-edit (e.g. user said "rewrite my
 
 ## Don'ts
 
+- ❌ **Don't auto-import after `forge new`.** Step 3 must end with the user saying "A" / "B" / "import <path>". Reading `~/.claude/CLAUDE.md` or running `forge ingest` before they reply is a trust violation — those are personal files, you don't get to scan them just because the workspace exists.
 - ❌ Don't auto-approve without showing diff (R3 must run first)
 - ❌ Don't run `forge approve` if `forge doctor` returned errors
 - ❌ Don't `git push` without explicit user request
