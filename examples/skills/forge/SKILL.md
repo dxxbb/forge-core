@@ -139,45 +139,66 @@ After writing, go to Step 5 (`forge review`). The Origin panel will show your `-
 
 If you're in a non-agent context (CLI-direct user, or you want forge to handle it without your own classification work), run **without** `--emit` — forge dumps everything into `sp/section/workspace.md` and the user splits with $EDITOR. Use this if the user explicitly says "I'll split it myself".
 
-### Step 5 — Show the review screen
+### Step 5 — Render review as rich markdown in chat
+
+**The review IS your message, not a Bash output dump.** Claude Code folds long Bash output into "+N lines" widgets — useless for review. Don't fight that. Instead: forge gives you JSON, you render markdown (tables, headings, bold) inside your message. Inline, full, never folded.
 
 ```bash
-forge review --compact
+forge review --json
 ```
 
-**Use `--compact` (≤10 lines)** as the default — it fits inline in chat without folding. The full panels (`--summary-only`, ~30 lines) and full diff (`forge review`, ~150+ lines) get folded by Claude Code into "+N lines (ctrl+o to expand)" and the user can't see them by default.
+Parse the JSON. Then compose your reply message in **this exact shape** (fill from the JSON):
 
-**CRITICAL — display behavior**: even `--compact` output goes through Bash tool, which Claude Code may still fold for ≥10 lines. **Paste the stdout into your message text** (inside a fenced code block) so it renders inline. Don't paraphrase. Don't summarize on top. The compact output is already designed for one-shot human reading — just pass it through.
+```markdown
+## Review · `<workspace path>`
 
-What `--compact` shows (in 9 lines):
+**Origin**: `<origin[0].summary>` _<format origin[0].at as "YYYY-MM-DD HH:MM UTC">_
 
+### Sections changed (<N>)
+
+| Section | Δ bytes | Lines | What changed |
+|---|---|---|---|
+| `about-me` | -71B | +4 / -10 | filled 2 TODO placeholders, −3 bullets |
+| `knowledge-base` | **+376B** ⚠ +137% | +11 / -7 | filled 1 TODO, +4 bullet rules |
+| `preferences` | **-223B** ⚠ -71% | +3 / -16 | filled 1 TODO, −7 bullet rules |
+| `workspace` | **+894B** ⚠ +385% | +18 / -5 | filled 4 TODO, +6 bullet rules |
+
+### Outputs (rebuild on approve)
+
+- `output/CLAUDE.md` **+925B** ← Claude Code (every session)
+- `output/AGENTS.md` **+925B** ← Codex / OpenCode / any AGENTS.md-aware tool
+
+> **No external target bound.** `forge approve` only updates `output/`. Bind one with `forge target install claude-code --to ~/.claude/CLAUDE.md --mode symlink` for auto-sync.
+
+---
+
+Reply: **a**pprove · **r**eject · **e**dit `<section>` · **d**iff · **q**uit
 ```
-forge review · 4 sections changed → 2 outputs affected
-  origin: forge ingest --emit --from-claude-memory (project=...)
-  • about-me             -71B  (...)
-  • knowledge-base     +  376B ⚠ +137%  (...)
-  • preferences         -223B ⚠ -71%  (...)
-  • workspace          +  894B ⚠ +385%  (...)
-  outputs: AGENTS.md +925B, CLAUDE.md +925B
 
-reply: [a]pprove  [r]eject  [e]dit  [d]iff (full)  [q]uit
-```
+**Render rules** (when filling the template):
 
-`forge review` is the **primary review surface**, not `forge diff`. The compact mode shows: section deltas (with ⚠ markers for ≥50% change), origin (where this change came from), outputs affected, sync targets if bound, and a single-letter action menu.
+- ⚠ marker on the bytes column when `section.warn === true` (≥50% byte change). Bold the bytes value when warned.
+- "What changed" column = `section.summary` from JSON.
+- For multiple `origin` events (rare; happens after multiple ingests in one working tree): list each on its own line under **Origin**.
+- If `targets` non-empty: replace the `> No external target bound...` blockquote with `**Sync target**: \`<targets[0].path>\` \`[<mode>]\``.
+- **Don't include the raw diff** in this initial message — it's separate, the user requests it via [d].
+- Bold + tables + headings render natively in chat. Don't wrap any of this in a fenced code block (that'd kill the table).
 
-Treat the user's reply as a single-letter command:
+This message stays inline because it's chat content. No Bash widget, no folding.
 
-- **"a"** or **"a: <message>"** → run `forge approve -m "<message>"` (if no message, ask them once for one, then run)
-- **"r"** → confirm once ("discard all working-tree changes? y/n"), then `yes | forge reject`
-- **"e"** → ask "which section?", run `$EDITOR sp/section/<name>.md` (Bash tool can't open $EDITOR; tell them to do it in their own terminal and reply "done" when ready), then re-run `forge review --compact` and paste again
-- **"d"** → run `forge review` (no flags = full panels + diff) and paste the full output. This will be long; warn the user and offer to scope it: "the full diff is ~150 lines; want me to show only one config (`--config claude-code`) or only the source diff (`--source-only`)?"
-- **"q"** → say "leaving working tree as-is — say 'review' when ready"
+#### When user replies
 
-Free-form replies still work ("approve with message X", "discard", "let me edit preferences"). Single letters are just the shortcut path.
+- **"a"** or **"a: <message>"** → `forge approve -m "<message>"` (if no message, ask once for one)
+- **"r"** → confirm "discard all working-tree changes? (y/n)", then `yes | forge reject`
+- **"e"** or **"e <section>"** → tell user to edit `sp/section/<name>.md` in their terminal (Bash tool can't open $EDITOR), wait for "done", then re-run `forge review --json` and re-render
+- **"d"** → user wants the diff. Run `forge review` (no flags), paste relevant excerpts in a fenced block. Warn it's long; offer `--config <name>` or `--source-only` scoping.
+- **"q"** → "leaving working tree as-is — say 'review' when ready"
 
-For users who want a real keyboard-driven TUI (live editing, instant feedback): `forge review --tui` in their **own terminal** (not in chat — Bash can't drive textual). Tell them about it once if they keep going through review iterations.
+Free-form replies still work ("approve with 'add 8 prefs'", "let me edit preferences"). Single letters are just the shortcut path.
 
-(`forge diff` still exists as a thinner command for raw diff with no panel context — skill flows always go through `forge review --compact`.)
+For users who want a real keyboard-driven TUI (live editing, instant feedback): `forge review --tui` in their **own terminal**. Tell them once if they iterate through review repeatedly.
+
+(`forge review --compact` exists too — 4-line CLI summary, useful for non-agent contexts. Skill flow always uses `--json` because that's what lets you render rich markdown.)
 
 ### Step 6 — Cross-runtime: show one source, two outputs
 
@@ -262,14 +283,14 @@ If errors: stop, show them, ask user to fix or offer to fix together (only edit 
 ### Step R3 — Show diff
 
 ```bash
-forge review --compact
+forge review --json
 ```
 
-If `no changes since last approve`: tell user "nothing to review", stop.
+If `has_changes` is false: tell user "nothing to review", stop.
 
-Else: paste the 9-line compact output into your message text inside a fenced code block. The ⚠ markers (≥50% byte change) call out unusual deltas — flag any in plain text: "the workspace section grew 76% — sure?".
+Else: render as rich markdown in your message — same template as Step 5 (`## Review · path`, sections table, outputs list, action menu). Don't paste the JSON; render it. The ⚠ markers (≥50% byte change) get pulled from `section.warn`; flag in narration text if any are ≥100% (e.g. "preferences grew 740% — sure?").
 
-If user asks for "full diff" or replies `d`: run `forge review` (no flags) and paste the full output, but warn first that it's long and offer to scope (`--config <name>`, `--source-only`, etc.).
+For "diff" / `d`: `forge review` (no flags), excerpts in fenced block, warn long.
 
 ### Step R4 — Suggest message
 

@@ -1221,9 +1221,15 @@ def rollback(hash_prefix: str | None, root: str | None) -> None:
 @click.option(
     "--compact",
     is_flag=True,
-    help="One-screen condensed view (~10 lines). Designed to fit inside chat tools "
-    "that fold long output. Use this for first-pass review; ask for --summary-only "
-    "or full diff if more detail wanted.",
+    help="Ultra-compact 4-line view with action menu on line 1. For when you "
+    "want quick CLI feedback and don't need an agent to render rich UI.",
+)
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    help="Emit structured ReviewSummary as JSON. Designed for an agent to "
+    "parse and render as rich markdown (tables, headings) inside chat.",
 )
 @click.option(
     "--full-provenance",
@@ -1242,6 +1248,7 @@ def review(
     no_pager: bool,
     summary_only: bool,
     compact: bool,
+    as_json: bool,
     full_provenance: bool,
     tui: bool,
 ) -> None:
@@ -1258,6 +1265,11 @@ def review(
     except RuntimeError as e:
         click.echo(f"error: {e}", err=True)
         sys.exit(1)
+
+    if as_json:
+        click.echo(_review_to_json(rev))
+        return
+
     if not rev.has_changes:
         click.echo("no changes since last approve")
         return
@@ -1367,6 +1379,54 @@ def _format_review(rev, use_color: bool) -> str:
     out.append(style("└──────────────────────────────────────────────────────", fg="cyan"))
 
     return "\n".join(out)
+
+
+def _review_to_json(rev) -> str:
+    """Emit ReviewSummary as JSON for agent rendering."""
+    payload = {
+        "has_changes": rev.has_changes,
+        "origin": [
+            {
+                "kind": ev.kind,
+                "summary": ev.summary,
+                "at": ev.at,
+                "details": ev.details,
+                "sections_touched": ev.sections_touched,
+            }
+            for ev in (rev.origin_events or [])
+        ],
+        "section_changes": [
+            {
+                "name": sc.name,
+                "summary": sc.summary,
+                "bytes_before": sc.bytes_before,
+                "bytes_after": sc.bytes_after,
+                "bytes_delta": sc.bytes_delta,
+                "lines_added": sc.lines_added,
+                "lines_removed": sc.lines_removed,
+                "growth_pct": round(sc.growth_pct, 1) if sc.bytes_before > 0 else None,
+                "warn": abs(sc.growth_pct) >= 50 and sc.bytes_before > 0,
+            }
+            for sc in (rev.section_changes or [])
+        ],
+        "output_changes": [
+            {
+                "config_name": oc.config_name,
+                "adapter": oc.adapter,
+                "filename": oc.filename,
+                "bytes_before": oc.bytes_before,
+                "bytes_after": oc.bytes_after,
+                "bytes_delta": oc.bytes_delta,
+                "runtime": oc.runtime_description,
+            }
+            for oc in (rev.output_changes or [])
+        ],
+        "targets": [
+            {"adapter": tb.adapter, "path": tb.path, "mode": tb.mode}
+            for tb in (rev.target_bindings or [])
+        ],
+    }
+    return json.dumps(payload, indent=2, ensure_ascii=False)
 
 
 def _format_review_compact(rev, use_color: bool) -> str:
