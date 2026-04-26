@@ -1219,6 +1219,13 @@ def rollback(hash_prefix: str | None, root: str | None) -> None:
     help="Only show the panels (origin / semantic / affects / bench), skip the raw diff.",
 )
 @click.option(
+    "--compact",
+    is_flag=True,
+    help="One-screen condensed view (~10 lines). Designed to fit inside chat tools "
+    "that fold long output. Use this for first-pass review; ask for --summary-only "
+    "or full diff if more detail wanted.",
+)
+@click.option(
     "--full-provenance",
     is_flag=True,
     help="Don't fold provenance digest/byte hunks in the raw diff.",
@@ -1234,6 +1241,7 @@ def review(
     no_color: bool,
     no_pager: bool,
     summary_only: bool,
+    compact: bool,
     full_provenance: bool,
     tui: bool,
 ) -> None:
@@ -1258,18 +1266,20 @@ def review(
     if no_pager:
         use_color = use_color and click.get_text_stream("stdout").isatty()
 
-    text = _format_review(rev, use_color=use_color)
-    if not summary_only:
-        text += "\n\n" + _format_diff(
-            result=rev.diff_result,
-            source_only=False,
-            output_only=False,
-            config_filter=None,
-            use_color=use_color,
-            full_provenance=full_provenance,
-        )
-
-    text += "\n\n" + _format_review_actions(rev, use_color=use_color)
+    if compact:
+        text = _format_review_compact(rev, use_color=use_color)
+    else:
+        text = _format_review(rev, use_color=use_color)
+        if not summary_only:
+            text += "\n\n" + _format_diff(
+                result=rev.diff_result,
+                source_only=False,
+                output_only=False,
+                config_filter=None,
+                use_color=use_color,
+                full_provenance=full_provenance,
+            )
+        text += "\n\n" + _format_review_actions(rev, use_color=use_color)
 
     if no_pager or not click.get_text_stream("stdout").isatty():
         click.echo(text)
@@ -1355,6 +1365,75 @@ def _format_review(rev, use_color: bool) -> str:
     if not rev.section_changes:
         out.append("│ (no section-level changes)")
     out.append(style("└──────────────────────────────────────────────────────", fg="cyan"))
+
+    return "\n".join(out)
+
+
+def _format_review_compact(rev, use_color: bool) -> str:
+    """Compact one-screen review (~10 lines). Designed to fit inline in chat
+    tools that fold long output. Drops the raw diff entirely; user can ask for
+    [d] to get full diff."""
+    def style(s: str, **kw):
+        return click.style(s, **kw) if use_color else s
+
+    out: list[str] = []
+
+    # Header: 1 line summary
+    n = len(rev.section_changes)
+    n_cfg = len(rev.output_changes)
+    out.append(
+        style(
+            f"forge review · {n} section{'s' if n != 1 else ''} changed → "
+            f"{n_cfg} output{'s' if n_cfg != 1 else ''} affected",
+            bold=True,
+        )
+    )
+
+    # Origin: 1 line
+    if rev.origin_events:
+        ev = rev.origin_events[0]
+        # strip "(agent will classify)" suffix to keep it tight
+        origin_short = ev.summary.replace(" (agent will classify)", "")
+        out.append(f"  origin: {origin_short}")
+    else:
+        out.append(f"  origin: hand edit")
+
+    # Section deltas: 1 line each
+    for sc in rev.section_changes:
+        sign = "+" if sc.bytes_delta >= 0 else ""
+        warn = ""
+        if abs(sc.growth_pct) >= 50 and sc.bytes_before > 0:
+            warn_str = f" ⚠ {sc.growth_pct:+.0f}%"
+            warn = style(warn_str, fg="yellow", bold=True) if use_color else warn_str
+        # Trim section summary to fit
+        summary = sc.summary
+        if len(summary) > 50:
+            summary = summary[:47] + "..."
+        out.append(
+            f"  • {sc.name:18} {sign}{sc.bytes_delta:>5}B{warn}  ({summary})"
+        )
+
+    # Output: condensed onto 1 line
+    if rev.output_changes:
+        outputs_str = ", ".join(
+            f"{oc.filename} {('+' if oc.bytes_delta >= 0 else '')}{oc.bytes_delta}B"
+            for oc in rev.output_changes
+        )
+        out.append(f"  outputs: {outputs_str}")
+
+    # Targets: 1 line if bound
+    if rev.target_bindings:
+        tb_str = ", ".join(f"{tb.path} [{tb.mode}]" for tb in rev.target_bindings)
+        out.append(f"  → sync: {tb_str}")
+
+    # Action menu: 1 line
+    a = style("[a]", fg="green", bold=True) if use_color else "[a]"
+    r = style("[r]", fg="red", bold=True) if use_color else "[r]"
+    e = style("[e]", fg="cyan", bold=True) if use_color else "[e]"
+    d = style("[d]", fg="white", bold=True) if use_color else "[d]"
+    q = style("[q]", fg="white") if use_color else "[q]"
+    out.append("")
+    out.append(f"reply: {a}pprove  {r}eject  {e}dit  {d}iff (full)  {q}uit")
 
     return "\n".join(out)
 

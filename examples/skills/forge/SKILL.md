@@ -142,39 +142,42 @@ If you're in a non-agent context (CLI-direct user, or you want forge to handle i
 ### Step 5 — Show the review screen
 
 ```bash
-forge review --summary-only
+forge review --compact
 ```
 
-**CRITICAL — display behavior**: Claude Code collapses long Bash tool output into `+N lines (ctrl+o to expand)`. The user **will not see** the review panels if you only run the command. You MUST take the stdout and paste it into your **message text** (inside a fenced code block) so it renders inline. Don't paraphrase the panels, don't truncate them — paste the full panel text verbatim. The panels are already structured for human reading; rewriting them defeats the design.
+**Use `--compact` (≤10 lines)** as the default — it fits inline in chat without folding. The full panels (`--summary-only`, ~30 lines) and full diff (`forge review`, ~150+ lines) get folded by Claude Code into "+N lines (ctrl+o to expand)" and the user can't see them by default.
 
-If the user later asks "show diff" or "show the raw diff," run `forge review` (without `--summary-only`) AND again paste the entire output into your message text. Same rule: tool output is invisible until you echo it as a message.
+**CRITICAL — display behavior**: even `--compact` output goes through Bash tool, which Claude Code may still fold for ≥10 lines. **Paste the stdout into your message text** (inside a fenced code block) so it renders inline. Don't paraphrase. Don't summarize on top. The compact output is already designed for one-shot human reading — just pass it through.
 
-`forge review` is the **primary review surface**, not `forge diff`. It shows in one screen: where the change came from (Origin panel — picks up the ingest event from Step 4 automatically), what it does semantically (filled N TODO placeholders, +/- bullet rules), which agents will read it (CLAUDE.md → Claude Code, AGENTS.md → Codex), and per-section bench.
-
-The review output ends with a single-letter action menu:
+What `--compact` shows (in 9 lines):
 
 ```
-══ Reply with a single letter ══
-  [a] approve     ship this change (will prompt for commit message)
-  [r] reject      discard, restore HEAD
-  [e] edit        pick a section to edit (preferences, workspace, ...)
-  [d] diff        show full unified diff
-  [q] quit        do nothing, exit
+forge review · 4 sections changed → 2 outputs affected
+  origin: forge ingest --emit --from-claude-memory (project=...)
+  • about-me             -71B  (...)
+  • knowledge-base     +  376B ⚠ +137%  (...)
+  • preferences         -223B ⚠ -71%  (...)
+  • workspace          +  894B ⚠ +385%  (...)
+  outputs: AGENTS.md +925B, CLAUDE.md +925B
+
+reply: [a]pprove  [r]eject  [e]dit  [d]iff (full)  [q]uit
 ```
 
-Don't paraphrase or expand this menu. Paste it verbatim along with the panels. Treat the user's reply as a single-letter command:
+`forge review` is the **primary review surface**, not `forge diff`. The compact mode shows: section deltas (with ⚠ markers for ≥50% change), origin (where this change came from), outputs affected, sync targets if bound, and a single-letter action menu.
+
+Treat the user's reply as a single-letter command:
 
 - **"a"** or **"a: <message>"** → run `forge approve -m "<message>"` (if no message, ask them once for one, then run)
 - **"r"** → confirm once ("discard all working-tree changes? y/n"), then `yes | forge reject`
-- **"e"** → ask "which section?", let them pick a name, run `$EDITOR sp/section/<name>.md` (Bash tool can't actually open $EDITOR; tell them to do it themselves and `say 'done' when ready`), then re-run `forge review` and paste again
-- **"d"** → run `forge review` without `--summary-only` and paste the full diff portion
+- **"e"** → ask "which section?", run `$EDITOR sp/section/<name>.md` (Bash tool can't open $EDITOR; tell them to do it in their own terminal and reply "done" when ready), then re-run `forge review --compact` and paste again
+- **"d"** → run `forge review` (no flags = full panels + diff) and paste the full output. This will be long; warn the user and offer to scope it: "the full diff is ~150 lines; want me to show only one config (`--config claude-code`) or only the source diff (`--source-only`)?"
 - **"q"** → say "leaving working tree as-is — say 'review' when ready"
 
 Free-form replies still work ("approve with message X", "discard", "let me edit preferences"). Single letters are just the shortcut path.
 
-For users who want a real keyboard-driven TUI (live editing, instant feedback): `forge review --tui` in their own terminal. Tell them about it once if they keep going through review iterations. Don't auto-suggest — text panels work fine for one-shot review.
+For users who want a real keyboard-driven TUI (live editing, instant feedback): `forge review --tui` in their **own terminal** (not in chat — Bash can't drive textual). Tell them about it once if they keep going through review iterations.
 
-(`forge diff` still exists as a thinner command for raw diff with no panel context — skill flows always go through `forge review`.)
+(`forge diff` still exists as a thinner command for raw diff with no panel context — skill flows always go through `forge review --compact`.)
 
 ### Step 6 — Cross-runtime: show one source, two outputs
 
@@ -259,14 +262,14 @@ If errors: stop, show them, ask user to fix or offer to fix together (only edit 
 ### Step R3 — Show diff
 
 ```bash
-forge review --summary-only
+forge review --compact
 ```
 
 If `no changes since last approve`: tell user "nothing to review", stop.
 
-Else: **paste the full stdout into your message text inside a fenced code block** — Claude Code collapses long bash output and the user can't see it otherwise. The Origin panel will say `hand edit (no recorded ingest/event)` for typical edit-then-review cycles, which is correct. The Bench panel will flag any section with ≥50% byte change with ⚠ — call that out explicitly if any: "the workspace section grew 76% — sure that's intended?"
+Else: paste the 9-line compact output into your message text inside a fenced code block. The ⚠ markers (≥50% byte change) call out unusual deltas — flag any in plain text: "the workspace section grew 76% — sure?".
 
-If user asks to see raw diff: re-run `forge review` (no `--summary-only`) and again paste the full stdout into your message text.
+If user asks for "full diff" or replies `d`: run `forge review` (no flags) and paste the full output, but warn first that it's long and offer to scope (`--config <name>`, `--source-only`, etc.).
 
 ### Step R4 — Suggest message
 
