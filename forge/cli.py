@@ -63,7 +63,23 @@ def new_cmd(path: str, minimal: bool) -> None:
 
     (root / ".gitignore").write_text(".forge/\n", encoding="utf-8")
 
-    click.echo(f"created {root}/")
+    # v0.2: workspace IS a git repo. git init + initial commit so the user has
+    # a clean baseline they can diff/approve/rollback against.
+    from forge.gate import _git
+    from forge.gate import actions as gate
+
+    _git.init_repo(root)
+    # Build initial output before the first commit so the workspace is fully
+    # populated (5 templates → output/CLAUDE.md + output/AGENTS.md).
+    gate.build(root)
+    _git.add(root, ["sp", "output", ".gitignore"])
+    initial_hash = _git.commit(
+        root,
+        "forge new: scaffold sp/ + first output/ build",
+        trailers={"forge-provenance": "version=0.2.0 source=forge-new"},
+    )
+
+    click.echo(f"created {root}/  (git initialized, first commit {initial_hash[:12]})")
     click.echo()
     click.echo("Next:")
     click.echo(f"  cd {path}")
@@ -72,8 +88,9 @@ def new_cmd(path: str, minimal: bool) -> None:
     else:
         click.echo(f"  ls sp/section/                   # 5 sections + 1 wrapper, all with TODO placeholders")
         click.echo(f"  $EDITOR sp/section/about-me.md   # start with about-me, fill in your identity")
-    click.echo(f"  forge init                       # snapshot baseline + compile")
-    click.echo(f"  cat output/CLAUDE.md             # see the compiled view (also AGENTS.md if not --minimal)")
+    click.echo(f"  forge review                     # see what you changed before committing")
+    click.echo(f"  forge approve -m \"<message>\"     # commit (= git commit, you can git log it later)")
+    click.echo(f"  cat output/CLAUDE.md             # see the compiled view")
     click.echo()
     if not minimal:
         click.echo(
@@ -82,7 +99,6 @@ def new_cmd(path: str, minimal: bool) -> None:
         click.echo("sections by importing it (or ask Claude Code with the forge skill installed):")
         click.echo("  forge ingest --from ~/.claude/CLAUDE.md     # auto-classify into 5 sections")
         click.echo()
-    click.echo("Then edit, run `forge diff` to preview, `forge approve` to ship.")
     click.echo(
         "To wire compiled output to live Claude Code: "
         "`forge target install claude-code --to ~/.claude/CLAUDE.md`"
@@ -643,26 +659,8 @@ def inbox_skip(todo_id: int, reason: str, root: str | None) -> None:
     click.echo(f"skipped inbox/{todo_id:04d}")
 
 
-@main.command()
-@click.argument("hash_prefix", required=False)
-@click.option("--root", type=click.Path(), default=None)
-def rollback(hash_prefix: str | None, root: str | None) -> None:
-    """Roll back sp/ to an earlier approved state (v0.1: latest approved only)."""
-    try:
-        result = rollback_fn(_root(root), hash_prefix)
-    except (RuntimeError, ValueError) as e:
-        click.echo(f"error: {e}", err=True)
-        sys.exit(1)
-    if not hash_prefix:
-        click.echo(f"current approved: {result['current_hash'][:12]}")
-        click.echo("available in changelog:")
-        for e in result["available"]:
-            click.echo(f"  {e['hash'][:12]}  {e['line']}")
-        return
-    if result["applied_to"]:
-        click.echo(f"rolled back to {result['applied_to'][:12]}")
-    else:
-        click.echo(result.get("diagnostic", "no-op"))
+# (v0.2 forge rollback now lives later in this file, alongside forge migrate
+#  and forge changelog — they're a coordinated triad.)
 
 
 # ---------- ingest ----------
@@ -812,6 +810,188 @@ def ingest(
 
 
 # ---------- skill install ----------
+
+# ---------- v0.2 migration & changelog (git substrate) ----------
+
+@main.command()
+@click.option("--root", type=click.Path(), default=None)
+@click.option("--dry-run", is_flag=True, help="Print what would happen, don't change anything.")
+def migrate(root: str | None, dry_run: bool) -> None:
+    """Migrate a v0.1 workspace to v0.2 git-based layout.
+
+    \b
+    Detects:
+      - .forge/approved/sp/         (v0.1 parallel snapshot, will be deleted)
+      - CHANGELOG.md (root)         (v0.1 audit file, imported into git history)
+      - .forge/output/              (already-handled v0.1.0 layout, idempotent)
+
+    Action:
+      1. git init the workspace (if not already a git repo)
+      2. Replay CHANGELOG.md entries as git commits (best-effort, preserves
+         hash + message + timestamp in commit body and trailer)
+      3. Make a final 'forge migrate to v0.2' commit covering current sp/+output/
+      4. Remove .forge/approved/ and CHANGELOG.md
+    """
+    from forge.gate import _git
+    from forge.gate import actions as gate
+    from forge.gate.state import GateState
+    import re as _re
+
+    workspace = _root(root)
+    state = GateState(workspace)
+    state.migrate_layout()  # silent v0.1.0 → v0.1.1 first
+
+    if not state.needs_v02_migration() and _git.is_git_repo(workspace):
+        click.echo("already on v0.2 layout — nothing to migrate.")
+        return
+
+    click.echo(f"migrating {workspace} to v0.2 git-based layout")
+    click.echo()
+
+    # 1. git init if needed
+    if not _git.is_git_repo(workspace):
+        click.echo(f"  [{'dry-run' if dry_run else 'do'}] git init")
+        if not dry_run:
+            _git.init_repo(workspace)
+        # Make sure .gitignore exists with .forge/
+        gi = workspace / ".gitignore"
+        if not gi.exists() or ".forge/" not in gi.read_text(encoding="utf-8", errors="ignore"):
+            click.echo(f"  [{'dry-run' if dry_run else 'do'}] write .gitignore (.forge/)")
+            if not dry_run:
+                existing = gi.read_text(encoding="utf-8") if gi.exists() else ""
+                gi.write_text(existing.rstrip("\n") + "\n.forge/\n", encoding="utf-8")
+    else:
+        click.echo(f"  ok: already a git repo (HEAD={(_git.head_hash(workspace) or '<none>')[:12]})")
+
+    # 2. Replay CHANGELOG.md entries (best-effort)
+    changelog = state.root_changelog_path
+    historical_entries: list[dict] = []
+    if changelog.exists():
+        click.echo()
+        click.echo(f"  reading CHANGELOG.md to replay history...")
+        # Format: "- 2026-04-26T01:44:58+00:00 approve (hash=874d403634b4) — message"
+        line_re = _re.compile(
+            r"^-\s+(?P<at>\S+)\s+(?P<kind>\w+)\s+\(hash=(?P<hash>\w+)\)\s*(?:—\s*(?P<note>.+))?\s*$"
+        )
+        for line in changelog.read_text(encoding="utf-8").splitlines():
+            m = line_re.match(line.strip())
+            if not m:
+                continue
+            historical_entries.append({
+                "at": m.group("at"),
+                "kind": m.group("kind"),
+                "hash": m.group("hash"),
+                "note": (m.group("note") or "").strip(),
+            })
+        click.echo(
+            f"  found {len(historical_entries)} historical entries "
+            f"(will preserve as commit messages on a single migration commit; "
+            f"v0.1's `.forge/approved/` only kept the latest snapshot, so we can't "
+            f"replay byte-perfect history)"
+        )
+
+    # 3. Final migration commit
+    click.echo()
+    click.echo(f"  [{'dry-run' if dry_run else 'do'}] rebuild output/ + commit current state")
+    if not dry_run:
+        gate.build(workspace)
+        # Stage sp/ + output/ + .gitignore
+        _git.add(workspace, ["sp", "output", ".gitignore"])
+        # Build a multi-line message that preserves the v0.1 audit log
+        body = ["forge migrate: import v0.1 workspace into git history", ""]
+        if historical_entries:
+            body.append("Imported v0.1 CHANGELOG.md entries (preserved as audit context):")
+            for e in historical_entries:
+                body.append(f"  - {e['at']} {e['kind']} ({e['hash'][:12]}) {('— ' + e['note']) if e['note'] else ''}")
+        message = "\n".join(body)
+        new_hash = _git.commit(
+            workspace,
+            message,
+            trailers={"forge-provenance": "version=0.2.0 source=forge-migrate"},
+            allow_empty=True,
+        )
+        click.echo(f"  → committed {new_hash[:12]}")
+
+    # 4. Remove v0.1 artifacts
+    click.echo()
+    if state._legacy_approved_sp.exists():
+        click.echo(f"  [{'dry-run' if dry_run else 'do'}] rm -rf .forge/approved/")
+        if not dry_run:
+            shutil.rmtree(state.forge_dir / "approved")
+    if changelog.exists():
+        click.echo(f"  [{'dry-run' if dry_run else 'do'}] rm CHANGELOG.md (history now lives in git log)")
+        if not dry_run:
+            changelog.unlink()
+
+    click.echo()
+    if dry_run:
+        click.echo("dry-run complete. Re-run without --dry-run to apply.")
+    else:
+        click.echo("migration complete.")
+        click.echo("  • approve/reject now use git commit / git restore")
+        click.echo("  • `forge changelog` reads from git log")
+        click.echo("  • `forge rollback` accepts any commit hash, not just the latest")
+
+
+@main.command()
+@click.option("--root", type=click.Path(), default=None)
+@click.option("-n", "--max-count", type=int, default=20, show_default=True, help="How many entries to show.")
+@click.option("--all", "show_all", is_flag=True, help="Show all entries, no limit.")
+def changelog(root: str | None, max_count: int, show_all: bool) -> None:
+    """Show the audit log (rendered live from git log of sp/ history)."""
+    from forge.gate import _git
+
+    workspace = _root(root)
+    if not _git.is_git_repo(workspace):
+        click.echo(f"error: {workspace} is not a git repo (run `forge migrate` or `forge new`).", err=True)
+        sys.exit(1)
+
+    entries = _git.log_for_paths(
+        workspace, ["sp"], max_count=None if show_all else max_count
+    )
+    if not entries:
+        click.echo("(no commits touching sp/ yet)")
+        return
+
+    click.echo(f"# forge changelog ({workspace})")
+    click.echo()
+    for e in entries:
+        # 2026-04-26T01:44:58+00:00 → 2026-04-26 01:44 UTC
+        ts = e["at"].replace("T", " ").rsplit("+", 1)[0]
+        line = f"- {ts}  {e['short']}  {e['subject']}"
+        click.echo(line)
+        if e["provenance"]:
+            click.echo(f"    provenance: {e['provenance']}")
+
+
+@main.command()
+@click.argument("hash_prefix", required=False)
+@click.option("--root", type=click.Path(), default=None)
+def rollback(hash_prefix: str | None, root: str | None) -> None:
+    """Roll sp/ + output/ back to a historical commit. No arg = list available."""
+    from forge.governance.rollback import rollback as do_rollback
+
+    try:
+        result = do_rollback(_root(root), hash_prefix)
+    except (RuntimeError, ValueError) as e:
+        click.echo(f"error: {e}", err=True)
+        sys.exit(1)
+
+    if hash_prefix is None:
+        click.echo(f"current HEAD: {result['current_hash'][:12] if result['current_hash'] else '(none)'}")
+        click.echo()
+        click.echo(f"available approved hashes (most recent first):")
+        for e in result["available"]:
+            click.echo(f"  {e['short']}  {e['at'].replace('T', ' ').rsplit('+', 1)[0]}  {e['subject']}")
+        click.echo()
+        click.echo(f"to roll back: forge rollback <hash-prefix>")
+        return
+
+    click.echo(f"rolled sp/ + output/ back to {result['applied_to'][:12]}")
+    if result.get("next_step"):
+        click.echo()
+        click.echo(result["next_step"])
+
 
 # ---------- review (one-screen story: origin + semantic + affects + bench + diff) ----------
 

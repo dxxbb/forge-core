@@ -6,13 +6,13 @@ from forge.gate import actions as gate
 from forge.bench import harness as bench
 
 
-def test_snapshot_without_output_raises(workspace: Path) -> None:
+def test_snapshot_without_output_raises(tmp_path: Path) -> None:
+    """A bare directory with no output/ shouldn't allow bench snapshot."""
     with pytest.raises(RuntimeError):
-        bench.snapshot(workspace, "v1")
+        bench.snapshot(tmp_path, "v1")
 
 
 def test_snapshot_and_list(workspace: Path) -> None:
-    gate.init(workspace)
     snap = bench.snapshot(workspace, "v1")
     assert snap.name == "v1"
     assert "CLAUDE.md" in snap.outputs
@@ -21,7 +21,6 @@ def test_snapshot_and_list(workspace: Path) -> None:
 
 
 def test_compare_detects_section_growth(workspace: Path) -> None:
-    gate.init(workspace)
     bench.snapshot(workspace, "v1")
     # grow alpha
     p = workspace / "sp" / "section" / "alpha.md"
@@ -37,7 +36,6 @@ def test_compare_detects_section_growth(workspace: Path) -> None:
 
 
 def test_compare_detects_added_section(workspace: Path) -> None:
-    gate.init(workspace)
     bench.snapshot(workspace, "before")
     (workspace / "sp" / "section" / "gamma.md").write_text(
         "---\nname: gamma\n---\ngamma body\n", encoding="utf-8"
@@ -54,7 +52,6 @@ def test_compare_detects_added_section(workspace: Path) -> None:
 
 
 def test_compare_missing_snapshot_raises(workspace: Path) -> None:
-    gate.init(workspace)
     bench.snapshot(workspace, "v1")
     with pytest.raises(FileNotFoundError):
         bench.compare(workspace, "v1", "nonexistent")

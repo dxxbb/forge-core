@@ -135,51 +135,46 @@ def test_watcher_state_tracks_last_seen(tmp_path: Path) -> None:
     assert len(changes) == 1
 
 
-# ---------- rollback ----------
+# ---------- rollback (v0.2: git-based, supports any hash in history) ----------
 
 def test_rollback_lists_available(workspace: Path) -> None:
-    """rollback without target_hash returns changelog entries."""
-    gate.init(workspace)
+    """rollback without target_hash returns commit list."""
     result = rollback(workspace, target_hash_prefix=None)
     assert "current_hash" in result
     assert isinstance(result["available"], list)
+    assert len(result["available"]) >= 1  # at least the fixture initial commit
 
 
-def test_rollback_to_current_is_reject_equivalent(workspace: Path) -> None:
-    """Rolling back to current approved hash = forge reject."""
-    gate.init(workspace)
-    manifest = gate.status(workspace)["manifest"]
-    current = manifest["approved_hash"]
-
-    # modify section
+def test_rollback_to_old_hash_restores_working_tree(workspace: Path) -> None:
+    """v0.2: rollback to ANY commit in history (not just the latest)."""
+    # First approve: v1
     p = workspace / "sp" / "section" / "alpha.md"
-    p.write_text("---\nname: alpha\n---\nmodified\n", encoding="utf-8")
-
-    result = rollback(workspace, target_hash_prefix=current[:12])
-    assert result["applied_to"] == current
-    # section restored
-    assert "modified" not in p.read_text("utf-8")
-
-
-def test_rollback_to_old_approved_hash_stub_diagnostic(workspace: Path) -> None:
-    """v0.1 多点回滚还没实现 — 应返回明确诊断（target 是历史 approve 但不是当前）。"""
-    gate.init(workspace)
-    # 第一次 approve（v1）
-    p = workspace / "sp" / "section" / "alpha.md"
-    p.write_text("---\nname: alpha\n---\nv1 content\n", encoding="utf-8")
+    p.write_text("---\nname: alpha\ntype: test\n---\nv1\n", encoding="utf-8")
     r1 = gate.approve(workspace, note="to v1")
     v1_hash = r1.approved_hash
-    # 第二次 approve（v2）
-    p.write_text("---\nname: alpha\n---\nv2 content\n", encoding="utf-8")
+
+    # Second approve: v2
+    p.write_text("---\nname: alpha\ntype: test\n---\nv2\n", encoding="utf-8")
     gate.approve(workspace, note="to v2")
 
+    # Roll back to v1
     result = rollback(workspace, target_hash_prefix=v1_hash[:12])
-    assert result["applied_to"] is None
-    assert "diagnostic" in result
-    assert "v0.2" in result["diagnostic"] or "snapshot ring buffer" in result["diagnostic"]
+    assert result["applied_to"] == v1_hash
+
+    # Working tree shows v1 content
+    assert "v1" in p.read_text("utf-8")
+    assert "v2" not in p.read_text("utf-8")
+
+
+def test_rollback_refuses_with_uncommitted_changes(workspace: Path) -> None:
+    p = workspace / "sp" / "section" / "alpha.md"
+    p.write_text("---\nname: alpha\n---\nuncommitted\n", encoding="utf-8")
+
+    head = gate.status(workspace)["approved_hash"]
+    with pytest.raises(RuntimeError, match="uncommitted"):
+        rollback(workspace, target_hash_prefix=head[:12])
 
 
 def test_rollback_unknown_hash_raises(workspace: Path) -> None:
-    gate.init(workspace)
     with pytest.raises(ValueError):
         rollback(workspace, target_hash_prefix="ffffffffffff")

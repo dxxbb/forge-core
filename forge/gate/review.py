@@ -115,7 +115,7 @@ def build_review(root: Path) -> ReviewSummary:
 
 def _section_changes(state: GateState) -> list[SectionChange]:
     """Walk every section file and produce one SectionChange per modified one."""
-    approved_files = _read_section_dir(state.approved_sp)
+    approved_files = _read_section_dir_at_head(state)
     current_files = _read_section_dir(state.current_sp)
     changes: list[SectionChange] = []
     for name in sorted(set(approved_files) | set(current_files)):
@@ -150,6 +150,23 @@ def _read_section_dir(sp_dir: Path) -> dict[str, str]:
         return out
     for f in sorted(section_dir.glob("*.md")):
         out[f.stem] = f.read_text(encoding="utf-8")
+    return out
+
+
+def _read_section_dir_at_head(state: GateState) -> dict[str, str]:
+    """Read sp/section/*.md from git HEAD."""
+    from forge.gate import _git
+
+    head = _git.head_hash(state.root)
+    if head is None:
+        return {}
+    files = _git.list_files_at_ref(state.root, head, "sp/section/")
+    out: dict[str, str] = {}
+    for relpath in files:
+        if not relpath.endswith(".md"):
+            continue
+        name = Path(relpath).stem
+        out[name] = _git.show_at_ref(state.root, head, relpath)
     return out
 
 
@@ -215,10 +232,11 @@ def _semantic_summary(name: str, before: str, after: str) -> str:
 
 def _output_changes(state: GateState, diff) -> list[OutputChange]:
     """For each config affected, compute byte/line delta + adapter description."""
+    from forge.gate.actions import _load_sections_at_head, _load_configs_at_head
     from forge.targets import get_adapter
 
-    approved_sections = load_sections(state.approved_sp.parent)
-    approved_configs = load_all_configs(state.approved_sp.parent)
+    approved_sections = _load_sections_at_head(state)
+    approved_configs = _load_configs_at_head(state)
     current_sections = load_sections(state.root)
     current_configs = load_all_configs(state.root)
 

@@ -195,17 +195,20 @@ forge review                                # 一屏看清楚: Origin (这次从
                                             # (哪些 agent 会读到) + Bench (字节
                                             # 涨缩, 异常增长 ⚠) + 完整 diff
 forge review --summary-only                 # 只看 panels, 不要 raw diff
-forge diff                                  # 旧入口, 只回答 "字节怎么变". v0.1
-                                            # 保留, 但日常推荐 forge review
+forge diff                                  # 旧入口, 只回答 "字节怎么变"
+                                            # (内部就是 git diff HEAD -- sp/)
 
 # 6. (可选) 编辑分错的段
 $EDITOR sp/section/preferences.md           # 改完 forge review 看效果
 
-# 7. approve
+# 7. approve = git commit
 forge approve -m "import existing CLAUDE.md as initial 5 sections"
+# v0.2: 真的就是 git commit. log 里多一条带 forge-provenance trailer 的提交.
+# git log / git diff / git checkout 全部直接可用.
 
 # 8. 看 audit trail
-cat CHANGELOG.md                            # 工作区根, git 跟踪, PR 里直接可见
+forge changelog                             # 现场从 git log 渲染. 也能直接:
+git log -- sp/                              # 任何 git 工具 (lazygit, github, ...) 都看得到
 
 # 9. 一次绑定, 永久同步到真 Claude Code
 forge target install claude-code --to ~/.claude/CLAUDE.md --mode symlink
@@ -245,7 +248,7 @@ forge bench compare before after          # 对比
 - **Section**（Model，内容）——一个 markdown 文件一个主题。YAML frontmatter + 正文。
 - **Config**（Controller，控制）——"给谁、挑哪几段、什么顺序"。不装内容。v0.1 里如果写 preamble / postamble / body 会直接报错。
 - **Output**（View，产物）——某个工具真读的那份文件（`output/CLAUDE.md` 等），在工作区根，不藏。不手改。
-- **Gate**——审核状态：`.forge/approved/sp/` 是上次通过的快照（runtime cache，gitignored），`CHANGELOG.md` 是 audit trail（在工作区根，git 跟踪），`.forge/manifest.json` 是 hash + target 绑定。
+- **Gate**——v0.2 直接落到 git：approve = `git commit`（带 `forge-provenance` trailer），reject = `git restore HEAD -- sp/`，approved 基线 = `git rev-parse HEAD`，audit trail = `git log -- sp/`。`.forge/` 只剩 target 绑定 (`manifest.json`) 和 origin tracking (`pending.json`)。
 - **Target**（绑定）——把某个 output 推到外部路径（如 `~/.claude/CLAUDE.md`）。`forge target install` 一次绑定，之后每次 approve 自动同步，不用 `cp` 也不用 `ln -sf`。
 - **Bench**——编译产物的前后结构对比。`snapshot` / `list` / `compare`。
 
@@ -283,9 +286,15 @@ forge build                     # sp/ → output/（不走审核，给 CI 用）
 forge review                    # 推荐入口：一屏看 Origin/What changed/
                                 #   Affects/Bench + 完整 diff
 forge review --summary-only     # 只看 panels，跳过 raw diff
-forge diff                      # 老入口，只回答"字节怎么变"
-forge approve -m "说明"         # 通过，记 CHANGELOG，重编译，自动同步 target
-forge reject                    # 丢弃当前改动，回到上次通过
+forge diff                      # 老入口（内部 = git diff HEAD -- sp/）
+forge approve -m "说明"         # = git commit 带 forge-provenance trailer，
+                                #   重编译 output/，自动同步 target
+forge reject                    # = git restore HEAD -- sp/ output/
+forge changelog                 # 现场从 git log 渲染审计
+forge rollback                  # 不带参 = 列所有 sp/ 历史 commit
+forge rollback <hash>           # = git checkout <hash> -- sp/ output/
+                                #   (任意历史 hash, 不是只能回最近一次)
+forge migrate                   # v0.1 工作区一次性升级到 v0.2 git layout
 
 # 把 output 绑到外部位置 (永久同步)
 forge target install <adapter> --to <path>      # e.g. claude-code --to ~/.claude/CLAUDE.md
@@ -419,10 +428,11 @@ register_adapter(CursorAdapter())
 
 | 版本 | 主题 | 主要内容 |
 |---|---|---|
-| **v0.1（当前）** | 五大 pillar 最小闭环 | Canonical Source / Context Compiler / Gate / 结构 bench / Eval 框架 / 2 core + 3 contrib adapter |
-| **v0.2** | 完整 Governance | 真 daemon watcher、request-changes 回合、多点 rollback、可配置 classify 规则 |
-| **v0.3** | LLM 行为评估 | ≥20 task、multi-seed、counter-balance 默认开、和 CI 集成、成本报告 |
-| **v0.4** | Adapter 扩展 | Mem0 / Letta / Zep 作为可选 sidecar（症状驱动）、Aider / 其他 runtime、真 rulesync integration |
+| **v0.1** | 五大 pillar 最小闭环 | Canonical Source / Context Compiler / Gate / 结构 bench / Eval 框架 / 2 core + 3 contrib adapter（self-contained, 跟 git 无关） |
+| **v0.2（当前）** | git 是底层 | approve = `git commit`，reject = `git restore`，rollback 任意历史 hash，audit = `git log`。删 `.forge/approved/sp/` 和独立 CHANGELOG.md 文件。`forge migrate` 把 v0.1 工作区一键升上来。 |
+| **v0.3** | 完整 Governance | 真 daemon watcher、request-changes 回合、可配置 classify 规则、跨工具同步 |
+| **v0.4** | LLM 行为评估 | ≥20 task、multi-seed、counter-balance 默认开、和 CI 集成、成本报告 |
+| **v0.5** | Adapter 扩展 | Mem0 / Letta / Zep 作为可选 sidecar、Aider / 其他 runtime、真 rulesync integration |
 
 ---
 

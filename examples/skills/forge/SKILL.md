@@ -36,19 +36,20 @@ Then ask: **"Where should the workspace live? (default: `~/forge-context`)"** Wa
 ```bash
 forge new <path>
 cd <path>
-forge init
 ```
 
-`forge new` lays out files; `forge init` creates `.forge/` (the approved baseline + first compiled output). Without `init`, the next `forge diff` errors out with "not initialized." Run both before moving on.
+v0.2: `forge new` does **everything** — scaffolds files, runs `git init`, builds output, makes the first commit. No separate `forge init` needed. The workspace is a git repo from minute zero (any approve = a real git commit, viewable in `git log`, lazygit, GitHub PRs).
 
-After both complete, **briefly** describe the structure (don't dump full content):
+After it runs, **briefly** describe the structure:
 
 > "Scaffolded:
->   - `sp/section/` — 5 source sections (about-me, preferences, workspace, knowledge-base, skills) + 1 wrapper. These are markdown files you own.
->   - `sp/config/` — 2 configs: one outputs `CLAUDE.md` (Claude Code), one outputs `AGENTS.md` (Codex / OpenCode / etc.). Same 5 sections, two view formats.
->   - `.forge/` — runtime state (changelog, approved snapshot, compiled outputs). Gitignored.
+>   - `sp/section/` — 5 source sections (about-me, preferences, workspace, knowledge-base, skills) + 1 wrapper. Markdown files you own.
+>   - `sp/config/` — 2 configs: one outputs `CLAUDE.md` (Claude Code), one outputs `AGENTS.md` (Codex / OpenCode / etc.). Same 5 sections, two views.
+>   - `output/` — compiled views (rebuilt on every approve, git-tracked).
+>   - `.git/` — your audit trail. `git log -- sp/` is `forge changelog`.
+>   - `.forge/` — runtime state (target bindings + origin tracking). Gitignored.
 >
-> Each section has a TODO placeholder right now. We'll fill them by importing your existing context next."
+> Each section has a TODO placeholder. We'll fill them by importing your existing context next."
 
 ### Step 3 — Detect existing context
 
@@ -135,13 +136,15 @@ If approve:
 forge approve -m "<message>"
 ```
 
-Show output. Then:
+v0.2: this is **literally a `git commit`** — the workspace is a git repo, and approve adds a `forge-provenance: version=0.2.0 source=forge-approve` trailer to the commit. So `git log -- sp/` shows the audit trail; `forge changelog` is just a friendlier renderer of the same data; lazygit / VS Code source control / GitHub PRs all work natively.
+
+Show output (paste verbatim into your message — long output collapses otherwise). Then:
 
 ```bash
-cat CHANGELOG.md
+forge changelog -n 3
 ```
 
-> "This changelog is your audit trail. In 3 months, when you wonder 'when did I add the no-emoji rule?', `grep CHANGELOG.md`. **That's the provenance point.** It lives at the workspace root so PRs reviewing your context show this changelog inline."
+> "This audit trail lives in git history. `forge changelog` renders it; `git log -- sp/` shows the same thing. In 3 months, when you wonder 'when did I add the no-emoji rule?', either command grep-able. **That's the provenance point** — and because the workspace is a real git repo, you can rollback to any commit with `forge rollback <hash>`, push to GitHub, or open PRs against your context."
 
 ### Step 8 — Wire output to live Claude Code (no symlink ceremony)
 
@@ -232,7 +235,7 @@ Show approved hash, `wrote` lines, and `synced →` lines (any configured `forge
 
 If `forge target list` is empty and the user is on a personal workstation, mention once: "You don't have a target binding. Want me to install one so future approves auto-refresh `~/.claude/CLAUDE.md`? (`forge target install claude-code --to ~/.claude/CLAUDE.md --mode symlink`)" Don't repeat this hint after they decline.
 
-If workspace is a git repo: ask once "Want me to also `git add` and commit `sp/`, `output/`, and `CHANGELOG.md`?" Don't push without explicit asking.
+v0.2: workspace IS a git repo (`forge new` git-inits, every `forge approve` = `git commit`). So you don't need to ask the user "should we git commit?" — that already happened. Instead, ask once: "Want me to `git push` to a remote?" Only push if user explicitly says yes. Don't push to main/master without user explicitly naming the branch.
 
 #### Reject
 

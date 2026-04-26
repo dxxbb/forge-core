@@ -159,30 +159,29 @@ def test_install_target_idempotent_for_symlink_pointing_here(tmp_path: Path) -> 
     assert external.is_symlink()
 
 
-def test_layout_migration_moves_old_paths(tmp_path: Path) -> None:
-    """Old workspaces had .forge/output/ and .forge/changelog.md; migrate on touch."""
+def test_layout_migration_moves_old_output_path(tmp_path: Path) -> None:
+    """Old v0.1.0 workspaces had .forge/output/; gate ops auto-move it to <root>/output/.
+
+    (CHANGELOG.md migration is handled by `forge migrate`, not the silent layout
+    helper — it requires a git commit so it can't run silently.)
+    """
     ws = _make_workspace(tmp_path)
 
-    # Manually rebuild old layout to simulate pre-v0.1.1 workspace
+    # Simulate v0.1.0 by moving output/ back into .forge/
     new_output = ws / "output"
-    new_changelog = ws / "CHANGELOG.md"
     legacy_output = ws / ".forge" / "output"
-    legacy_changelog = ws / ".forge" / "changelog.md"
 
     import shutil
+    legacy_output.parent.mkdir(exist_ok=True)
+    if legacy_output.exists():
+        shutil.rmtree(legacy_output)
     if new_output.exists():
         shutil.move(str(new_output), str(legacy_output))
-    if new_changelog.exists():
-        shutil.move(str(new_changelog), str(legacy_changelog))
     assert legacy_output.exists()
-    assert legacy_changelog.exists()
     assert not new_output.exists()
-    assert not new_changelog.exists()
 
     # Any gate operation triggers migration
     gate.diff_summary(ws)
 
     assert new_output.exists()
-    assert new_changelog.exists()
     assert not legacy_output.exists()
-    assert not legacy_changelog.exists()

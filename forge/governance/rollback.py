@@ -1,65 +1,53 @@
-"""回滚到某个历史 approved 状态。
+"""Roll sp/ + output/ back to a historical approved state.
 
-v0.1 只支持 "回到当前 approved 的前一次"——通过 git 操作。完整的回滚到
-任意历史哈希（跨多个 approve 点、带 bench snapshot 还原）在 v0.2。
+v0.2: rollback is `git checkout <hash> -- sp/ output/` — works for any commit
+in the workspace's git history, not just the most recent one. This was the
+fundamental v0.1 limitation that motivated the git rewrite.
 """
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
+from forge.gate import _git
 from forge.gate.state import GateState
 
 
 def rollback(root: Path, target_hash_prefix: str | None = None) -> dict:
-    """尝试把 sp/ 恢复到前一次 approved 状态。
+    """Roll sp/ + output/ back to a historical approved state.
 
-    参数:
-        root               — workspace 根
-        target_hash_prefix — 目标 approved_hash 的前缀（12 位或更长）。
-                             如果为 None，不做真实回滚；只返回可用的目标列表。
+    Args:
+        root: workspace root
+        target_hash_prefix: short or full git hash. If None, list available hashes.
 
-    v0.1 实际做的事:
-        1. 读 <root>/CHANGELOG.md 里的 "approve (hash=X) — msg" 行
-        2. 如果 target_hash_prefix 对应某一条 approve 记录，把 .forge/approved/
-           里对应的快照还原到 sp/
-        3. 如果 target_hash_prefix 是当前 approved，就把当前 sp/ 恢复到 approved
-           （等同于 `forge reject`）
-
-    返回:
+    Returns:
         {
           "current_hash": str,
-          "available": [{"hash": str, "line": str}, ...],
-          "applied_to": str | None,
+          "available": [{"hash": str, "short": str, "subject": str, "at": str}, ...],
+          "applied_to": str | None,    # hash that was checked out, or None if listing
         }
 
-    v0.1 局限:
-        - `.forge/approved/` 只保留 **最近一次** approved 快照。真正的多点
-          回滚需要一个 snapshot ring buffer 或 git-based 历史存储，是 v0.2。
-        - 所以 target_hash_prefix != current_hash 时会返回 applied_to=None
-          以及一条诊断信息，告诉你还没实现跨点回滚。
+    Behavior:
+        - target_hash_prefix=None  → list all approved commits, do nothing
+        - target_hash_prefix=<x>   → look up commit, git checkout <hash> -- sp/ output/,
+                                     then `forge approve` later to make it official HEAD
+                                     (rollback writes working tree but doesn't auto-commit
+                                      — user reviews via `forge review` first)
     """
     state = GateState(root)
     if not state.initialized():
         raise RuntimeError(f"forge not initialized at {root}")
-    manifest = state.read_manifest()
-    current = manifest.get("approved_hash", "")
 
-    log = state.changelog_path
-    available: list[dict] = []
-    if log.exists():
-        for line in log.read_text(encoding="utf-8").splitlines():
-            if "approve (hash=" not in line:
-                continue
-            start = line.find("hash=") + len("hash=")
-            end = line.find(")", start)
-            if end < 0:
-                continue
-            available.append({"hash": line[start:end], "line": line.strip()})
+    head = _git.head_hash(root) or ""
+    log = _git.log_for_paths(root, ["sp"])
+
+    available = [
+        {"hash": e["hash"], "short": e["short"], "subject": e["subject"], "at": e["at"]}
+        for e in log
+    ]
 
     result: dict = {
-        "current_hash": current,
+        "current_hash": head,
         "available": available,
         "applied_to": None,
     }
@@ -67,25 +55,26 @@ def rollback(root: Path, target_hash_prefix: str | None = None) -> dict:
     if target_hash_prefix is None:
         return result
 
-    # 当前 = target: 把 sp/ 从 approved/ 恢复（和 gate.reject 语义相同）
-    if current.startswith(target_hash_prefix):
-        shutil.rmtree(state.current_sp, ignore_errors=True)
-        shutil.copytree(state.approved_sp, state.current_sp)
-        result["applied_to"] = current
-        return result
-
-    # target 是历史上的某次 approve，但 v0.1 只存当前 approved
-    match = next(
-        (e for e in available if e["hash"].startswith(target_hash_prefix)), None
-    )
+    # find matching commit
+    match = next((e for e in log if e["hash"].startswith(target_hash_prefix)), None)
     if match is None:
         raise ValueError(
-            f"no approved hash matching prefix `{target_hash_prefix}` in changelog"
+            f"no commit hash starts with `{target_hash_prefix}` in sp/ history. "
+            f"Run `forge rollback` (no arg) to list available hashes."
         )
-    result["applied_to"] = None
-    result["diagnostic"] = (
-        f"target hash `{match['hash']}` is in changelog but is not the current "
-        f"approved. v0.1 only keeps the latest approved snapshot in .forge/approved/. "
-        f"Multi-point rollback needs a snapshot ring buffer (v0.2)."
+
+    # check working tree clean for sp/ + output/ — refuse to rollback over uncommitted changes
+    if _git.has_pending_changes(root, ["sp", "output"]):
+        raise RuntimeError(
+            "working tree has uncommitted changes to sp/ or output/. "
+            "Run `forge approve` or `forge reject` first, then retry rollback."
+        )
+
+    _git.checkout_paths_at_ref(root, match["hash"], ["sp", "output"])
+    result["applied_to"] = match["hash"]
+    result["next_step"] = (
+        "Working tree now reflects this old commit. Run `forge review` to "
+        "see what changed and `forge approve -m 'rollback to <short>'` to "
+        "make it the new HEAD."
     )
     return result

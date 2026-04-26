@@ -75,13 +75,17 @@ def test_forge_new_output_compiles_immediately(tmp_path: Path) -> None:
     target = tmp_path / "pipeline-test"
     runner.invoke(main, ["new", str(target)])
 
-    result = runner.invoke(main, ["init", "--root", str(target)])
-    assert result.exit_code == 0, result.output
-    # output/ is now at workspace root, visible (not hidden in .forge/)
+    # v0.2: forge new auto-inits + initial-commits, so output/ exists right away
     assert (target / "output" / "CLAUDE.md").exists()
 
     compiled = (target / "output" / "CLAUDE.md").read_text("utf-8")
     assert "About me" in compiled
 
-    # CHANGELOG.md is also at workspace root, git-trackable
-    assert (target / "CHANGELOG.md").exists()
+    # v0.2: workspace IS a git repo. History lives in git log, not a CHANGELOG file.
+    from forge.gate import _git
+    assert _git.is_git_repo(target)
+    assert _git.head_hash(target) is not None
+
+    # forge init should be a no-op (workspace already initialized)
+    result = runner.invoke(main, ["init", "--root", str(target)])
+    assert result.exit_code == 0, result.output
