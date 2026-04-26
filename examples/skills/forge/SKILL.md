@@ -95,14 +95,16 @@ After ingest, briefly summarize what landed where:
 forge review --summary-only
 ```
 
-`forge review` is the **primary review surface**, not `forge diff`. It shows in one screen: where the change came from (Origin panel — picks up the ingest event from Step 4 automatically), what it does semantically (filled N TODO placeholders, +/- bullet rules), which agents will read it (CLAUDE.md → Claude Code, AGENTS.md → Codex), and per-section bench. `--summary-only` skips the raw diff for the first pass.
+**CRITICAL — display behavior**: Claude Code collapses long Bash tool output into `+N lines (ctrl+o to expand)`. The user **will not see** the review panels if you only run the command. You MUST take the stdout and paste it into your **message text** (inside a fenced code block) so it renders inline. Don't paraphrase the panels, don't truncate them — paste the full panel text verbatim. The panels are already structured for human reading; rewriting them defeats the design.
 
-Run it, then echo the full output to the user verbatim — it's already structured into panels. Don't summarize it on top of the panels; that's redundant.
+If the user later asks "show diff" or "show the raw diff," run `forge review` (without `--summary-only`) AND again paste the entire output into your message text. Same rule: tool output is invisible until you echo it as a message.
 
-After they read it, ask: **"Want to see the raw diff to verify what changed line-by-line? Or jump to approve / edit a section?"**
+`forge review` is the **primary review surface**, not `forge diff`. It shows in one screen: where the change came from (Origin panel — picks up the ingest event from Step 4 automatically), what it does semantically (filled N TODO placeholders, +/- bullet rules), which agents will read it (CLAUDE.md → Claude Code, AGENTS.md → Codex), and per-section bench.
 
-- **"show diff"**: run `forge review` (without `--summary-only`) — same panels + raw diff at bottom.
-- **"edit first"**: tell them which file to edit; they edit; you re-run `forge review`.
+After the user reads the panels, ask: **"Approve / Reject / Edit a section / See raw diff?"**
+
+- **"show diff" or "raw diff"**: run `forge review` (no `--summary-only`), paste the full output verbatim, including the diff section at the bottom.
+- **"edit first"**: tell them which file to edit; they edit; you re-run `forge review` and paste again.
 - **"approve"**: jump to Step 7.
 
 (`forge diff` still exists as a thinner command for users who only want the raw diff with no panel context — but skill flows always go through `forge review` because Origin / Affects / Bench are exactly the missing context.)
@@ -193,9 +195,9 @@ forge review --summary-only
 
 If `no changes since last approve`: tell user "nothing to review", stop.
 
-Else: echo the panels output verbatim. The Origin panel will say `hand edit (no recorded ingest/event)` for typical edit-then-review cycles, which is correct. The Bench panel will flag any section with ≥50% byte change with ⚠ — call that out explicitly if any: "the workspace section grew 76% — sure that's intended?"
+Else: **paste the full stdout into your message text inside a fenced code block** — Claude Code collapses long bash output and the user can't see it otherwise. The Origin panel will say `hand edit (no recorded ingest/event)` for typical edit-then-review cycles, which is correct. The Bench panel will flag any section with ≥50% byte change with ⚠ — call that out explicitly if any: "the workspace section grew 76% — sure that's intended?"
 
-If user asks to see raw diff: re-run `forge review` (no `--summary-only`).
+If user asks to see raw diff: re-run `forge review` (no `--summary-only`) and again paste the full stdout into your message text.
 
 ### Step R4 — Suggest message
 
