@@ -10,6 +10,7 @@ from pathlib import Path
 from forge.compiler.loader import load_sections, load_all_configs
 from forge.compiler.renderer import render
 from forge.gate.diff import source_diff, output_diff
+from forge.gate.origin import clear as clear_origin
 from forge.gate.state import GateState, hash_sp
 from forge.gate.sync import sync_targets
 from forge.targets import get_adapter
@@ -123,6 +124,9 @@ def approve(root: Path, note: str = "") -> ApproveResult:
     # 6. push to configured external targets (e.g. ~/.claude/CLAUDE.md)
     synced = sync_targets(state)
 
+    # 7. clear pending-change log (origin tracking) — this approve consumed it
+    clear_origin(root)
+
     return ApproveResult(
         approved_hash=new_hash,
         approved_at=now,
@@ -138,6 +142,7 @@ def reject(root: Path) -> None:
     if state.current_sp.exists():
         shutil.rmtree(state.current_sp)
     shutil.copytree(state.approved_sp, state.current_sp)
+    clear_origin(root)
 
 
 def build(root: Path) -> list[Path]:

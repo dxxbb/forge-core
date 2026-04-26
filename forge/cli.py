@@ -782,13 +782,197 @@ def ingest(
         body_size = len(p.read_text("utf-8"))
         click.echo(f"  {p.name}  ({body_size}B)")
 
+    # Record origin so `forge review` can show "this came from `forge ingest <path>`"
+    from forge.gate.origin import record_event
+
+    sections_touched = [p.stem for p in written]
+    if source_path:
+        summary = f"forge ingest --from {source_path}"
+        details = {
+            "source": str(source_path),
+            "method": result.method,
+            "model": model if not no_llm else None,
+            "input_chars": len(text),
+        }
+    else:
+        summary = "forge ingest --from-stdin"
+        details = {"source": "<stdin>", "method": result.method, "input_chars": len(text)}
+    record_event(
+        workspace,
+        kind="ingest",
+        summary=summary,
+        details=details,
+        sections_touched=sections_touched,
+    )
+
     click.echo()
     click.echo("Next:")
-    click.echo("  forge diff           # review what was classified, edit any section that's wrong")
+    click.echo("  forge review         # see origin + semantic summary + diff + bench in one view")
     click.echo("  forge approve -m \"import existing context\"")
 
 
 # ---------- skill install ----------
+
+# ---------- review (one-screen story: origin + semantic + affects + bench + diff) ----------
+
+@main.command()
+@click.option("--root", type=click.Path(), default=None)
+@click.option("--no-color", is_flag=True, help="Disable colored output.")
+@click.option(
+    "--no-pager",
+    is_flag=True,
+    help="Print directly to stdout instead of paging through less.",
+)
+@click.option(
+    "--summary-only",
+    is_flag=True,
+    help="Only show the panels (origin / semantic / affects / bench), skip the raw diff.",
+)
+@click.option(
+    "--full-provenance",
+    is_flag=True,
+    help="Don't fold provenance digest/byte hunks in the raw diff.",
+)
+def review(
+    root: str | None,
+    no_color: bool,
+    no_pager: bool,
+    summary_only: bool,
+    full_provenance: bool,
+) -> None:
+    """One-screen review: where the change came from, what it does, who reads it,
+    how big it is, plus the raw diff. Run before `forge approve`."""
+    from forge.gate.review import build_review
+
+    try:
+        rev = build_review(_root(root))
+    except RuntimeError as e:
+        click.echo(f"error: {e}", err=True)
+        sys.exit(1)
+    if not rev.has_changes:
+        click.echo("no changes since last approve")
+        return
+
+    use_color = not no_color
+    if no_pager:
+        use_color = use_color and click.get_text_stream("stdout").isatty()
+
+    text = _format_review(rev, use_color=use_color)
+    if not summary_only:
+        text += "\n\n" + _format_diff(
+            result=rev.diff_result,
+            source_only=False,
+            output_only=False,
+            config_filter=None,
+            use_color=use_color,
+            full_provenance=full_provenance,
+        )
+
+    text += "\n\n" + _format_review_actions(rev, use_color=use_color)
+
+    if no_pager or not click.get_text_stream("stdout").isatty():
+        click.echo(text)
+    else:
+        click.echo_via_pager(text, color=use_color)
+
+
+def _format_review(rev, use_color: bool) -> str:
+    """Render origin / semantic / affects / bench panels."""
+    out: list[str] = []
+
+    def style(s: str, **kw):
+        return click.style(s, **kw) if use_color else s
+
+    title = "══ forge review · proposed change (not yet approved) ══"
+    out.append(style(title, bold=True))
+    out.append("")
+
+    # ---- Origin panel ----
+    out.append(style("┌─ Source ─────────────────────────────────────────────", fg="cyan", bold=True))
+    if rev.origin_events:
+        for ev in rev.origin_events:
+            out.append(f"│ Origin:  {style(ev.summary, bold=True)}")
+            ts = ev.at.replace("T", " ").rsplit("+", 1)[0]
+            sects = ", ".join(ev.sections_touched) if ev.sections_touched else "(none recorded)"
+            out.append(f"│           at {ts} UTC, touched: {sects}")
+            if ev.kind == "ingest" and ev.details.get("method") == "no-llm":
+                out.append(f"│           {style('⚠', fg='yellow')} method=no-llm: classification dumped to one section, review carefully")
+    else:
+        out.append(f"│ Origin:  hand edit (no recorded ingest/event)")
+    n_sections = len(rev.section_changes)
+    out.append(f"│ Touched: {n_sections} section{'s' if n_sections != 1 else ''}")
+    out.append(style("└──────────────────────────────────────────────────────", fg="cyan"))
+    out.append("")
+
+    # ---- What changed (semantic) ----
+    out.append(style("┌─ What changed ───────────────────────────────────────", fg="cyan", bold=True))
+    if not rev.section_changes:
+        out.append("│ (config-only changes, see diff below)")
+    for sc in rev.section_changes:
+        bytes_arrow = f"{sc.bytes_before}B → {sc.bytes_after}B"
+        delta = sc.bytes_delta
+        sign = "+" if delta >= 0 else ""
+        out.append(f"│ • {style(sc.name + '.md', bold=True)}: {sc.summary}")
+        out.append(f"│     {bytes_arrow}  ({sign}{delta}B, +{sc.lines_added}/-{sc.lines_removed} lines)")
+    out.append(style("└──────────────────────────────────────────────────────", fg="cyan"))
+    out.append("")
+
+    # ---- Affects panel ----
+    out.append(style("┌─ Affects ────────────────────────────────────────────", fg="cyan", bold=True))
+    if rev.output_changes:
+        out.append("│ Outputs that will rebuild on approve:")
+        for oc in rev.output_changes:
+            sign = "+" if oc.bytes_delta >= 0 else ""
+            out.append(
+                f"│   • {style('output/' + oc.filename, bold=True)} "
+                f"({sign}{oc.bytes_delta}B)  ← {oc.runtime_description}"
+            )
+    if rev.target_bindings:
+        out.append("│")
+        out.append("│ External targets (auto-sync on approve):")
+        for tb in rev.target_bindings:
+            out.append(f"│   • {style(tb.path, bold=True)}  [{tb.mode}]")
+    else:
+        out.append("│")
+        out.append(f"│ {style('No external target bound.', fg='yellow')} `forge approve` will only update output/.")
+        out.append("│   Bind one with: forge target install claude-code --to ~/.claude/CLAUDE.md")
+    out.append(style("└──────────────────────────────────────────────────────", fg="cyan"))
+    out.append("")
+
+    # ---- Bench panel ----
+    out.append(style("┌─ Bench ──────────────────────────────────────────────", fg="cyan", bold=True))
+    growths: list[str] = []
+    for sc in rev.section_changes:
+        sign = "+" if sc.bytes_delta >= 0 else ""
+        line = f"│ {sc.name:18} {sign}{sc.bytes_delta:>5}B  ({sc.bytes_before} → {sc.bytes_after})"
+        if abs(sc.growth_pct) >= 50 and sc.bytes_before > 0:
+            line += f"  {style(f'⚠ {sc.growth_pct:+.0f}%', fg='yellow', bold=True)}"
+            growths.append(sc.name)
+        out.append(line)
+    if not rev.section_changes:
+        out.append("│ (no section-level changes)")
+    out.append(style("└──────────────────────────────────────────────────────", fg="cyan"))
+
+    return "\n".join(out)
+
+
+def _format_review_actions(rev, use_color: bool) -> str:
+    """Footer line: what the user can do next."""
+    def style(s: str, **kw):
+        return click.style(s, **kw) if use_color else s
+
+    lines = [
+        style("══ Next ══", bold=True),
+        f"  {style('forge approve -m \"<message>\"', fg='green', bold=True)}    accept this change",
+        f"  {style('forge reject', fg='red', bold=True)}                         discard, restore last approved",
+        f"  $EDITOR sp/section/<name>.md         edit a section, then re-run `forge review`",
+    ]
+    if not rev.target_bindings:
+        lines.append(
+            f"  {style('forge target install <adapter> --to <path>', fg='yellow')}   bind output to live agent file"
+        )
+    return "\n".join(lines)
+
 
 # ---------- target sync (output → external paths) ----------
 
