@@ -1,6 +1,6 @@
 ---
 name: forge
-version: 0.2.0
+version: 0.2.2
 description: "Initialize and operate a personalOS workspace with forge. Use when the user says they want to create/setup/build a forge or personalOS workspace, manage agent context, import existing CLAUDE.md/AGENTS.md/memory, review context changes, or approve/reject context updates. This skill is personalOS-layout-first and must not use legacy `forge new` / `sp` onboarding."
 metadata:
   requires:
