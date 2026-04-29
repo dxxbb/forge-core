@@ -8,6 +8,10 @@ Checks (severity):
   WARNING — orphan section (not referenced by any config)
   WARNING — section.kind == 'derived' but upstream is empty
   WARNING — config target references an unregistered adapter
+  INFO    — personalOS asset coverage: per-asset-dir count of files referenced
+            (in any form: inline, pointer, summary, L2 index) by some section's
+            upstream, vs not. Reported, never failed — bridge form is a
+            judgment call, not a contract.
 
 INFO lines summarize counts.
 """
@@ -18,7 +22,24 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from forge.compiler.loader import load_sections, load_all_configs
+from forge.layout import detect
 from forge.targets import available_adapters
+
+
+# personalOS asset directories that may be referenced by sections. Each is
+# treated as a content store the agent might reach via:
+#   - inline (section body summarizes / paraphrases the asset)
+#   - L1 pointer (section body says "see <path>")
+#   - L2 index (section points to an index file that points to assets)
+#   - summary (section has a TLDR; asset has the full)
+#   - archive-only (intentionally not bridged)
+# `forge doctor` reports *coverage* (how many bridged vs not) without judging.
+ASSET_DIRS = (
+    "assist config",
+    "user space",
+    "workspace",
+    "public knowledge base",
+)
 
 
 @dataclass
@@ -103,4 +124,61 @@ def run(root: Path) -> DoctorReport:
                 f"provenance will be weaker"
             )
 
+    # personalOS asset coverage (info-only; bridge form is a judgment call)
+    coverage = _asset_coverage(root, sections)
+    for line in coverage:
+        report.info.append(line)
+
     return report
+
+
+def _asset_coverage(root: Path, sections: dict) -> list[str]:
+    """Report how many asset files each personalOS dir has bridged via section
+    upstream, vs not. No judgment — just visibility.
+
+    Skipped on legacy layouts (no asset directories to walk)."""
+    if detect(root).name != "v0428":
+        return []
+
+    # Build the set of upstream references across all sections, normalized to
+    # workspace-relative posix paths (or just the basename — we accept both
+    # ways of writing upstream).
+    referenced: set[str] = set()
+    for sec in sections.values():
+        for u in sec.upstream:
+            u = u.strip()
+            if not u:
+                continue
+            referenced.add(u)
+            referenced.add(Path(u).name)
+            try:
+                p = (root / u).resolve()
+                if p.is_relative_to(root):
+                    referenced.add(p.relative_to(root).as_posix())
+            except (OSError, ValueError):
+                pass
+
+    out: list[str] = []
+    for d in ASSET_DIRS:
+        asset_dir = root / d
+        if not asset_dir.is_dir():
+            continue
+        files = [p for p in asset_dir.rglob("*.md") if p.is_file()]
+        if not files:
+            continue
+        bridged = 0
+        unbridged: list[str] = []
+        for p in files:
+            rel = p.relative_to(root).as_posix()
+            if rel in referenced or p.name in referenced:
+                bridged += 1
+            else:
+                unbridged.append(rel)
+        out.append(f"asset coverage `{d}/`: {bridged}/{len(files)} files bridged via section upstream")
+        # Surface up to a few unbridged paths so the user can decide if any
+        # need a section bridge or are intentionally archive-only.
+        for path in unbridged[:5]:
+            out.append(f"  not bridged: {path}")
+        if len(unbridged) > 5:
+            out.append(f"  ... +{len(unbridged) - 5} more")
+    return out

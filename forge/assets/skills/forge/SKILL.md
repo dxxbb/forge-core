@@ -391,7 +391,35 @@ Proposal must separate:
    - uncertain claims
 
 4. proposed file changes
+
+5. section integration  (REQUIRED — this is what bridges asset → agent)
 ```
+
+For step 5, every asset file the proposal writes or modifies MUST be
+classified by **how the agent will reach it**. Pick exactly one form per
+file:
+
+| Form         | When to use                                                        | Effect on section                              |
+|--------------|--------------------------------------------------------------------|------------------------------------------------|
+| inline       | Short, high-frequency, must be in working context every session.   | Section body summarizes / paraphrases content. |
+| L1 pointer   | Medium length; agent reads on demand.                              | Section body says `详见 <path>`.               |
+| L2 index     | Many files under one topic; agent navigates via index.             | Section points to an index file; index lists assets. |
+| summary      | Long content but TLDR is enough for routing.                       | Section has TLDR; full text stays in asset.    |
+| archive-only | Capture/raw evidence, private, or working draft not for agent yet. | Section does NOT reference it. Justify why.    |
+
+For every non-archive form, the proposal must list the section name(s) and
+how the upstream / body changes. Example table:
+
+```markdown
+| Asset file                                                  | Form        | Target section | How                          |
+|-------------------------------------------------------------|-------------|----------------|------------------------------|
+| assist config/collaboration preference/feedback-log.md       | L1 pointer  | preference     | upstream + 1-line ref in body |
+| capture/import/20260429-152310/raw.md                        | archive-only| —              | raw evidence, kept for trail |
+| public knowledge base/topic/tech/ai/memory-patterns.md       | L2 index    | knowledge base | already covered by topic/index.md |
+```
+
+`forge doctor` will report per-asset-dir bridge coverage after the proposal
+applies — use it as a sanity check, not a gate.
 
 Do not edit asset files or context sections yet.
 
