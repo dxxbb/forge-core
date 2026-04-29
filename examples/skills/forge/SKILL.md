@@ -419,8 +419,6 @@ If user approves, apply the proposal:
 
 - write reviewed asset files under `user space`, `workspace`, `assist config`, or `public knowledge base`
 - update `context build/sections` only with reviewed projection content
-- write an approve log under `system/approve log/`
-- mark inbox and PR as applied
 
 Then run:
 
@@ -440,7 +438,19 @@ forge approve --root <path> -m "<short message>"
 
 This command is a temporary forge-core implementation detail: it rebuilds runtime, stages tracked context paths, and creates the git commit. Do not describe it to the user as a separate approve step. User-visible semantics are simply: "approved proposal applied and committed."
 
-If user rejects, mark PR rejected and do not touch assets/context.
+Finally, close the PR — appends a one-line summary to `system/approve log/<date>.md`
+and removes the PR directory:
+
+```bash
+forge pr done --root <path> -m "<short message>" <pr-id>
+```
+
+If user rejects, close as rejected (logged under `system/reject log/`) and do
+not touch assets/context:
+
+```bash
+forge pr done --root <path> --reject -m "<reason>" <pr-id>
+```
 
 If user asks revise, update only the proposal and do not build or commit.
 

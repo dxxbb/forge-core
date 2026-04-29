@@ -416,3 +416,117 @@ def test_inbox_done_rejects_non_markdown(tmp_path: Path) -> None:
     assert result.exit_code == 1
     assert "not an inbox markdown file" in result.output
     assert other.exists()
+
+
+# ---------- forge pr done ----------
+
+
+def _make_pr(workspace: Path, pr_id: str, kind: str = "context-import") -> Path:
+    pr_dir = workspace / "system" / "pr" / pr_id
+    pr_dir.mkdir(parents=True)
+    (pr_dir / "proposal.md").write_text(
+        f"---\nkind: pr\ntype: {kind}\nstatus: pending\n---\n\n# Proposal\n",
+        encoding="utf-8",
+    )
+    (pr_dir / "draft.md").write_text("scratch\n", encoding="utf-8")
+    return pr_dir
+
+
+def test_pr_done_approve_logs_and_removes(tmp_path: Path) -> None:
+    runner = CliRunner()
+    ws = tmp_path / "personal"
+    _make_personalos(ws)
+    pr_id = "20260429-152310-context-import"
+    pr_dir = _make_pr(ws, pr_id)
+
+    result = runner.invoke(main, ["pr", "done", "--root", str(ws), "-m", "looks good", pr_id])
+    assert result.exit_code == 0, result.output
+    assert not pr_dir.exists()
+
+    log_dir = ws / "system" / "approve log"
+    log_files = list(log_dir.glob("*.md"))
+    assert len(log_files) == 1
+    body = log_files[0].read_text("utf-8")
+    assert "approve" in body and pr_id in body
+    assert "type=context-import" in body
+    assert "looks good" in body
+
+
+def test_pr_done_reject_logs_and_removes(tmp_path: Path) -> None:
+    runner = CliRunner()
+    ws = tmp_path / "personal"
+    _make_personalos(ws)
+    pr_id = "20260429-180000-context-import"
+    pr_dir = _make_pr(ws, pr_id)
+
+    result = runner.invoke(
+        main, ["pr", "done", "--root", str(ws), "--reject", "-m", "stale facts", pr_id]
+    )
+    assert result.exit_code == 0, result.output
+    assert not pr_dir.exists()
+    log_files = list((ws / "system" / "reject log").glob("*.md"))
+    assert len(log_files) == 1
+    assert "reject" in log_files[0].read_text("utf-8")
+    assert not (ws / "system" / "approve log").exists()
+
+
+def test_pr_done_appends_to_existing_daily_log(tmp_path: Path) -> None:
+    runner = CliRunner()
+    ws = tmp_path / "personal"
+    _make_personalos(ws)
+    _make_pr(ws, "20260429-100000-context-import")
+    _make_pr(ws, "20260429-110000-context-import")
+
+    runner.invoke(main, ["pr", "done", "--root", str(ws), "20260429-100000-context-import"])
+    runner.invoke(main, ["pr", "done", "--root", str(ws), "20260429-110000-context-import"])
+
+    log_files = list((ws / "system" / "approve log").glob("*.md"))
+    assert len(log_files) == 1
+    body = log_files[0].read_text("utf-8")
+    assert body.count("approve") == 2
+
+
+def test_pr_done_accepts_relative_dir_or_proposal_path(tmp_path: Path) -> None:
+    runner = CliRunner()
+    ws = tmp_path / "personal"
+    _make_personalos(ws)
+    pr_id = "20260429-200000-context-import"
+    _make_pr(ws, pr_id)
+
+    proposal_rel = f"system/pr/{pr_id}/proposal.md"
+    result = runner.invoke(main, ["pr", "done", "--root", str(ws), proposal_rel])
+    assert result.exit_code == 0, result.output
+    assert not (ws / "system" / "pr" / pr_id).exists()
+
+
+def test_pr_done_missing_pr_errors(tmp_path: Path) -> None:
+    runner = CliRunner()
+    ws = tmp_path / "personal"
+    _make_personalos(ws)
+    result = runner.invoke(main, ["pr", "done", "--root", str(ws), "no-such-pr"])
+    assert result.exit_code == 1
+    assert "not found" in result.output
+
+
+def test_monitor_clean_after_pr_done(tmp_path: Path, monkeypatch) -> None:
+    from forge.gate import _git
+    from forge.gate import actions as gate
+
+    runner = CliRunner()
+    ws = tmp_path / "personal"
+    _make_personalos(ws)
+    _git.init_repo(ws)
+    gate.build(ws)
+    _git.add(ws, ["context build"])
+    _git.commit(ws, "init")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    pr_id = "20260429-130000-context-import"
+    _make_pr(ws, pr_id)
+    result = runner.invoke(main, ["monitor", "--root", str(ws)])
+    assert "pending proposals" in result.output
+
+    runner.invoke(main, ["pr", "done", "--root", str(ws), pr_id])
+    result = runner.invoke(main, ["monitor", "--root", str(ws)])
+    assert "status: clean" in result.output

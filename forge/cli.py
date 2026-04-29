@@ -683,6 +683,84 @@ def inbox_done(path: str, root: str | None) -> None:
 #  and forge changelog — they're a coordinated triad.)
 
 
+@main.group()
+def pr() -> None:
+    """personalOS proposals (system/pr/<id>/proposal.md)."""
+
+
+@pr.command("done")
+@click.argument("pr_ref", type=str)
+@click.option(
+    "--reject",
+    is_flag=True,
+    help="Mark as rejected (writes to system/reject log/) instead of approved.",
+)
+@click.option(
+    "--message",
+    "-m",
+    default="",
+    help="One-line note recorded in the log entry.",
+)
+@click.option("--root", type=click.Path(), default=None, help="Workspace root (default: cwd).")
+def pr_done(pr_ref: str, reject: bool, message: str, root: str | None) -> None:
+    """Close a proposal: append a log entry, then delete the PR directory.
+
+    PR_REF may be a PR id (`20260429-...-context-import`), a relative path
+    (`system/pr/<id>` or `system/pr/<id>/proposal.md`), or an absolute path.
+
+    The summary lands in `system/approve log/YYYY-MM-DD.md` (or `reject log/`
+    when --reject is set). The full PR directory is then removed; the log is
+    the audit trail going forward.
+    """
+    workspace = _root(root)
+    pr_dir = _resolve_pr_dir(workspace, pr_ref)
+    if pr_dir is None:
+        click.echo(f"error: PR not found: {pr_ref}", err=True)
+        sys.exit(1)
+
+    proposal = pr_dir / "proposal.md"
+    kind = ""
+    if proposal.exists():
+        m = re.search(r"^type:\s*(\S+)", proposal.read_text("utf-8"), re.MULTILINE)
+        if m:
+            kind = m.group(1)
+
+    decision = "reject" if reject else "approve"
+    log_dir = workspace / "system" / ("reject log" if reject else "approve log")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    today = datetime.now().strftime("%Y-%m-%d")
+    log_file = log_dir / f"{today}.md"
+    now = datetime.now().astimezone().isoformat(timespec="seconds")
+    bits = [now, decision, f"pr/{pr_dir.name}"]
+    if kind:
+        bits.append(f"(type={kind})")
+    if message:
+        bits.append(f"— {message}")
+    line = "- " + " ".join(bits) + "\n"
+    with log_file.open("a", encoding="utf-8") as f:
+        f.write(line)
+
+    shutil.rmtree(pr_dir)
+    click.echo(f"done: {decision} pr/{pr_dir.name} → system/{log_dir.name}/{log_file.name}")
+
+
+def _resolve_pr_dir(workspace: Path, pr_ref: str) -> Path | None:
+    """Map a CLI PR reference to its `system/pr/<id>/` directory."""
+    p = Path(pr_ref).expanduser()
+    if p.is_absolute():
+        candidate = p
+    else:
+        candidate = workspace / pr_ref
+    candidate = candidate.resolve() if candidate.exists() else candidate
+    if candidate.is_file() and candidate.name == "proposal.md":
+        candidate = candidate.parent
+    if candidate.is_dir():
+        return candidate
+    # Fall back: treat pr_ref as a bare PR id under system/pr/.
+    bare = workspace / "system" / "pr" / pr_ref
+    return bare if bare.is_dir() else None
+
+
 # ---------- personalOS capture/import ----------
 
 @main.command("capture")
@@ -902,12 +980,9 @@ def _pending_proposals(workspace: Path) -> list[Path]:
     pr_dir = workspace / "system" / "pr"
     if not pr_dir.exists():
         return []
-    out: list[Path] = []
-    for p in sorted(pr_dir.glob("*/proposal.md")):
-        text = p.read_text(encoding="utf-8", errors="ignore")
-        if not re.search(r"^status:\s*(applied|rejected)\s*$", text, re.MULTILINE):
-            out.append(p)
-    return out
+    # A proposal existing == still pending. Closed proposals are removed by
+    # `forge pr done`; system/{approve,reject} log/ keeps the audit trail.
+    return sorted(pr_dir.glob("*/proposal.md"))
 
 
 def _context_drift(workspace: Path) -> bool:
