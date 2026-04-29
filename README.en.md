@@ -1,6 +1,6 @@
 # forge
 
-> CLI name: `forge`. PyPI package: `context-forge` (the name `forge` is taken).
+> CLI name: `forge`. PyPI package: `context-forge` (the name `forge-core` is taken on PyPI).
 
 > You asked Claude to clean up your `CLAUDE.md`. It silently deleted the section that told it to always write tests. You didn't notice for three sessions.
 >
@@ -91,8 +91,9 @@ See [`docs/demo-walkthrough.md`](docs/demo-walkthrough.md) for the full walkthro
 ## Quickstart (2 minutes)
 
 ```bash
-uv tool install context-forge        # recommended
-# or: pipx install context-forge
+# Install directly from GitHub (current path):
+pipx install git+https://github.com/dxxbb/forge-core.git
+# or: uv tool install git+https://github.com/dxxbb/forge-core.git
 
 forge self-install                   # bind forge skill into detected agent runtimes (claude-code today)
 

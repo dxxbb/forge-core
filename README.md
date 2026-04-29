@@ -110,16 +110,17 @@ approved hash=a5769a233b78 at 2026-04-25T02:56:55+00:00
 最快的体验：装 + 自绑定到 agent runtime，然后让 Claude Code 帮你跑。
 
 ```bash
-uv tool install context-forge        # 推荐
-# 或者：pipx install context-forge
+# 当前从 GitHub 直接装（推荐）：
+pipx install git+https://github.com/dxxbb/forge-core.git
+# 或：uv tool install git+https://github.com/dxxbb/forge-core.git
 
 forge self-install                   # 把 forge skill 绑到检测到的 runtime（当前：claude-code）
 ```
 
-> ⚠️ 当前 `context-forge` 还没发布到 PyPI；正式发布前，源码安装：`pipx install git+https://github.com/dxxbb/forge`。
-> 
+> 后续发到 PyPI 之后会简化为 `pipx install context-forge`（PyPI 包名是 `context-forge`，`forge-core` 已被同名包占用，CLI 仍叫 `forge`）。
+>
 > 升级用 `forge update`：自动识别 pipx / uv tool / editable，跑对应的 upgrade 命令，再 re-run self-install。
-> 
+>
 > 本地开发：`python3 -m pip install -e '.[dev]'`，然后 `forge self-install`。
 
 打开 Claude Code，跟它说：
@@ -139,7 +140,7 @@ forge self-install                   # 把 forge skill 绑到检测到的 runtim
 ### 装 skill
 
 ```bash
-uv tool install context-forge        # 推荐；或 pipx install context-forge
+pipx install git+https://github.com/dxxbb/forge-core.git
 forge self-install                   # 检测 runtime，写 ~/.claude/skills/forge/SKILL.md（带 managed marker）
 ```
 
