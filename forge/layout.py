@@ -1,6 +1,6 @@
 """Workspace layout detection.
 
-forge-core historically used:
+forge historically used:
 
     sp/section
     sp/config

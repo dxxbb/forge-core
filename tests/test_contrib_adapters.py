@@ -72,7 +72,7 @@ def test_codex_adapter(tmp_path: Path) -> None:
     out = render(secs, cfg)
 
     # 用 blockquote 做 provenance 头
-    assert "> 由 forge-core 编译" in out
+    assert "> 由 forge 编译" in out
     # Title-case section headings
     assert "## About-Me" in out or "## About Me" in out
     # 内容在
@@ -89,7 +89,7 @@ def test_rulesync_bridge(tmp_path: Path) -> None:
     out = render(secs, cfg)
 
     # 带桥接说明注释
-    assert "forge-core → rulesync bridge" in out
+    assert "forge → rulesync bridge" in out
     # 多段 section 用 --- 分隔
     assert "\n---\n" in out
     # section 名作为 H1（rulesync 风格）

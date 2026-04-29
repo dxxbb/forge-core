@@ -1,4 +1,6 @@
-# forge-core
+# forge
+
+> CLI name: `forge`. PyPI package: `context-forge` (the name `forge` is taken).
 
 > You asked Claude to clean up your `CLAUDE.md`. It silently deleted the section that told it to always write tests. You didn't notice for three sessions.
 >
@@ -8,7 +10,7 @@
 
 If any of those felt familiar, this is for you.
 
-**`forge-core`** is a tiny tool that sits between your long-term personal content and the context files agents actually read (`CLAUDE.md`, `AGENTS.md`, …). It treats that relationship the way a build system treats code: **canonical source you edit, compiled artifacts you never edit, and a gate between them that shows you exactly what's about to change before it ships.**
+**`forge`** is a tiny tool that sits between your long-term personal content and the context files agents actually read (`CLAUDE.md`, `AGENTS.md`, …). It treats that relationship the way a build system treats code: **canonical source you edit, compiled artifacts you never edit, and a gate between them that shows you exactly what's about to change before it ships.**
 
 ```
 ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
@@ -36,18 +38,18 @@ Status: **v0.1.0 alpha.** Single workspace, local-only, two target adapters. See
 
 Yes, roughly. And if you've already wired up `make` + `git` to your agent context, you probably don't need this.
 
-What `forge-core` gives you that a hand-rolled `make` + `git` doesn't:
+What `forge` gives you that a hand-rolled `make` + `git` doesn't:
 
 1. **A semantic diff, not just a text diff.** `forge diff` shows you both the source change AND a preview of how *each compiled output* would change. `git diff` shows only text; you'd have to manually re-run your build to see what the output diff looks like, and do it for every runtime target.
 2. **A single integrity contract.** An approved snapshot is a hash over the whole `sp/` tree. Any drift shows up in `forge status`. You can tell at a glance whether your compiled outputs are stale.
 3. **A structural bench built in.** When you change sections, you immediately see which sections grew/shrank, which were added/removed, total byte delta per output. No need to write that yourself.
 4. **A sharable convention.** Anyone can look at `sp/section/` + `sp/config/` + `.forge/changelog.md` and understand the system. A hand-rolled `make` setup is readable only to its author.
 
-**What `forge-core` is NOT pretending to be yet:**
+**What `forge` is NOT pretending to be yet:**
 
 - It's not a smarter compiler than your `make` rules. The compilation is deliberately dumb.
-- Its bench is *structural only* in v0.1. It measures byte / line / section deltas. It does NOT yet measure "is the agent actually smarter with the new context." That's v0.3, and it needs real agent-run harnesses that v0.1 doesn't ship. If you want LLM-graded evals today, use `promptfoo` or similar — `forge-core` is not a replacement for that, and won't be.
-- It's not a runtime memory system. It doesn't watch sessions, doesn't auto-capture, doesn't decide for you. You do the editing. `forge-core` just makes the editing safer and the compilation reproducible.
+- Its bench is *structural only* in v0.1. It measures byte / line / section deltas. It does NOT yet measure "is the agent actually smarter with the new context." That's v0.3, and it needs real agent-run harnesses that v0.1 doesn't ship. If you want LLM-graded evals today, use `promptfoo` or similar — `forge` is not a replacement for that, and won't be.
+- It's not a runtime memory system. It doesn't watch sessions, doesn't auto-capture, doesn't decide for you. You do the editing. `forge` just makes the editing safer and the compilation reproducible.
 
 If "dumb compiler + semantic diff + audit log + roadmap toward real evals" sounds useful, keep reading.
 
@@ -89,7 +91,10 @@ See [`docs/demo-walkthrough.md`](docs/demo-walkthrough.md) for the full walkthro
 ## Quickstart (2 minutes)
 
 ```bash
-pip install -e .
+uv tool install context-forge        # recommended
+# or: pipx install context-forge
+
+forge self-install                   # bind forge skill into detected agent runtimes (claude-code today)
 
 mkdir -p my-context/sp/section my-context/sp/config
 cd my-context
@@ -151,7 +156,7 @@ forge bench compare <a> <b>     # structural diff between snapshots
 
 ## Where this sits in the 2026 landscape
 
-| Tool                     | What it owns                                        | What forge-core does that it doesn't |
+| Tool                     | What it owns                                        | What forge does that it doesn't |
 |--------------------------|-----------------------------------------------------|---------------------------------------|
 | `rulesync`, `ai-rules-sync` | Format translation across 8+ runtimes         | Review gate + canonical-vs-compiled split + bench |
 | `claude-memory-compiler` | Auto-capture sessions → LLM-organize into memory    | Human review in the loop; no hidden LLM rewrites |
@@ -160,13 +165,13 @@ forge bench compare <a> <b>     # structural diff between snapshots
 | DSPy / BAML              | Compile *prompts / schemas*                         | Different layer — compiles *content*, not prompts |
 | Google ADK (Context Compaction) | In-session context compaction                | Cross-session canonical source, not in-flight |
 
-Nothing stops you from combining forge-core with any of them: an adapter can emit Cursor rules, a watcher can feed inbox from captured sessions. See roadmap.
+Nothing stops you from combining forge with any of them: an adapter can emit Cursor rules, a watcher can feed inbox from captured sessions. See roadmap.
 
 ---
 
 ## Hard validation (not just "it works")
 
-Claims about "personal AI" tools usually stop at *"I built it and it feels good."* forge-core ships two concrete layers of evidence:
+Claims about "personal AI" tools usually stop at *"I built it and it feels good."* forge ships two concrete layers of evidence:
 
 **Structural** (every change, every commit):
 

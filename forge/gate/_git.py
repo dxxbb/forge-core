@@ -1,6 +1,6 @@
 """Subprocess wrapper around git: small, focused, fail-loud.
 
-forge-core v0.2 uses git as the substrate for the review gate (one approve =
+forge v0.2 uses git as the substrate for the review gate (one approve =
 one commit). This module is the only place that shells out to git. Keep it
 small — if a helper grows complex, push the logic up into actions.py.
 """

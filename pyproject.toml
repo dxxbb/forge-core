@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "forge-core"
-version = "0.1.0"
-description = "A review-gated context compiler. Turn long-term content into multi-runtime agent context, with PR/approve gates and before/after evaluation."
+name = "context-forge"
+version = "0.2.0"
+description = "forge — a review-gated context compiler. Turn long-term content into multi-runtime agent context, with PR/approve gates and before/after evaluation."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -32,3 +32,6 @@ forge = "forge.cli:main"
 [tool.setuptools.packages.find]
 include = ["forge*"]
 exclude = ["tests*", "examples*"]
+
+[tool.setuptools.package-data]
+forge = ["assets/skills/forge/SKILL.md"]

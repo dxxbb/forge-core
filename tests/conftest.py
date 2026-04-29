@@ -9,7 +9,7 @@ import pytest
 
 @pytest.fixture
 def workspace(tmp_path: Path) -> Path:
-    """A minimal forge-core workspace with 2 sections + 1 config.
+    """A minimal forge workspace with 2 sections + 1 config.
 
     v0.2: workspace is a git repo with an initial commit covering sp/ + output/.
     Tests that want to test "modified working tree" should edit sp/ files after

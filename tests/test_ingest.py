@@ -261,3 +261,102 @@ def test_ingest_from_claude_memory_dump_writes_section(tmp_path: Path, monkeypat
     workspace_md = (ws / "sp" / "section" / "workspace.md").read_text("utf-8")
     assert "user prefers Python" in workspace_md
     assert "from: -test/feedback_x.md" in workspace_md
+
+
+# ---------- personalOS capture + monitor ----------
+
+
+def _make_personalos(root: Path) -> None:
+    (root / "capture" / "import").mkdir(parents=True)
+    (root / "system" / "inbox").mkdir(parents=True)
+    (root / "system" / "pr").mkdir(parents=True)
+    (root / "context build" / "sections").mkdir(parents=True)
+    (root / "context build" / "config").mkdir(parents=True)
+    (root / "context build" / "sections" / "about.md").write_text(
+        "---\nname: about\n---\n\nbody\n", encoding="utf-8"
+    )
+    (root / "context build" / "config" / "main.md").write_text(
+        "---\nname: main\ntarget: claude-code\nsections:\n  - about\n---\n",
+        encoding="utf-8",
+    )
+
+
+def test_capture_writes_raw_import_and_inbox(tmp_path: Path) -> None:
+    runner = CliRunner()
+    ws = tmp_path / "personal"
+    _make_personalos(ws)
+    src = tmp_path / "note.md"
+    src.write_text("hello import\n", encoding="utf-8")
+
+    result = runner.invoke(main, ["capture", "--root", str(ws), "--from", str(src)])
+
+    assert result.exit_code == 0, result.output
+    assert "captured raw import:" in result.output
+    raw_files = list((ws / "capture" / "import").glob("*/*.md"))
+    inbox_files = list((ws / "system" / "inbox").glob("*.md"))
+    assert len(raw_files) == 1
+    assert len(inbox_files) == 1
+    raw = raw_files[0].read_text("utf-8")
+    assert "kind: raw import" in raw
+    assert "source_digest:" in raw
+    assert "hello import" in raw
+    assert "status: pending" in inbox_files[0].read_text("utf-8")
+
+
+def test_monitor_reports_clean_after_captured_source_when_no_pending(tmp_path: Path, monkeypatch) -> None:
+    from forge.gate import _git
+    from forge.gate import actions as gate
+
+    runner = CliRunner()
+    ws = tmp_path / "personal"
+    _make_personalos(ws)
+    _git.init_repo(ws)
+    gate.build(ws)
+    _git.add(ws, ["context build"])
+    _git.commit(ws, "init")
+
+    src = tmp_path / "CLAUDE.md"
+    src.write_text("# Context\n" + ("same\n" * 60), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    result = runner.invoke(main, ["capture", "--root", str(ws), "--from", str(src)])
+    assert result.exit_code == 0, result.output
+    for inbox in (ws / "system" / "inbox").glob("*.md"):
+        inbox.write_text(inbox.read_text("utf-8").replace("status: pending", "status: applied"), encoding="utf-8")
+
+    result = runner.invoke(main, ["monitor", "--root", str(ws)])
+
+    assert result.exit_code == 0, result.output
+    assert "status: clean" in result.output
+
+
+def test_monitor_detects_changed_captured_source(tmp_path: Path, monkeypatch) -> None:
+    from forge.gate import _git
+    from forge.gate import actions as gate
+
+    runner = CliRunner()
+    ws = tmp_path / "personal"
+    _make_personalos(ws)
+    _git.init_repo(ws)
+    gate.build(ws)
+    _git.add(ws, ["context build"])
+    _git.commit(ws, "init")
+
+    src = tmp_path / "CLAUDE.md"
+    src.write_text("# Context\n" + ("before\n" * 60), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    result = runner.invoke(main, ["capture", "--root", str(ws), "--from", str(src)])
+    assert result.exit_code == 0, result.output
+    for inbox in (ws / "system" / "inbox").glob("*.md"):
+        inbox.write_text(inbox.read_text("utf-8").replace("status: pending", "status: applied"), encoding="utf-8")
+    src.write_text("# Context\n" + ("after\n" * 60), encoding="utf-8")
+
+    result = runner.invoke(main, ["monitor", "--root", str(ws)])
+
+    assert result.exit_code == 0, result.output
+    assert "status: attention" in result.output
+    assert "import source updates" in result.output
+    assert "CLAUDE.md" in result.output

@@ -20,7 +20,7 @@ def compute_digest(sections: list[Section], config: Config) -> str:
 
     The digest is meant to identify the rendered artifact's semantic inputs, not
     just section bodies. Include every field core adapters consume or expose in
-    provenance, plus the forge-core version so adapter behavior changes get a
+    provenance, plus the forge version so adapter behavior changes get a
     new digest.
     """
     payload = {
@@ -90,7 +90,7 @@ def render_markdown_header(block: dict, comment_style: str = "html") -> str:
     """
     lines: list[str] = []
     header = (
-        f"forge-core provenance · config={block['config']} "
+        f"forge provenance · config={block['config']} "
         f"target={block['target']} version={block['forge_core_version']} "
         f"digest={block['digest']}"
     )

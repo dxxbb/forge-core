@@ -21,7 +21,7 @@ class CursorAdapter(TargetAdapter):
         parts.append(f"# {config.name}")
         parts.append("")
         parts.append(
-            f"<!-- 由 forge-core 编译自 sp/section/ + sp/config/{config.name}.md —— 请勿手改 -->"
+            f"<!-- 由 forge 编译自 sp/section/ + sp/config/{config.name}.md —— 请勿手改 -->"
         )
         parts.append("")
         for sec in sections:

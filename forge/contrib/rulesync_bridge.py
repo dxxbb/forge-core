@@ -4,13 +4,13 @@
 让你可以用 `forge approve` 当审核关口，然后 `npx rulesync generate`
 再投出到 Cursor / Claude Code / Copilot / Gemini 等 20+ 工具。
 
-这样 forge-core 和 rulesync 组合起来就是：
+这样 forge 和 rulesync 组合起来就是：
     你改 sp/section/  → forge diff/approve（review 关口）
                     → .rulesync/rules/*.md（作为 rulesync 源）
                     → rulesync generate
                     → 所有工具各自的配置文件
 
-实际使用中：forge-core 的 output 目录里会有 `.rulesync/rules/*.md`，
+实际使用中：forge 的 output 目录里会有 `.rulesync/rules/*.md`，
 把它 symlink 或 copy 到项目根的 `.rulesync/` 目录下，然后跑 rulesync。
 
 v0.1 stub：只做一个 section 一个 md 文件的简单映射。rulesync 有更复杂
@@ -40,7 +40,7 @@ class RulesyncBridgeAdapter(TargetAdapter):
     def render(self, sections: list[Section], config: Config) -> str:
         parts: list[str] = []
         parts.append(
-            f"<!-- forge-core → rulesync bridge: config={config.name}. "
+            f"<!-- forge → rulesync bridge: config={config.name}. "
             "把这个文件搬到 .rulesync/rules/ 下，rulesync generate 投到各工具。 -->"
         )
         parts.append("")

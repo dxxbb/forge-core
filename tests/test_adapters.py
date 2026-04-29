@@ -31,7 +31,7 @@ def test_adapters_have_correct_filenames() -> None:
 
 
 def test_user_can_register_custom_adapter(workspace: Path) -> None:
-    """An external user can add a new target runtime without touching forge-core."""
+    """An external user can add a new target runtime without touching forge core."""
 
     class CursorAdapter(TargetAdapter):
         name = "cursor"

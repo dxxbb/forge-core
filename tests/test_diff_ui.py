@@ -39,10 +39,10 @@ def test_provenance_folding_collapses_digest_hunk() -> None:
     sample = [
         "@@ -2,10 +2,10 @@",
         " ",
-        " > Compiled by forge-core",
+        " > Compiled by forge",
         " ",
-        "-forge-core provenance · digest=aaaa",
-        "+forge-core provenance · digest=bbbb",
+        "-forge provenance · digest=aaaa",
+        "+forge provenance · digest=bbbb",
         "->  - foo · type=foo · 100B",
         "+>  - foo · type=foo · 200B",
         " more context",

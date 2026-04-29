@@ -6,6 +6,8 @@ import json
 import re
 import shutil
 import sys
+import hashlib
+from datetime import datetime
 from pathlib import Path
 
 import click
@@ -18,6 +20,7 @@ from forge.governance.inbox import Inbox
 from forge.governance.watcher import scan_git
 from forge.governance.rollback import rollback as rollback_fn
 from forge.ingest.classifier import classify, write_sections, IngestError
+from forge.layout import detect
 
 
 def _root(path: str | None) -> Path:
@@ -27,7 +30,7 @@ def _root(path: str | None) -> Path:
 @click.group()
 @click.version_option(__version__, prog_name="forge")
 def main() -> None:
-    """forge-core: review-gated context compiler."""
+    """forge: review-gated context compiler."""
 
 
 # ---------- new / build / init / status ----------
@@ -40,7 +43,7 @@ def main() -> None:
     help="Scaffold only one section (about-me) instead of the full 5-section SP schema.",
 )
 def new_cmd(path: str, minimal: bool) -> None:
-    """Scaffold a new forge-core workspace at PATH.
+    """Scaffold a new forge workspace at PATH.
 
     Default: full 5-section SP schema (about-me, preferences, workspace,
     knowledge-base, skills) + 1 wrapper + 2 configs (claude-code + agents-md).
@@ -125,7 +128,7 @@ name: _preface
 type: wrapper
 ---
 
-This file is the agent's long-term context, compiled by forge-core from
+This file is the agent's long-term context, compiled by forge from
 sp/section/. The user owns the source. To change it: edit sp/section/<name>.md,
 run `forge diff` to preview, `forge approve` to ship. Do not edit this output
 file directly.
@@ -653,6 +656,316 @@ def inbox_skip(todo_id: int, reason: str, root: str | None) -> None:
 
 # (v0.2 forge rollback now lives later in this file, alongside forge migrate
 #  and forge changelog — they're a coordinated triad.)
+
+
+# ---------- personalOS capture/import ----------
+
+@main.command("capture")
+@click.option(
+    "--from",
+    "source",
+    type=click.Path(exists=True, dir_okay=False),
+    help="Path to a source file to copy into capture/import/.",
+)
+@click.option("--from-stdin", is_flag=True, help="Read raw import text from stdin.")
+@click.option(
+    "--from-claude-memory",
+    is_flag=True,
+    help="Capture Claude Code auto-memory (~/.claude/projects/*/memory/*.md).",
+)
+@click.option(
+    "--claude-project",
+    default=None,
+    help="With --from-claude-memory, restrict to one project slug.",
+)
+@click.option("--root", type=click.Path(), default=None, help="personalOS root (default: cwd).")
+@click.option("--title", default="import-context", help="Inbox slug/title.")
+def capture_cmd(
+    source: str | None,
+    from_stdin: bool,
+    from_claude_memory: bool,
+    claude_project: str | None,
+    root: str | None,
+    title: str,
+) -> None:
+    """Capture raw evidence into personalOS capture/import/ and create an inbox item.
+
+    This is intentionally pre-review only: it never writes context sections,
+    assets, proposals, or runtime output. The next step is human/agent triage
+    from system/inbox/ into system/pr/.
+    """
+    input_modes = [bool(source), from_stdin, from_claude_memory]
+    if sum(input_modes) != 1:
+        click.echo("error: pick exactly one input mode (--from / --from-stdin / --from-claude-memory)", err=True)
+        sys.exit(1)
+
+    workspace = _root(root)
+    capture_root = workspace / "capture" / "import"
+    inbox_root = workspace / "system" / "inbox"
+    if not capture_root.parent.exists() or not inbox_root.parent.exists():
+        click.echo(
+            f"error: {workspace} does not look like a personalOS workspace "
+            "(expected capture/ and system/).",
+            err=True,
+        )
+        sys.exit(1)
+
+    if source:
+        source_path = Path(source).resolve()
+        text = source_path.read_text(encoding="utf-8")
+        stat = source_path.stat()
+        source_label = str(source_path)
+        raw_name = _safe_capture_name(source_path.stem or "source") + source_path.suffix
+        summary = f"{source_path} ({len(text)} chars)"
+        source_meta = {
+            "source_size": stat.st_size,
+            "source_mtime": datetime.fromtimestamp(stat.st_mtime).astimezone().isoformat(timespec="seconds"),
+            "source_digest": _digest_text(text),
+        }
+    elif from_claude_memory:
+        text, _repr_path, file_count = _read_claude_memory(claude_project)
+        if not text.strip():
+            click.echo("error: no Claude Code memory files found", err=True)
+            sys.exit(1)
+        scope = f"project={claude_project}" if claude_project else "all projects"
+        source_label = f"claude-code-memory:{scope}"
+        raw_name = "claude-memory.md"
+        summary = f"Claude Code memory ({scope}, {file_count} files, {len(text)} chars)"
+        source_meta = {
+            "source_files": file_count,
+            "source_digest": _digest_text(text),
+        }
+    else:
+        text = sys.stdin.read()
+        source_label = "<stdin>"
+        raw_name = "stdin.md"
+        summary = f"stdin ({len(text)} chars)"
+        source_meta = {
+            "source_digest": _digest_text(text),
+        }
+
+    if not text.strip():
+        click.echo("error: input is empty", err=True)
+        sys.exit(1)
+
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    batch_dir = capture_root / ts
+    batch_dir.mkdir(parents=True, exist_ok=False)
+    raw_path = batch_dir / raw_name
+    captured_at = datetime.now().astimezone().isoformat(timespec="seconds")
+    meta_lines = "".join(
+        f"{k}: {json.dumps(v, ensure_ascii=False)}\n" for k, v in source_meta.items()
+    )
+    raw_path.write_text(
+        "---\n"
+        "kind: raw import\n"
+        f"source: {json.dumps(source_label, ensure_ascii=False)}\n"
+        f"captured_at: {captured_at}\n"
+        f"{meta_lines}"
+        "status: unreviewed\n"
+        "---\n\n"
+        f"{text.rstrip()}\n",
+        encoding="utf-8",
+    )
+
+    inbox_root.mkdir(parents=True, exist_ok=True)
+    slug = _safe_capture_name(title).strip("-") or "import-context"
+    inbox_path = inbox_root / f"{ts}-{slug}.md"
+    rel_batch = batch_dir.relative_to(workspace).as_posix()
+    rel_raw = raw_path.relative_to(workspace).as_posix()
+    inbox_path.write_text(
+        "---\n"
+        "kind: inbox\n"
+        "type: import-context\n"
+        "status: pending\n"
+        "source:\n"
+        f"  - {rel_batch}/\n"
+        "---\n\n"
+        "# Import context\n\n"
+        "## Source summary\n\n"
+        f"- {summary}\n\n"
+        "## Requested action\n\n"
+        "Extract candidate personalOS assets and context projections.\n\n"
+        "## Review requirement\n\n"
+        "Do not apply directly. Create a proposal under `system/pr/`.\n",
+        encoding="utf-8",
+    )
+
+    click.echo(f"captured raw import: {rel_raw}")
+    click.echo(f"created inbox item: {inbox_path.relative_to(workspace).as_posix()}")
+    click.echo("next: process inbox -> proposal -> review")
+
+
+def _safe_capture_name(value: str) -> str:
+    value = value.strip().lower()
+    value = re.sub(r"[^a-z0-9._-]+", "-", value)
+    value = re.sub(r"-{2,}", "-", value).strip("-")
+    return value or "source"
+
+
+def _digest_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+@main.command("monitor")
+@click.option("--root", type=click.Path(), default=None, help="personalOS root (default: cwd).")
+def monitor(root: str | None) -> None:
+    """Report whether a personalOS workspace has anything actionable.
+
+    Checks pending inbox/proposals, context-build drift, and known import source
+    digests. Clean means no import/review prompt is needed.
+    """
+    workspace = _root(root)
+    issues: list[str] = []
+    actions: list[str] = []
+
+    try:
+        report = doctor_run(workspace)
+    except Exception as e:  # pragma: no cover - defensive CLI boundary
+        click.echo(f"status: error")
+        click.echo(f"doctor: {e}")
+        sys.exit(1)
+    if not report.ok:
+        click.echo("status: attention")
+        for line in report.format_lines():
+            click.echo(line)
+        sys.exit(1)
+
+    pending_inbox = _pending_inbox_items(workspace)
+    pending_pr = _pending_proposals(workspace)
+    context_drift = _context_drift(workspace)
+    import_updates = _import_updates(workspace)
+
+    if pending_pr:
+        issues.append(f"pending proposals: {len(pending_pr)}")
+        actions.append(f"review proposal: {pending_pr[-1].relative_to(workspace).as_posix()}")
+    if pending_inbox:
+        issues.append(f"pending inbox: {len(pending_inbox)}")
+        actions.append("process inbox")
+    if context_drift:
+        issues.append("context source changed")
+        actions.append("build/review runtime")
+    if import_updates:
+        issues.append(f"import source updates: {len(import_updates)}")
+        for item in import_updates[:5]:
+            actions.append(f"import update: {item}")
+
+    if not issues:
+        click.echo("status: clean")
+        click.echo("no pending inbox, proposals, context drift, or known import updates.")
+        return
+
+    click.echo("status: attention")
+    for issue in issues:
+        click.echo(f"- {issue}")
+    click.echo()
+    click.echo("next:")
+    for action in actions[:8]:
+        click.echo(f"- {action}")
+
+
+def _pending_inbox_items(workspace: Path) -> list[Path]:
+    inbox_dir = workspace / "system" / "inbox"
+    if not inbox_dir.exists():
+        return []
+    out: list[Path] = []
+    for p in sorted(inbox_dir.glob("*.md")):
+        text = p.read_text(encoding="utf-8", errors="ignore")
+        if re.search(r"^status:\s*pending\s*$", text, re.MULTILINE):
+            out.append(p)
+    return out
+
+
+def _pending_proposals(workspace: Path) -> list[Path]:
+    pr_dir = workspace / "system" / "pr"
+    if not pr_dir.exists():
+        return []
+    out: list[Path] = []
+    for p in sorted(pr_dir.glob("*/proposal.md")):
+        text = p.read_text(encoding="utf-8", errors="ignore")
+        if not re.search(r"^status:\s*(applied|rejected)\s*$", text, re.MULTILINE):
+            out.append(p)
+    return out
+
+
+def _context_drift(workspace: Path) -> bool:
+    from forge.gate import _git
+
+    if not _git.is_git_repo(workspace):
+        return False
+    layout = detect(workspace)
+    return _git.has_pending_changes(workspace, list(layout.tracked_paths))
+
+
+def _import_updates(workspace: Path) -> list[str]:
+    records = _latest_capture_records(workspace)
+    updates: list[str] = []
+
+    for raw_path, label in _FILE_CANDIDATES:
+        p = Path(raw_path).expanduser()
+        if not p.exists() or not p.is_file():
+            continue
+        try:
+            real = p.resolve(strict=True)
+            text = real.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if len(text.encode("utf-8")) < _MIN_BYTES:
+            continue
+        key = str(real)
+        digest = _digest_text(text)
+        previous = records.get(key)
+        if previous is None:
+            updates.append(f"{key} (new, {label})")
+        elif previous.get("source_digest") and previous.get("source_digest") != digest:
+            updates.append(f"{key} (changed, {label})")
+
+    memory_text, _repr_path, file_count = _read_claude_memory(None)
+    if memory_text.strip():
+        key = "claude-code-memory:all projects"
+        digest = _digest_text(memory_text)
+        previous = records.get(key)
+        if previous is None:
+            updates.append(f"Claude Code memory (new, {file_count} files)")
+        elif previous.get("source_digest") and previous.get("source_digest") != digest:
+            updates.append(f"Claude Code memory (changed, {file_count} files)")
+
+    return updates
+
+
+def _latest_capture_records(workspace: Path) -> dict[str, dict[str, str]]:
+    capture_dir = workspace / "capture" / "import"
+    records: dict[str, dict[str, str]] = {}
+    if not capture_dir.exists():
+        return records
+    for p in sorted(capture_dir.glob("*/*.md")):
+        meta = _read_frontmatter(p)
+        source = meta.get("source")
+        if not source:
+            continue
+        records[source] = meta
+    return records
+
+
+def _read_frontmatter(path: Path) -> dict[str, str]:
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    if not text.startswith("---\n"):
+        return {}
+    end = text.find("\n---", 4)
+    if end == -1:
+        return {}
+    meta: dict[str, str] = {}
+    for line in text[4:end].splitlines():
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        value = value.strip()
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            parsed = value
+        meta[key.strip()] = str(parsed)
+    return meta
 
 
 # ---------- ingest ----------
@@ -1811,63 +2124,93 @@ def target_remove(adapter: str, delete_file: bool, root: str | None) -> None:
     click.echo(f"removed: {adapter} → {removed['path']}{suffix}")
 
 
-@main.command("install-skill")
+@main.command("self-install")
+@click.option("--dry-run", is_flag=True, help="Report what would happen without writing files.")
 @click.option(
-    "--symlink",
+    "--force",
     is_flag=True,
-    help="Symlink instead of copy. Always reflects forge-core's source — good for dev / staying current. Requires forge-core source to stay in place.",
+    help="Overwrite even files without a managed-by marker (clobbers user-owned content).",
 )
-@click.option("--force", is_flag=True, help="Overwrite existing installation without prompting.")
 @click.option(
-    "--target",
-    type=click.Path(),
-    default=None,
-    help="Override target dir (default: ~/.claude/skills/forge).",
+    "--runtime",
+    "runtime_names",
+    multiple=True,
+    help="Restrict to specific runtime(s). Default: every detected runtime.",
 )
-def install_skill(symlink: bool, force: bool, target: str | None) -> None:
-    """Install or update the Claude Code skill (forge) into ~/.claude/skills/forge.
+def self_install_cmd(dry_run: bool, force: bool, runtime_names: tuple[str, ...]) -> None:
+    """Bind forge-as-skill into every detected agent runtime (idempotent).
 
-    Re-run with --force to update after upgrading forge-core.
+    Currently supports: claude-code (~/.claude/skills/forge/SKILL.md).
+
+    Re-run safely after `forge update` — files with the managed-by marker are
+    refreshed; unmanaged files report a conflict and are not touched.
     """
-    src = Path(__file__).parent.parent / "examples" / "skills" / "forge"
-    if not src.exists():
-        click.echo(f"error: skill source not found at {src}", err=True)
+    from forge.self_install import self_install, format_summary
+
+    actions = self_install(
+        dry_run=dry_run,
+        force=force,
+        only=list(runtime_names) if runtime_names else None,
+    )
+    click.echo(format_summary(actions))
+
+    conflicts = [a for a in actions if a.status == "conflict"]
+    if conflicts:
         click.echo(
-            "  forge-core may have been installed without the examples/ dir. "
-            "Try installing from source: pip install -e <forge-core-repo>.",
+            f"\n{len(conflicts)} conflict(s). Re-run with --force to overwrite, "
+            "or remove the offending file(s) and re-run.",
             err=True,
         )
         sys.exit(1)
 
-    dest = Path(target).expanduser() if target else Path.home() / ".claude" / "skills" / "forge"
-    dest.parent.mkdir(parents=True, exist_ok=True)
+    detected = [a for a in actions if a.status not in ("skipped", "conflict")]
+    if detected and not dry_run:
+        click.echo("\nTriggers in Claude Code (any of):")
+        click.echo("  'approve my changes' / 'review my context' / '过一下' / '审一下'")
+        click.echo("  'forge approve' / 'forge diff' / 'forge reject'")
 
-    if dest.exists() or dest.is_symlink():
-        if not force:
-            click.echo(
-                f"{dest} already exists.\n"
-                f"  use --force to overwrite (re-install / update).",
-                err=True,
-            )
-            sys.exit(1)
-        if dest.is_symlink() or dest.is_file():
-            dest.unlink()
-        else:
-            shutil.rmtree(dest)
 
-    if symlink:
-        dest.symlink_to(src.resolve())
-        click.echo(f"linked {dest} -> {src.resolve()}")
-        click.echo("future updates to forge-core's skill source picked up automatically.")
+@main.command("update")
+@click.option("--dry-run", is_flag=True, help="Report what would happen without running pipx/uv or writing files.")
+def update_cmd(dry_run: bool) -> None:
+    """Upgrade the forge CLI (when possible) and refresh self-install bindings.
+
+    Picks the right strategy based on how forge was installed:
+      pipx     → pipx upgrade context-forge
+      uv tool  → uv tool upgrade context-forge
+      editable → skipped (you control the source — git pull yourself)
+      system   → printed instructions, not auto-run
+
+    Always re-runs self-install at the end so skills track the current version.
+    """
+    from forge.update import run_update
+
+    action = run_update(dry_run=dry_run)
+    click.echo(f"install kind: {action.kind}")
+    if action.upgrade_cmd:
+        click.echo(f"upgrade cmd:  {' '.join(action.upgrade_cmd)}  [{action.upgrade_status}]")
     else:
-        shutil.copytree(src, dest)
-        click.echo(f"copied skill to {dest}")
-        click.echo("to update later: `forge install-skill --force`")
-
+        click.echo(f"upgrade:      {action.upgrade_status}")
+    if action.upgrade_output:
+        for line in action.upgrade_output.splitlines():
+            click.echo(f"  {line}")
     click.echo()
-    click.echo("Triggers in Claude Code (any of):")
-    click.echo("  'approve my changes' / 'review my context' / '过一下' / '审一下'")
-    click.echo("  'forge approve' / 'forge diff' / 'forge reject'")
+    click.echo("self-install:")
+    click.echo(action.self_install_summary)
+    if action.upgrade_status == "failed":
+        sys.exit(1)
+
+
+@main.command("install-skill", hidden=True)
+@click.option("--force", is_flag=True, help="Deprecated; passed through to self-install.")
+@click.pass_context
+def install_skill(ctx: click.Context, force: bool) -> None:
+    """[deprecated] Use `forge self-install`."""
+    click.echo(
+        "warning: `forge install-skill` is deprecated. Use `forge self-install`.",
+        err=True,
+    )
+    ctx.invoke(self_install_cmd, dry_run=False, force=force, runtime_names=())
 
 
 if __name__ == "__main__":

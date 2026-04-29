@@ -6,7 +6,7 @@
 
     # <config.name>
 
-    <!-- forge-core provenance 注释块 -->
+    <!-- forge provenance 注释块 -->
 
     ## <section-1 name>
     <section-1 body>
@@ -40,7 +40,7 @@ def _emit_output_frontmatter(user_fm: dict) -> str:
     """Return deterministic YAML frontmatter with user fields + stable generator."""
     merged: dict = dict(user_fm)
     # Always inject (do not override user-provided values)
-    merged.setdefault("generated_by", f"forge-core@{__version__}")
+    merged.setdefault("generated_by", f"forge@{__version__}")
     dumped = yaml.safe_dump(merged, sort_keys=False, allow_unicode=True).rstrip()
     return f"---\n{dumped}\n---"
 
@@ -57,7 +57,7 @@ class ClaudeCodeAdapter(TargetAdapter):
         parts.append(f"# {config.name}")
         parts.append("")
         parts.append(
-            "<!-- compiled by forge-core. do not edit by hand. "
+            "<!-- compiled by forge. do not edit by hand. "
             "edit the context source and run `forge approve`. -->"
         )
         parts.append(render_markdown_header(build_block(sections, config), "html"))

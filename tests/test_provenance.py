@@ -80,7 +80,7 @@ def test_render_includes_provenance(workspace: Path) -> None:
     secs = load_sections(workspace)
     cfg = load_config(workspace, "main")
     out = render(secs, cfg)
-    assert "forge-core provenance" in out
+    assert "forge provenance" in out
     assert "digest=" in out
     assert "compiled_at=" not in out
 

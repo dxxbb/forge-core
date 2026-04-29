@@ -26,7 +26,7 @@ class CodexCLIAdapter(TargetAdapter):
         parts.append(f"# {config.name}")
         parts.append("")
         parts.append(
-            f"> 由 forge-core 编译自 `sp/section/` + `sp/config/{config.name}.md`。"
+            f"> 由 forge 编译自 `sp/section/` + `sp/config/{config.name}.md`。"
         )
         parts.append("> 请勿手改此文件——修改源文件后跑 `forge approve`。")
         parts.append("")

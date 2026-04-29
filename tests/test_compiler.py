@@ -40,7 +40,7 @@ def test_render_agents_md(workspace: Path) -> None:
     cfg = load_config(workspace, "main")
     cfg.target = "agents-md"
     out = render(secs, cfg)
-    assert "Compiled by forge-core" in out
+    assert "Compiled by forge" in out
     assert "## Alpha" in out  # agents-md capitalizes
     assert "## Beta" in out
 
