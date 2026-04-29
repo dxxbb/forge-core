@@ -58,7 +58,7 @@ class ClaudeCodeAdapter(TargetAdapter):
         parts.append("")
         parts.append(
             "<!-- compiled by forge-core. do not edit by hand. "
-            "edit sp/section/ and run `forge approve`. -->"
+            "edit the context source and run `forge approve`. -->"
         )
         parts.append(render_markdown_header(build_block(sections, config), "html"))
         parts.append("")

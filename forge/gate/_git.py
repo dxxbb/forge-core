@@ -132,6 +132,16 @@ def diff_paths(root: Path, paths: Sequence[str], *, ref: str = "HEAD") -> str:
     return git(root, ["diff", ref, "--", *paths], allow_empty_output=True)
 
 
+def untracked_files(root: Path, paths: Sequence[str]) -> list[str]:
+    """Return untracked, non-ignored files under the given paths."""
+    out = git(
+        root,
+        ["ls-files", "--others", "--exclude-standard", "--", *paths],
+        allow_empty_output=True,
+    )
+    return [ln for ln in out.splitlines() if ln.strip()]
+
+
 def show_at_ref(root: Path, ref: str, path: str) -> str:
     """Return the content of `path` at `ref`. Empty string if path didn't exist."""
     proc = subprocess.run(
@@ -159,7 +169,7 @@ def list_files_at_ref(root: Path, ref: str, prefix: str) -> list[str]:
 
 
 def has_pending_changes(root: Path, paths: Sequence[str]) -> bool:
-    """Is there any uncommitted diff in the given paths vs HEAD?"""
+    """Is there any uncommitted or untracked change in the given paths vs HEAD?"""
     proc = subprocess.run(
         ["git", "diff", "--quiet", "HEAD", "--", *paths],
         cwd=str(root),
@@ -167,7 +177,9 @@ def has_pending_changes(root: Path, paths: Sequence[str]) -> bool:
         text=True,
     )
     # exit 0 = no diff, 1 = has diff, other = error
-    return proc.returncode == 1
+    if proc.returncode == 1:
+        return True
+    return bool(untracked_files(root, paths))
 
 
 def log_for_paths(

@@ -19,6 +19,7 @@ from forge.gate.origin import clear as clear_origin
 from forge.gate.state import GateState
 from forge.gate.sync import sync_targets
 from forge.targets import get_adapter
+from forge.layout import detect, empty_tree
 
 
 @dataclass
@@ -26,6 +27,7 @@ class DiffResult:
     source_diff_lines: list[str]
     output_diffs: dict[str, list[str]]
     changed: bool
+    source_label: str = "sp"
 
 
 @dataclass
@@ -52,7 +54,7 @@ def init(root: Path, force: bool = False) -> GateState:
     """
     state = GateState(root)
     state.migrate_layout()
-    if state.initialized() and not force:
+    if state.initialized() and _git.head_hash(root) and not force:
         # already v0.2-ready
         _ensure_manifest(state)
         return state
@@ -63,16 +65,19 @@ def init(root: Path, force: bool = False) -> GateState:
 
     _ensure_gitignore(root)
 
-    # Build output once before initial commit so the commit is complete
+    layout = state.layout
+
+    # Build runtime once before initial commit so the commit is complete
     state.output_dir.mkdir(parents=True, exist_ok=True)
     _rebuild_outputs(state)
 
     # Initial commit (or follow-up commit if user already had one)
-    _git.add(root, ["sp", "output", ".gitignore"])
-    if _git.has_pending_changes(root, ["sp", "output", ".gitignore"]) or not _git.head_hash(root):
+    paths = [*layout.tracked_paths, ".gitignore"]
+    _git.add(root, paths)
+    if _git.has_pending_changes(root, paths) or not _git.head_hash(root):
         _git.commit(
             root,
-            "forge init: scaffold sp/ and first output/ build",
+            f"forge init: scaffold {layout.source_label} and first runtime build",
             allow_empty=not _git.head_hash(root),
         )
 
@@ -86,7 +91,7 @@ def diff_summary(root: Path) -> DiffResult:
     _require_initialized(state)
     state.migrate_layout()
 
-    # Source diff: git diff HEAD -- sp/
+    # Source diff: git diff HEAD over active context source
     src_diff = source_diff_via_git(root)
 
     # Output diff: render approved (HEAD's sp/) and current sp/, compare per config
@@ -109,21 +114,28 @@ def diff_summary(root: Path) -> DiffResult:
             out_diffs[cname] = od
 
     changed = bool(src_diff or out_diffs)
-    return DiffResult(source_diff_lines=src_diff, output_diffs=out_diffs, changed=changed)
+    return DiffResult(
+        source_diff_lines=src_diff,
+        output_diffs=out_diffs,
+        changed=changed,
+        source_label=state.layout.source_label,
+    )
 
 
 def approve(root: Path, note: str = "") -> ApproveResult:
-    """Rebuild output/ → stage sp/ + output/ → git commit (with provenance trailer)
+    """Rebuild runtime → stage source + runtime → git commit (with provenance trailer)
     → clear pending → sync external targets."""
     state = GateState(root)
     _require_initialized(state)
     state.migrate_layout()
 
-    # 1. rebuild output/ from current sp/
+    layout = state.layout
+
+    # 1. rebuild runtime from current source
     written = _rebuild_outputs(state)
 
-    # 2. stage sp/ + output/ (only what changed)
-    paths_to_stage = ["sp", "output"]
+    # 2. stage source + runtime (only what changed)
+    paths_to_stage = list(layout.tracked_paths)
     _git.add(root, paths_to_stage)
 
     # 3. nothing actually changed? bail with clear error
@@ -131,7 +143,7 @@ def approve(root: Path, note: str = "") -> ApproveResult:
         # Could be the rebuild produced identical output AND sp/ was unchanged.
         # Reset stage and complain.
         raise RuntimeError(
-            "no changes to approve — sp/ matches HEAD and rebuilt output is identical"
+            f"no changes to approve — {layout.source_label} matches HEAD and rebuilt runtime is identical"
         )
 
     # 4. commit
@@ -169,7 +181,7 @@ def reject(root: Path) -> None:
     state = GateState(root)
     _require_initialized(state)
     state.migrate_layout()
-    _git.restore_to_head(root, ["sp", "output"])
+    _git.restore_to_head(root, list(state.layout.tracked_paths))
     clear_origin(root)
     _clear_review_md(root)
 
@@ -187,7 +199,7 @@ def _clear_review_md(root: Path) -> None:
 
 
 def build(root: Path) -> list[Path]:
-    """Render output/ from current sp/ WITHOUT going through the gate.
+    """Render runtime outputs from current source WITHOUT going through the gate.
 
     Use this in CI / fresh clones / regenerating output when the file got
     deleted but you don't want to commit a no-op.
@@ -205,7 +217,8 @@ def status(root: Path) -> dict:
         head = _git.head_hash(root)
         info["manifest"] = state.read_manifest()
         info["approved_hash"] = head  # = HEAD
-        info["drifted"] = _git.has_pending_changes(root, ["sp", "output"])
+        info["layout"] = state.layout.name
+        info["drifted"] = _git.has_pending_changes(root, list(state.layout.tracked_paths))
         info["needs_v02_migration"] = state.needs_v02_migration()
     return info
 
@@ -216,7 +229,7 @@ def _require_initialized(state: GateState) -> None:
     if not state.initialized():
         raise RuntimeError(
             f"forge not initialized at {state.root}. "
-            f"Workspace must be a git repo with sp/. Run `forge init` or "
+            f"Workspace must be a git repo with a supported context source. Run `forge init` or "
             f"`forge new <path>` to scaffold one."
         )
 
@@ -244,18 +257,27 @@ def _ensure_manifest(state: GateState) -> None:
 
 
 def _rebuild_outputs(state: GateState) -> list[Path]:
-    """Render all configs under sp/ (current) and write to output/."""
+    """Render all configs in the active layout and write runtime artifacts."""
     sections = load_sections(state.root)
     configs = load_all_configs(state.root)
+    layout = state.layout
     state.output_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
-    for p in state.output_dir.glob("*.md"):
-        p.unlink()
+    if layout.runtime_nested_by_target:
+        for p in state.output_dir.glob("*/*.md"):
+            p.unlink()
+    else:
+        for p in state.output_dir.glob("*.md"):
+            p.unlink()
     for cname, cfg in configs.items():
         adapter = get_adapter(cfg.target)
         text = render(sections, cfg)
         filename = adapter.filename(cfg)
-        path = state.output_dir / filename
+        if layout.runtime_nested_by_target:
+            path = state.output_dir / adapter.name / filename
+        else:
+            path = state.output_dir / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
         written.append(path)
     return written
@@ -267,11 +289,11 @@ def _load_sections_at_head(state: GateState):
     """Load sections from git HEAD (the approved baseline) into the same shape
     `load_sections` returns. Implementation: write HEAD's sp/section/ files into
     a temp dir, load from there, throw away."""
-    return _load_at_head(state, "sp/section", load_sections)
+    return _load_at_head(state, state.layout.section_dir.relative_to(state.root).as_posix(), load_sections)
 
 
 def _load_configs_at_head(state: GateState):
-    return _load_at_head(state, "sp/config", load_all_configs)
+    return _load_at_head(state, state.layout.config_dir.relative_to(state.root).as_posix(), load_all_configs)
 
 
 def _load_at_head(state: GateState, prefix: str, loader_fn):
@@ -292,7 +314,7 @@ def _load_at_head(state: GateState, prefix: str, loader_fn):
             target = tmp / relpath
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8")
-        # loader expects to see <root>/sp/section/* — so pass tmp as the workspace root
+        # loader expects a supported workspace tree — so pass tmp as root
         return loader_fn(tmp)
 
 
@@ -307,7 +329,6 @@ def _empty_workspace() -> Path:
     import tempfile
 
     p = Path(tempfile.mkdtemp(prefix="forge-empty-"))
-    (p / "sp" / "section").mkdir(parents=True)
-    (p / "sp" / "config").mkdir(parents=True)
+    empty_tree(p, "legacy")
     _EMPTY_WORKSPACE_CACHE = p
     return p

@@ -23,30 +23,187 @@ Pick which based on user phrase + workspace state. If unclear, ask once.
 
 This is the "demo the project's point" flow. Run when user says "set up forge", "help me start", "管理我的 context", or similar.
 
-### Step 1 — Show what forge is doing for them
+### Step 1 — Resolve the workspace path first
 
-Before any commands, give a one-line framing:
+Before any scaffolding, resolve the target directory. Path correctness beats the default.
+
+Say:
 
 > "I'll set up a forge workspace, then import your existing AI context (CLAUDE.md, .cursorrules etc.) into structured sections. You'll see what got classified into what, edit anything wrong, then approve to ship. About 3 minutes."
 
-Then ask: **"Where should the workspace live? (default: `~/forge-context`)"** Wait for answer or default.
+Then ask:
+
+> "Where should the workspace live? Reply with a path, or say **this directory** to use the current directory."
+
+Wait for the answer. Do not choose a default while waiting.
+
+Path resolution rules:
+
+- If the user says "this directory", "这个目录", "当前目录", "here", or ".", run `pwd` and use that exact directory.
+- If the user gives an absolute or relative path, resolve it normally.
+- Only if the user explicitly says "default" should you use `~/personalOS`.
+- Repeat the resolved absolute path once before modifying files.
+
+Never interpret "这个目录" as `~/personalOS`.
 
 ### Step 2 — Scaffold the workspace
 
-```bash
-forge new <path>
-cd <path>
+Default onboarding is v0428 personalOS. Do **not** call `forge new` for this flow; `forge new` is the old legacy scaffold and creates only `sp/` + `output/`.
+
+If the target path does not exist, create it. If it exists and is empty, use it. If it exists and has user files, ask once before adding the framework.
+
+Create this directory framework in the target path:
+
+```text
+capture/{agent history & memory,web clipping,external updates,import}
+user space/{daily,profile,goals,notes,private,secret config store}
+workspace/{project,topic,writing,whiteboard}
+assist config/{collaboration preference,work preference,skill}
+public knowledge base/{entity,topic,source}
+context build/{sections,config,runtime}
+system/{rules,eval,inbox,pr,approve log}
 ```
 
-`forge new` does everything in one go: scaffold + git init + first commit. Output is 4 lines — show it verbatim and don't pile on more explanation. The user sees a fresh empty workspace, not a wall of text.
+Then create the initial context source files under `context build/sections`:
 
-(Mental note for you, **don't dump on the user**: workspace is a git repo, has 5 SP sections + 2 cross-runtime configs, output/ already built with placeholders, `.forge/` is gitignored runtime state, history lives in git log. You'll surface these facts as the user encounters them, not all at once.)
+```text
+_preface.md
+about user.md
+workspace.md
+knowledge base.md
+preference.md
+skill.md
+```
+
+Use frontmatter names exactly as shown above (`about user`, `knowledge base`, `preference`, `skill`). These are runtime-facing projections, not the user's asset taxonomy.
+
+Create target configs:
+
+```text
+context build/config/claude-code.md
+context build/config/agents-md.md
+```
+
+Both configs include sections in this order: `_preface`, `about user`, `workspace`, `knowledge base`, `preference`, `skill`.
+
+Minimum section templates:
+
+```markdown
+<!-- context build/sections/_preface.md -->
+---
+name: _preface
+type: wrapper
+---
+
+This file provides guidance to agents when working in this environment.
+It is generated from `context build/sections` and `context build/config`; do not edit runtime files by hand.
+```
+
+```markdown
+<!-- context build/sections/about user.md -->
+---
+name: about user
+type: identity
+---
+
+[TODO: import or write the reviewed projection of who the user is, current goals, long-term preferences, and stable background.]
+```
+
+```markdown
+<!-- context build/sections/workspace.md -->
+---
+name: workspace
+type: workspace
+---
+
+[TODO: import or write the reviewed projection of active projects, topics, writing, and current focus.]
+```
+
+```markdown
+<!-- context build/sections/knowledge base.md -->
+---
+name: knowledge base
+type: knowledge-base
+---
+
+[TODO: import or write indexes and pointers to source-grounded knowledge.]
+```
+
+```markdown
+<!-- context build/sections/preference.md -->
+---
+name: preference
+type: preference
+---
+
+[TODO: import or write reviewed collaboration preferences and operating boundaries.]
+```
+
+```markdown
+<!-- context build/sections/skill.md -->
+---
+name: skill
+type: skill
+---
+
+[TODO: import or write skill indexes and reusable workflows agents should know.]
+```
+
+Minimum config templates:
+
+```markdown
+<!-- context build/config/claude-code.md -->
+---
+name: CLAUDE
+target: claude-code
+sections:
+  - _preface
+  - about user
+  - workspace
+  - knowledge base
+  - preference
+  - skill
+required_sections:
+  - about user
+  - workspace
+  - knowledge base
+  - preference
+  - skill
+demote_section_headings: true
+---
+```
+
+```markdown
+<!-- context build/config/agents-md.md -->
+---
+name: AGENTS
+target: agents-md
+sections:
+  - _preface
+  - about user
+  - workspace
+  - knowledge base
+  - preference
+  - skill
+required_sections:
+  - about user
+  - workspace
+  - knowledge base
+  - preference
+  - skill
+demote_section_headings: true
+---
+```
+
+If git is not initialized, run `git init`. Then run `forge build --root <path>` and `forge doctor --root <path>`.
+
+(Mental note for you, **don't dump on the user**: workspace is a git repo, has structured source sections + cross-runtime configs, generated runtime output, `.forge/` is gitignored runtime state, history lives in git log. You'll surface these facts as the user encounters them, not all at once.)
 
 ### Step 3 — One short question, wait for answer
 
-After `forge new` prints its 4 lines, send exactly this (don't add structure descriptions, don't list commands, don't paraphrase):
+After scaffold + build + doctor succeeds, send exactly this (don't add structure descriptions, don't list commands, don't paraphrase):
 
-> Workspace ready at `<path>`. 5 sections sitting empty.
+> Workspace ready at `<path>`. personalOS framework and context build are initialized.
 >
 > Want me to import your existing CLAUDE.md / .cursorrules to fill them, or will you write fresh? Reply: **import** / **write** / **explore**
 
@@ -54,8 +211,8 @@ After `forge new` prints its 4 lines, send exactly this (don't add structure des
 
 After reply:
 - **import** → Step 4 (detect, confirm sources, ingest)
-- **write** → tell them which file to open first (`$EDITOR sp/section/about-me.md`), then they call you back when ready to review.
-- **explore** → run `cat sp/section/about-me.md` so they see the placeholder format, then say "edit any section, then say 'review' or 'over'."
+- **write** → tell them which file to open first (`$EDITOR "context build/sections/about user.md"`), then they call you back when ready to review.
+- **explore** → run `cat "context build/sections/about user.md"` so they see the placeholder format, then say "edit any section, then say 'review' or 'over'."
 
 ### Step 4 — (only after user said "import") Detect → Emit → Classify → Write
 
@@ -108,17 +265,17 @@ Read the emit stdout. Split into 5 sections per this schema:
 
 | Section | What goes here |
 |---|---|
-| `about-me` | identity. Who they are, role, work style. |
-| `preferences` | agent rules. Boundaries, output style, "don't / always". |
+| `about user` | identity. Who they are, role, work style. |
+| `preference` | agent rules. Boundaries, output style, "don't / always". |
 | `workspace` | current active projects, focus areas. |
-| `knowledge-base` | long-term topic indexes, domain references. |
-| `skills` | reusable craft / workflows / procedures. |
+| `knowledge base` | long-term topic indexes, domain references. |
+| `skill` | reusable craft / workflows / procedures. |
 
 Preserve user's actual words. Don't paraphrase. Empty section is fine. For multi-source ingests (Claude memory across projects), use the `--- from: ... ---` headers as provenance — keep them or summarize, your call.
 
 #### 4d. Write (per-section files via Write tool)
 
-For each non-empty section, use Write to create `<workspace>/sp/section/<name>.md` with this frontmatter:
+For each non-empty section, use Write to create `<workspace>/context build/sections/<name>.md` with this frontmatter:
 
 ```yaml
 ---
@@ -129,7 +286,7 @@ type: <identity|preference|workspace|knowledge-base|skill>
 <body>
 ```
 
-Type mapping: `about-me`→identity, `preferences`→preference, `workspace`→workspace, `knowledge-base`→knowledge-base, `skills`→skill.
+Type mapping: `about user`→identity, `preference`→preference, `workspace`→workspace, `knowledge base`→knowledge-base, `skill`→skill.
 
 If a section file already exists with non-template content (no `[TODO:` marker), warn the user before overwriting.
 
@@ -137,7 +294,7 @@ After writing, go to Step 5 (`forge review`). The Origin panel will show your `-
 
 #### Fallback: dump mode (no agent classification)
 
-If you're in a non-agent context (CLI-direct user, or you want forge to handle it without your own classification work), run **without** `--emit` — forge dumps everything into `sp/section/workspace.md` and the user splits with $EDITOR. Use this if the user explicitly says "I'll split it myself".
+If you're in a non-agent context, do not pretend forge can classify. Put raw imports under `capture/import/` and ask the user to review before promoting anything into `context build/sections`.
 
 ### Step 5 — Write the review as a markdown file the user opens in Obsidian
 
@@ -247,7 +404,7 @@ This is the review the user actually wants — concrete added/removed lines per 
 
 - **"a"** or **"a: <message>"** → `forge approve -m "<message>"` (if no message, ask once for one)
 - **"r"** → confirm "discard all working-tree changes? (y/n)", then `yes | forge reject`
-- **"e"** or **"e <section>"** → tell user to edit `sp/section/<name>.md` in their terminal (Bash tool can't open $EDITOR), wait for "done", then re-run `forge review --json` and re-render
+- **"e"** or **"e <section>"** → tell user to edit `context build/sections/<name>.md` (v0428) or `sp/section/<name>.md` (legacy) in their terminal, wait for "done", then re-run `forge review --json` and re-render
 - **"d"** → user wants the diff. Run `forge review` (no flags), paste relevant excerpts in a fenced block. Warn it's long; offer `--config <name>` or `--source-only` scoping.
 - **"q"** → "leaving working tree as-is — say 'review' when ready"
 
@@ -319,7 +476,7 @@ If the user says "not now," show the equivalent manual command and stop:
 
 **Don't auto-install without asking.** `~/.claude/CLAUDE.md` is global config; overwriting it silently is a trust violation.
 
-End the onboarding with: "You're set up. Edit `sp/section/<name>.md` when context changes, say 'approve' or '过一下', and I'll run the review flow."
+End the onboarding with: "You're set up. Edit `context build/sections/<name>.md` when context changes, say 'approve' or '过一下', and I'll run the review flow."
 
 ## Review flow (when user already has a workspace)
 
@@ -382,7 +539,7 @@ Show approved hash, `wrote` lines, and `synced →` lines (any configured `forge
 
 If `forge target list` is empty and the user is on a personal workstation, mention once: "You don't have a target binding. Want me to install one so future approves auto-refresh `~/.claude/CLAUDE.md`? (`forge target install claude-code --to ~/.claude/CLAUDE.md --mode symlink`)" Don't repeat this hint after they decline.
 
-v0.2: workspace IS a git repo (`forge new` git-inits, every `forge approve` = `git commit`). So you don't need to ask the user "should we git commit?" — that already happened. Instead, ask once: "Want me to `git push` to a remote?" Only push if user explicitly says yes. Don't push to main/master without user explicitly naming the branch.
+v0.2: workspace IS a git repo (onboarding git-inits if needed, every `forge approve` = `git commit`). So you don't need to ask the user "should we git commit?" — that already happened. Instead, ask once: "Want me to `git push` to a remote?" Only push if user explicitly says yes. Don't push to main/master without user explicitly naming the branch.
 
 #### Reject
 
@@ -404,7 +561,7 @@ Exception: if you're mid-task on a longer multi-edit (e.g. user said "rewrite my
 
 ## Don'ts
 
-- ❌ **Don't auto-import after `forge new`.** Step 3 must end with the user saying "A" / "B" / "import <path>". Reading `~/.claude/CLAUDE.md` or running `forge ingest` before they reply is a trust violation — those are personal files, you don't get to scan them just because the workspace exists.
+- ❌ **Don't auto-import after scaffold.** Step 3 must end with the user saying "A" / "B" / "import <path>". Reading `~/.claude/CLAUDE.md` or running `forge ingest` before they reply is a trust violation — those are personal files, you don't get to scan them just because the workspace exists.
 - ❌ Don't auto-approve without showing diff (R3 must run first)
 - ❌ Don't run `forge approve` if `forge doctor` returned errors
 - ❌ Don't `git push` without explicit user request

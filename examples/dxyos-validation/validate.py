@@ -92,12 +92,14 @@ RECALL_THRESHOLD = 0.90
 
 
 def stage_dxyos(dxyos_root: Path) -> Path:
-    # Support both old (pre-forge-core migration) and new dxyOS layouts.
-    # New canonical: sp/section/ at vault root (forge-core native).
-    # Old: 01 assist/SP/section/ (dxyOS pre-migration).
+    # Support the current personalOS layout first, then older forge/SP layouts.
+    current_section_dir = dxyos_root / "context build" / "sections"
+    current_config_dir = dxyos_root / "context build" / "config"
     new_section_dir = dxyos_root / "sp" / "section"
     old_section_dir = dxyos_root / "01 assist" / "SP" / "section"
-    if new_section_dir.exists():
+    if current_section_dir.exists():
+        src_section_dir = current_section_dir
+    elif new_section_dir.exists():
         src_section_dir = new_section_dir
     elif old_section_dir.exists():
         src_section_dir = old_section_dir
@@ -109,8 +111,12 @@ def stage_dxyos(dxyos_root: Path) -> Path:
 
     if STAGING.exists():
         shutil.rmtree(STAGING)
-    section_dir = STAGING / "sp" / "section"
-    config_dir = STAGING / "sp" / "config"
+    if current_section_dir.exists():
+        section_dir = STAGING / "context build" / "sections"
+        config_dir = STAGING / "context build" / "config"
+    else:
+        section_dir = STAGING / "sp" / "section"
+        config_dir = STAGING / "sp" / "config"
     section_dir.mkdir(parents=True)
     config_dir.mkdir(parents=True)
 
@@ -127,9 +133,17 @@ def stage_dxyos(dxyos_root: Path) -> Path:
     if missing:
         print(f"WARN: missing sections: {missing}")
 
-    (section_dir / "_preface.md").write_text(PREFACE_SECTION, encoding="utf-8")
-    (config_dir / "master.md").write_text(CONFIG_CLAUDE, encoding="utf-8")
-    (config_dir / "master-agents.md").write_text(CONFIG_AGENTS, encoding="utf-8")
+    if (src_section_dir / "_preface.md").exists():
+        shutil.copy2(src_section_dir / "_preface.md", section_dir / "_preface.md")
+    else:
+        (section_dir / "_preface.md").write_text(PREFACE_SECTION, encoding="utf-8")
+
+    if current_config_dir.exists() and list(current_config_dir.glob("*.md")):
+        for src in current_config_dir.glob("*.md"):
+            shutil.copy2(src, config_dir / src.name)
+    else:
+        (config_dir / "master.md").write_text(CONFIG_CLAUDE, encoding="utf-8")
+        (config_dir / "master-agents.md").write_text(CONFIG_AGENTS, encoding="utf-8")
 
     print(f"staged {len(copied)} sections + 1 wrapper + 2 configs into {STAGING}")
     return STAGING
@@ -173,9 +187,11 @@ def line_recall(source_lines: list[str], target_text: str) -> float:
 
 def run(root: Path, dxyos_root: Path, verbose: bool) -> None:
     from forge.compiler.loader import load_sections, load_all_configs
+    from forge.gate import _git
     from forge.gate import actions as gate
     from forge.gate.doctor import run as doctor
     from forge.bench import harness as bench
+    from forge.layout import detect
 
     divider = "=" * 64
     print(divider)
@@ -197,26 +213,40 @@ def run(root: Path, dxyos_root: Path, verbose: bool) -> None:
     print("STEP 3/7 — init + build")
     if (root / ".forge").exists():
         shutil.rmtree(root / ".forge")
+    if not (root / ".git").exists():
+        _git.init_repo(root)
     state = gate.init(root)
-    compiled_claude = (state.output_dir / "CLAUDE.md").read_text("utf-8")
-    compiled_agents = (state.output_dir / "AGENTS.md").read_text("utf-8")
+    layout = detect(root)
+    claude_path = state.output_dir / "claude-code" / "CLAUDE.md" if layout.runtime_nested_by_target else state.output_dir / "CLAUDE.md"
+    agents_path = state.output_dir / "agents-md" / "AGENTS.md" if layout.runtime_nested_by_target else state.output_dir / "AGENTS.md"
+    compiled_claude = claude_path.read_text("utf-8")
+    compiled_agents = agents_path.read_text("utf-8")
     print(f"  [ok] CLAUDE.md {len(compiled_claude.encode('utf-8'))}B / {compiled_claude.count(chr(10))}L")
     print(f"  [ok] AGENTS.md {len(compiled_agents.encode('utf-8'))}B / {compiled_agents.count(chr(10))}L")
     # determinism
     time.sleep(1.1)
     gate.build(root)
-    compiled_claude_2 = (state.output_dir / "CLAUDE.md").read_text("utf-8")
+    compiled_claude_2 = claude_path.read_text("utf-8")
     assert compiled_claude == compiled_claude_2, "compile is not deterministic"
     print("  [ok] compile is deterministic")
 
     print()
     print("STEP 4/7 — semantic equivalence vs dxyOS's SP output")
-    # Compare target: in new (post-migration) dxyOS layout the ground truth is
-    # .forge/output/CLAUDE.md at vault root; in the old layout it was under
-    # 01 assist/SP/output/claude code/. Try both.
+    # Compare target: current dxyOS uses context build/runtime; older layouts
+    # used output/ or the original dxyOS SP output.
+    current_target = dxyos_root / "context build" / "runtime" / "claude-code" / "CLAUDE.md"
+    legacy_target = dxyos_root / "output" / "CLAUDE.md"
     new_target = dxyos_root / ".forge" / "output" / "CLAUDE.md"
     old_target = dxyos_root / "01 assist" / "SP" / "output" / "claude code" / "CLAUDE.md"
-    dxyos_sp_output = new_target if new_target.exists() else old_target
+    dxyos_sp_output = (
+        current_target
+        if current_target.exists()
+        else legacy_target
+        if legacy_target.exists()
+        else new_target
+        if new_target.exists()
+        else old_target
+    )
     if dxyos_sp_output.exists():
         dxyos_claude = dxyos_sp_output.read_text("utf-8")
         dxyos_lines = normalize_lines(dxyos_claude)
@@ -261,7 +291,7 @@ def run(root: Path, dxyos_root: Path, verbose: bool) -> None:
     print()
     print("STEP 7/7 — full gate + bench round-trip on real content")
     snap_v1 = bench.snapshot(root, "dxyos-v1")
-    pref = root / "sp" / "section" / "preference.md"
+    pref = detect(root).section_dir / "preference.md"
     if pref.exists():
         pref.write_text(
             pref.read_text("utf-8") + "\n\n- (validation marker added by validate.py)\n",
@@ -281,7 +311,7 @@ def run(root: Path, dxyos_root: Path, verbose: bool) -> None:
     if dxyos_sp_output.exists():
         import difflib
         dxyos_claude_text = dxyos_sp_output.read_text("utf-8")
-        forge_claude_text = (state.output_dir / "CLAUDE.md").read_text("utf-8")
+        forge_claude_text = claude_path.read_text("utf-8")
         diff_lines = list(
             difflib.unified_diff(
                 dxyos_claude_text.splitlines(),

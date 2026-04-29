@@ -280,7 +280,7 @@ demote_section_headings: true
 @main.command()
 @click.option("--root", type=click.Path(), default=None, help="Workspace root (default: cwd).")
 def build(root: str | None) -> None:
-    """Render sp/ to output/ (no gate, always uses current sp/)."""
+    """Render context source to runtime output (no gate)."""
     written = gate.build(_root(root))
     for p in written:
         click.echo(f"wrote {p}")
@@ -290,7 +290,7 @@ def build(root: str | None) -> None:
 @click.option("--root", type=click.Path(), default=None)
 @click.option("--force", is_flag=True, help="Re-init even if already initialized.")
 def init(root: str | None, force: bool) -> None:
-    """Bootstrap .forge/ by snapshotting current sp/ as baseline."""
+    """Initialize the review gate from the current context source."""
     try:
         state = gate.init(_root(root), force=force)
     except RuntimeError as e:
@@ -302,7 +302,7 @@ def init(root: str | None, force: bool) -> None:
 @main.command()
 @click.option("--root", type=click.Path(), default=None)
 def status(root: str | None) -> None:
-    """Show initialized state, approved hash, and whether sp/ has drifted."""
+    """Show initialized state, approved hash, and whether context has drifted."""
     info = gate.status(_root(root))
     click.echo(json.dumps(info, indent=2, ensure_ascii=False))
 
@@ -347,7 +347,7 @@ def diff(
 ) -> None:
     """Show what would change on approve.
 
-    Prints a one-line summary, then source diff (your sp/ edits) and output
+    Prints a one-line summary, then source diff (your context edits) and output
     diff (each compiled config). Provenance digest/byte lines are folded to
     one collapsed marker — pass --full-provenance to see them.
     """
@@ -398,7 +398,8 @@ def _format_diff(
     out.append("")
 
     if not output_only:
-        out.append(click.style("── source diff (sp/) ──", fg="cyan", bold=True) if use_color else "── source diff (sp/) ──")
+        source_title = f"── source diff ({getattr(result, 'source_label', 'sp')}) ──"
+        out.append(click.style(source_title, fg="cyan", bold=True) if use_color else source_title)
         if not result.source_diff_lines:
             out.append("(no source changes)")
         else:
@@ -429,22 +430,30 @@ def _format_diff(
 
 
 def _summarize_diff(result) -> str:
-    """One-line summary: how many sections changed, how many configs affected."""
+    """One-line summary: how many sections/config sources changed."""
     section_files = set()
+    config_files = set()
     for line in result.source_diff_lines:
         if line.startswith("--- approved/") or line.startswith("+++ current/"):
-            # extract section name from "approved/section/foo.md"
             path = line.split("/", 1)[1] if "/" in line else line
             if path.startswith("section/"):
                 section_files.add(path[len("section/"):])
             elif path.startswith("config/"):
-                section_files.add("config:" + path[len("config/"):])
+                config_files.add(path[len("config/"):])
+            elif path.startswith("context build/sections/"):
+                section_files.add(path[len("context build/sections/"):])
+            elif path.startswith("context build/config/"):
+                config_files.add(path[len("context build/config/"):])
     n_sections = len(section_files)
+    n_config_files = len(config_files)
     n_configs = len(result.output_diffs)
     parts: list[str] = []
     if n_sections:
         parts.append(f"{n_sections} {'section' if n_sections == 1 else 'sections'} changed")
         parts.append(f"({', '.join(sorted(section_files))})")
+    if n_config_files:
+        parts.append(f"{n_config_files} config {'file' if n_config_files == 1 else 'files'} changed")
+        parts.append(f"({', '.join(sorted(config_files))})")
     if n_configs:
         parts.append(f"→ {n_configs} {'config' if n_configs == 1 else 'configs'} affected: {', '.join(sorted(result.output_diffs))}")
     if not parts:
@@ -504,7 +513,7 @@ def _fold_provenance_block(lines: list[str]) -> list[str]:
 @click.option("--root", type=click.Path(), default=None)
 @click.option("--note", "-m", default="", help="Short message for changelog.")
 def approve(root: str | None, note: str) -> None:
-    """Accept current sp/ as the new approved baseline. Rebuilds output/."""
+    """Accept current context as the new approved baseline. Rebuilds runtime output."""
     try:
         result = gate.approve(_root(root), note=note)
     except RuntimeError as e:
@@ -519,15 +528,15 @@ def approve(root: str | None, note: str) -> None:
 
 @main.command()
 @click.option("--root", type=click.Path(), default=None)
-@click.confirmation_option(prompt="Discard all current changes to sp/ and restore approved?")
+@click.confirmation_option(prompt="Discard all current context/runtime changes and restore approved?")
 def reject(root: str | None) -> None:
-    """Discard changes to sp/; restore from last approved."""
+    """Discard context/runtime changes and restore from last approved."""
     try:
         gate.reject(_root(root))
     except RuntimeError as e:
         click.echo(f"error: {e}", err=True)
         sys.exit(1)
-    click.echo("restored sp/ from last approved")
+    click.echo("restored context from last approved")
 
 
 # ---------- bench ----------

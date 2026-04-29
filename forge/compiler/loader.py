@@ -1,14 +1,14 @@
 """Loader: read sections and configs from a workspace directory layout.
 
-Expected layout:
+Supported layouts:
 
-    <root>/sp/
-        section/
-            <name>.md
-            ...
-        config/
-            <name>.md
-            ...
+    legacy:
+        <root>/sp/section/*.md
+        <root>/sp/config/*.md
+
+    v0428:
+        <root>/context build/sections/*.md
+        <root>/context build/config/*.md
 """
 
 from __future__ import annotations
@@ -17,11 +17,12 @@ from pathlib import Path
 
 from forge.compiler.section import Section
 from forge.compiler.config import Config
+from forge.layout import detect
 
 
 def load_sections(root: Path) -> dict[str, Section]:
-    """Load all sections from <root>/sp/section/*.md, keyed by section name."""
-    section_dir = Path(root) / "sp" / "section"
+    """Load all sections, keyed by section name."""
+    section_dir = detect(Path(root)).section_dir
     if not section_dir.exists():
         return {}
     out: dict[str, Section] = {}
@@ -37,16 +38,16 @@ def load_sections(root: Path) -> dict[str, Section]:
 
 
 def load_config(root: Path, name: str) -> Config:
-    """Load a single config by name from <root>/sp/config/<name>.md."""
-    config_path = Path(root) / "sp" / "config" / f"{name}.md"
+    """Load a single config by name."""
+    config_path = detect(Path(root)).config_dir / f"{name}.md"
     if not config_path.exists():
         raise FileNotFoundError(f"config not found: {config_path}")
     return Config.from_file(config_path)
 
 
 def load_all_configs(root: Path) -> dict[str, Config]:
-    """Load every config under <root>/sp/config/*.md."""
-    config_dir = Path(root) / "sp" / "config"
+    """Load every config in the active workspace layout."""
+    config_dir = detect(Path(root)).config_dir
     if not config_dir.exists():
         return {}
     out: dict[str, Config] = {}

@@ -6,30 +6,52 @@ import difflib
 from pathlib import Path
 
 from forge.gate import _git
+from forge.layout import detect
 
 
 def source_diff_via_git(root: Path) -> list[str]:
-    """Return git diff HEAD -- sp/ as a list of lines.
+    """Return git diff HEAD over the active context source as a list of lines.
 
-    Note: git's output uses `a/sp/section/foo.md` and `b/sp/section/foo.md`
-    prefixes by default. We rewrite those to `approved/section/foo.md` and
-    `current/section/foo.md` to match the v0.1 user-facing format.
+    Legacy sp/ paths are rewritten to the old friendly approved/current shape.
+    v0428 context-build paths keep their directory names because those names
+    are user-facing.
     """
-    raw = _git.diff_paths(root, ["sp"])
-    if not raw:
-        return []
+    layout = detect(root)
+    raw = _git.diff_paths(root, list(layout.source_paths))
     out_lines: list[str] = []
     for line in raw.splitlines():
-        if line.startswith("--- a/sp/"):
+        if layout.name == "legacy" and line.startswith("--- a/sp/"):
             line = "--- approved/" + line[len("--- a/sp/"):]
-        elif line.startswith("+++ b/sp/"):
+        elif layout.name == "legacy" and line.startswith("+++ b/sp/"):
             line = "+++ current/" + line[len("+++ b/sp/"):]
+        elif layout.name != "legacy" and line.startswith("--- a/"):
+            line = "--- approved/" + line[len("--- a/"):]
+        elif layout.name != "legacy" and line.startswith("+++ b/"):
+            line = "+++ current/" + line[len("+++ b/"):]
         elif line.startswith("diff --git "):
             # skip git's diff header — readers don't need it
             continue
         elif line.startswith("index "):
             continue
         out_lines.append(line)
+    for relpath in _git.untracked_files(root, list(layout.source_paths)):
+        path = root / relpath
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        out_lines.extend(
+            difflib.unified_diff(
+                [],
+                text.splitlines(),
+                fromfile=f"approved/{relpath}",
+                tofile=f"current/{relpath}",
+                lineterm="",
+            )
+        )
+        out_lines.append("")
     return out_lines
 
 

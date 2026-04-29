@@ -44,13 +44,16 @@ def snapshot(root: Path, name: str) -> Snapshot:
     bdir = _bench_dir(root) / name
     bdir.mkdir(parents=True, exist_ok=True)
 
-    # copy output files
+    # copy runtime output files. Legacy workspaces keep files directly under
+    # output/; personalOS layout nests them by target runtime.
     out_info: dict[str, dict] = {}
-    for src in sorted(state.output_dir.glob("*.md")):
-        dst = bdir / src.name
+    for src in sorted(state.output_dir.rglob("*.md")):
+        rel = src.relative_to(state.output_dir).as_posix()
+        dst = bdir / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
         text = src.read_text(encoding="utf-8")
-        out_info[src.name] = {
+        out_info[rel] = {
             "bytes": len(text.encode("utf-8")),
             "lines": text.count("\n") + (1 if text else 0),
         }

@@ -9,8 +9,7 @@ Layout (v0.2 git-based):
             pending.json       origin tracking (working-tree state)
             bench/             bench snapshots
 
-History lives in git: `git log -- sp/` is the changelog. The approved baseline
-is HEAD; rollback is `git checkout <hash> -- sp/ output/`.
+History lives in git. The approved baseline is HEAD.
 
 Older v0.1 workspaces had `.forge/approved/sp/` (parallel snapshot) and
 `<root>/CHANGELOG.md` (parallel append-only file). `forge migrate` (in cli.py)
@@ -26,6 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from forge.gate import _git
+from forge.layout import detect
 
 
 @dataclass
@@ -38,7 +38,7 @@ class GateState:
 
     @property
     def output_dir(self) -> Path:
-        return self.root / "output"
+        return detect(self.root).runtime_dir
 
     @property
     def manifest_path(self) -> Path:
@@ -47,6 +47,10 @@ class GateState:
     @property
     def current_sp(self) -> Path:
         return self.root / "sp"
+
+    @property
+    def layout(self):
+        return detect(self.root)
 
     @property
     def _legacy_output_dir(self) -> Path:
@@ -69,8 +73,10 @@ class GateState:
         return self.root / "CHANGELOG.md"
 
     def initialized(self) -> bool:
-        """A workspace is initialized when sp/ exists AND root is a git repo."""
-        return self.current_sp.exists() and _git.is_git_repo(self.root)
+        """A workspace is initialized when a supported source tree exists and root is git."""
+        layout = self.layout
+        has_source = layout.section_dir.exists() or layout.config_dir.exists()
+        return has_source and _git.is_git_repo(self.root)
 
     def read_manifest(self) -> dict:
         if not self.manifest_path.exists():
