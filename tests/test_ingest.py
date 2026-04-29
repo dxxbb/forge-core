@@ -323,7 +323,8 @@ def test_monitor_reports_clean_after_captured_source_when_no_pending(tmp_path: P
     result = runner.invoke(main, ["capture", "--root", str(ws), "--from", str(src)])
     assert result.exit_code == 0, result.output
     for inbox in (ws / "system" / "inbox").glob("*.md"):
-        inbox.write_text(inbox.read_text("utf-8").replace("status: pending", "status: applied"), encoding="utf-8")
+        # Mark processed by deleting (matches `forge inbox done` behavior).
+        inbox.unlink()
 
     result = runner.invoke(main, ["monitor", "--root", str(ws)])
 
@@ -351,7 +352,8 @@ def test_monitor_detects_changed_captured_source(tmp_path: Path, monkeypatch) ->
     result = runner.invoke(main, ["capture", "--root", str(ws), "--from", str(src)])
     assert result.exit_code == 0, result.output
     for inbox in (ws / "system" / "inbox").glob("*.md"):
-        inbox.write_text(inbox.read_text("utf-8").replace("status: pending", "status: applied"), encoding="utf-8")
+        # Mark processed by deleting (matches `forge inbox done` behavior).
+        inbox.unlink()
     src.write_text("# Context\n" + ("after\n" * 60), encoding="utf-8")
 
     result = runner.invoke(main, ["monitor", "--root", str(ws)])
@@ -360,3 +362,57 @@ def test_monitor_detects_changed_captured_source(tmp_path: Path, monkeypatch) ->
     assert "status: attention" in result.output
     assert "import source updates" in result.output
     assert "CLAUDE.md" in result.output
+
+
+def test_inbox_done_removes_personalos_file(tmp_path: Path) -> None:
+    runner = CliRunner()
+    ws = tmp_path / "personal"
+    _make_personalos(ws)
+    src = tmp_path / "CLAUDE.md"
+    src.write_text("# x\n", encoding="utf-8")
+    runner.invoke(main, ["capture", "--root", str(ws), "--from", str(src)])
+    inbox_files = list((ws / "system" / "inbox").glob("*.md"))
+    assert len(inbox_files) == 1
+    target = inbox_files[0]
+
+    rel = target.relative_to(ws).as_posix()
+    result = runner.invoke(main, ["inbox", "done", "--root", str(ws), rel])
+    assert result.exit_code == 0, result.output
+    assert "done: removed" in result.output
+    assert not target.exists()
+    # Capture audit trail untouched.
+    assert list((ws / "capture" / "import").glob("*/*.md"))
+
+
+def test_inbox_done_with_absolute_path(tmp_path: Path) -> None:
+    runner = CliRunner()
+    ws = tmp_path / "personal"
+    _make_personalos(ws)
+    src = tmp_path / "x.md"
+    src.write_text("# x\n", encoding="utf-8")
+    runner.invoke(main, ["capture", "--root", str(ws), "--from", str(src)])
+    target = next((ws / "system" / "inbox").glob("*.md"))
+    result = runner.invoke(main, ["inbox", "done", "--root", str(ws), str(target)])
+    assert result.exit_code == 0, result.output
+    assert not target.exists()
+
+
+def test_inbox_done_missing_file_errors(tmp_path: Path) -> None:
+    runner = CliRunner()
+    ws = tmp_path / "personal"
+    _make_personalos(ws)
+    result = runner.invoke(main, ["inbox", "done", "--root", str(ws), "system/inbox/nope.md"])
+    assert result.exit_code == 1
+    assert "not found" in result.output
+
+
+def test_inbox_done_rejects_non_markdown(tmp_path: Path) -> None:
+    runner = CliRunner()
+    ws = tmp_path / "personal"
+    _make_personalos(ws)
+    other = ws / "system" / "inbox" / "stray.txt"
+    other.write_text("x", encoding="utf-8")
+    result = runner.invoke(main, ["inbox", "done", "--root", str(ws), str(other)])
+    assert result.exit_code == 1
+    assert "not an inbox markdown file" in result.output
+    assert other.exists()

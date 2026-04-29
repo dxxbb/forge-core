@@ -395,7 +395,17 @@ Proposal must separate:
 
 Do not edit asset files or context sections yet.
 
-After writing proposal, tell the user:
+After writing the proposal, mark the inbox item as processed (it is now
+represented by the proposal under `system/pr/`):
+
+```bash
+forge inbox done --root <path> <inbox-file-path>
+```
+
+The capture under `capture/import/` keeps the original raw evidence; the
+proposal under `system/pr/` is the new state of record.
+
+Then tell the user:
 
 ```text
 Proposal written to system/pr/<id>/proposal.md. Review it and reply approve / reject / revise.

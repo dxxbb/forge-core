@@ -654,6 +654,31 @@ def inbox_skip(todo_id: int, reason: str, root: str | None) -> None:
     click.echo(f"skipped inbox/{todo_id:04d}")
 
 
+@inbox.command("done")
+@click.argument("path", type=click.Path())
+@click.option("--root", type=click.Path(), default=None, help="Workspace root (default: cwd).")
+def inbox_done(path: str, root: str | None) -> None:
+    """Mark an inbox item as processed by deleting it.
+
+    PATH may be absolute, or relative to the workspace root. Works for both
+    legacy `.forge/governance/inbox/` items and personalOS `system/inbox/`
+    items — the file is removed; capture/ and system/pr/ keep the audit trail.
+    """
+    workspace = _root(root)
+    target = Path(path).expanduser()
+    if not target.is_absolute():
+        target = (workspace / target).resolve()
+    if not target.exists():
+        click.echo(f"error: inbox file not found: {target}", err=True)
+        sys.exit(1)
+    if target.suffix != ".md":
+        click.echo(f"error: not an inbox markdown file: {target}", err=True)
+        sys.exit(1)
+    target.unlink()
+    rel = target.relative_to(workspace).as_posix() if target.is_relative_to(workspace) else str(target)
+    click.echo(f"done: removed {rel}")
+
+
 # (v0.2 forge rollback now lives later in this file, alongside forge migrate
 #  and forge changelog — they're a coordinated triad.)
 
@@ -868,12 +893,9 @@ def _pending_inbox_items(workspace: Path) -> list[Path]:
     inbox_dir = workspace / "system" / "inbox"
     if not inbox_dir.exists():
         return []
-    out: list[Path] = []
-    for p in sorted(inbox_dir.glob("*.md")):
-        text = p.read_text(encoding="utf-8", errors="ignore")
-        if re.search(r"^status:\s*pending\s*$", text, re.MULTILINE):
-            out.append(p)
-    return out
+    # An inbox file existing == still pending. Processed items are removed by
+    # `forge inbox done`; capture/ keeps the audit trail of what was imported.
+    return sorted(inbox_dir.glob("*.md"))
 
 
 def _pending_proposals(workspace: Path) -> list[Path]:
