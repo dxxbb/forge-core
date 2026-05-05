@@ -1036,13 +1036,17 @@ def _import_updates(workspace: Path) -> list[str]:
             continue
         if len(text.encode("utf-8")) < _MIN_BYTES:
             continue
-        key = str(real)
+        # Bug 3: report the symlink path the user/tool actually configured,
+        # not the resolved target — so monitor matches `forge ingest --detect`.
+        # We still match capture records under both keys, since the historical
+        # capture frontmatter recorded the resolved target.
+        display = str(p)
         digest = _digest_text(text)
-        previous = records.get(key)
+        previous = records.get(display) or records.get(str(real))
         if previous is None:
-            updates.append(f"{key} (new, {label})")
+            updates.append(f"{display} (new, {label})")
         elif previous.get("source_digest") and previous.get("source_digest") != digest:
-            updates.append(f"{key} (changed, {label})")
+            updates.append(f"{display} (changed, {label})")
 
     memory_text, _repr_path, file_count = _read_claude_memory(None)
     if memory_text.strip():
