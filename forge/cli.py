@@ -1348,7 +1348,7 @@ def _ingest_detect() -> None:
         if transcripts > 0:
             click.echo(f"(found {transcripts} Claude Code transcripts but transcript-distill is v0.4 — too noisy yet)")
             click.echo()
-        click.echo("if you have a context file elsewhere, run: forge ingest --from <path>")
+        click.echo("if you have a context file elsewhere, run: forge capture --from <path>")
         click.echo("or skip import and edit sections directly: $EDITOR sp/section/<name>.md")
         return
 
@@ -1380,11 +1380,11 @@ def _ingest_detect() -> None:
         )
 
     click.echo()
-    click.echo("to ingest:")
-    click.echo("  forge ingest --from <path>            # one file (use a path from above)")
+    click.echo("to capture:")
+    click.echo("  forge capture --from <path>            # one file (use a path from above)")
     if claude_memory_projects:
-        click.echo("  forge ingest --from-claude-memory     # all auto-memory across projects")
-        click.echo("  forge ingest --from-claude-memory --claude-project <slug>   # one project")
+        click.echo("  forge capture --from-claude-memory     # all auto-memory across projects")
+        click.echo("  forge capture --from-claude-memory --claude-project <slug>   # one project")
 
 
 def _scan_claude_memory() -> list[tuple[str, int, int]]:
