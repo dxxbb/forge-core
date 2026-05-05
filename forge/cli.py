@@ -852,7 +852,19 @@ def capture_cmd(
         sys.exit(1)
 
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    # Bug 5: same-second concurrent captures used to crash with FileExistsError.
+    # Resolve collisions by appending a numbered suffix (-1, -2, ...). Keeps the
+    # base timestamp readable; collisions remain easy to trace in the audit trail.
+    capture_root.mkdir(parents=True, exist_ok=True)
     batch_dir = capture_root / ts
+    if batch_dir.exists():
+        suffix = 1
+        while True:
+            candidate = capture_root / f"{ts}-{suffix}"
+            if not candidate.exists():
+                batch_dir = candidate
+                break
+            suffix += 1
     batch_dir.mkdir(parents=True, exist_ok=False)
     raw_path = batch_dir / raw_name
     captured_at = datetime.now().astimezone().isoformat(timespec="seconds")
