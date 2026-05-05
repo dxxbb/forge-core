@@ -1,6 +1,6 @@
 ---
 name: forge
-version: 0.3.0
+version: 0.3.1
 description: "Initialize and operate a personalOS workspace with forge. Use when the user says they want to create/setup/build a forge or personalOS workspace, manage agent context, import existing CLAUDE.md/AGENTS.md/memory, review context changes, or approve/reject context updates. This skill is personalOS-layout-first and must not use legacy `forge new` / `sp` onboarding."
 metadata:
   requires:
@@ -378,8 +378,17 @@ v0.3 YAML schema frontmatter pre-populated:
 - `inbox_sources`, `capture_sources` derived from the inbox files
 - `items[]` skeleton — one item per inbox source, with `monitor_info` and
   `extracted` pre-filled from inbox + capture frontmatter
-- Each item's `disposition`, `rationale`, `propagation` left as
-  placeholders for you to fill in
+- Each item's `disposition` carries an enum-hint placeholder
+  `'<APPLY|COVERED|ARCHIVE|DECIDE|NA|MIXED>'` — replace the placeholder
+  with the actual enum value (`APPLY`, `ARCHIVE`, etc.); `disposition_note`
+  is left empty for an optional one-line tagline.
+- The `propagation:` placeholder includes `layer:` and `modification:`
+  fields so the validator's "non-terminal node missing modification" check
+  doesn't fire on a fresh stub.
+- The proposal body carries `<!-- BEGIN AUTO-RENDERED -->` /
+  `<!-- END AUTO-RENDERED -->` markers; `forge pr render` writes the §0.5
+  view between them so reviewers see the rendered tree directly when they
+  open `proposal.md`.
 
 ### 2. Fill The Schema
 
@@ -429,18 +438,27 @@ forge proposal validate <pr-id> --root <path>
 ```
 
 Reports schema violations in `forge doctor` style. Fix until the validator
-returns `OK`.
+returns `OK`. On success the validator auto-renders the §0.5 view into the
+proposal body's BEGIN/END block (same as `forge pr render`); pass
+`--no-render` to skip that step.
 
 ### 4. Render For User Review
 
 ```bash
-forge pr render <pr-id> --root <path>          # box-drawing
-forge pr render <pr-id> --root <path> --plain  # ASCII only
+forge pr render <pr-id> --root <path>            # default: writes inline into proposal.md body
+forge pr render <pr-id> --root <path> --plain    # ASCII only (still inline)
+forge pr render <pr-id> --root <path> --stdout   # print to stdout, do not modify the file
 ```
 
-This emits the §0.5 monitor-item view: per-item / per-sub-item disposition
-+ propagation tree + merged-PR diff summary + approve pipeline. Show this
-output to the user — do NOT hand-write a parallel markdown view.
+The default behavior writes the rendered §0.5 view into the proposal body
+between the `<!-- BEGIN AUTO-RENDERED -->` / `<!-- END AUTO-RENDERED -->`
+markers — the reviewer opens `proposal.md` in Obsidian / editor and sees
+the per-item disposition + propagation tree + merged diff + approve pipeline
+directly, no redirection needed. User-authored content outside the markers
+is preserved.
+
+Use `--stdout` only when you specifically need the text in the terminal
+(e.g. piping through grep). Do NOT hand-write a parallel markdown view.
 
 ### 5. Process Inbox
 
@@ -467,10 +485,16 @@ Every monitored item / sub-item MUST be classified into exactly one of:
 |------|-------------|------------------------------------------------------------------|
 | ✅   | APPLY       | Distill into a new asset/section change. Requires propagation tree with modifications. |
 | ⏭   | COVERED     | Already covered by an existing asset → skip. Requires `covered_by`. |
-| 📦   | ARCHIVE     | Capture-only audit trail, no propagation into asset/section/runtime. |
+| 📦   | ARCHIVE     | Capture-only audit trail. Propagation is **optional** — leave empty for "no propagation, only the capture file is the trail". |
 | ❓   | DECIDE      | Needs user decision. Multiple propagation options; user picks one. |
 | ➖   | NA          | Index file / not asset content. Requires `reason`.               |
 | 🔀   | MIXED       | Composite item — `sub_items[]` each get their own disposition.   |
+
+Counting rule for MIXED: the disposition distribution counts **only
+sub-items**, not the MIXED parent itself. If you note "the parent capture
+is also archived as a trail" that goes in the parent's `disposition_note`
+(string text), not as an extra ARCHIVE entry — the schema would
+double-count the trail otherwise.
 
 `forge doctor` will report per-asset-dir bridge coverage after the proposal
 applies — use it as a sanity check, not a gate. It also reports each PR's

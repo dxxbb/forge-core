@@ -7,9 +7,11 @@ a proposal.md stub with v0.3 schema frontmatter pre-populated:
     - capture_sources: derived from each inbox's `source:` frontmatter list
     - items[]: one item per inbox file, monitor_info pre-filled from
                   the inbox `## Source summary` line + extracted from capture
-                  frontmatter; disposition left blank (agent fills in).
+                  frontmatter; disposition left as enum hint placeholder.
 
-Body is a thin placeholder that points the user/agent to `forge pr render`.
+The proposal body carries `<!-- BEGIN AUTO-RENDERED -->` / `<!-- END
+AUTO-RENDERED -->` markers; `forge pr render` writes the §0.5 view between
+them so reviewers reading the file see the rendered content directly.
 """
 
 from __future__ import annotations
@@ -34,6 +36,16 @@ from forge.proposal.schema import (
 
 
 _SLUG_RE = re.compile(r"[^a-z0-9._-]+")
+
+
+# Placeholder string emitted by scaffold for unfilled `disposition:` keys.
+# Validate / render treat this as "still a placeholder, not a real value".
+DISPOSITION_PLACEHOLDER = "<APPLY|COVERED|ARCHIVE|DECIDE|NA|MIXED>"
+
+# In-place render block markers. `forge pr render` writes the §0.5 view between
+# these into the proposal body; reviewers see the rendered view directly.
+RENDER_BEGIN = "<!-- BEGIN AUTO-RENDERED · forge pr render -->"
+RENDER_END = "<!-- END AUTO-RENDERED -->"
 
 
 def _safe_slug(value: str) -> str:
@@ -170,21 +182,29 @@ def scaffold_proposal(
             id=str(idx + 1),
             monitor_info=_monitor_info_from_inbox(ip),
             extracted=extracted,
+            # NOTE on placeholders: we put the enum hint in `disposition` (the
+            # required field) so the agent edits the right key. `disposition`
+            # carries a magic placeholder string that validate/render treat as
+            # "still a placeholder, not a real value". `disposition_note` is
+            # left empty — fill in only if you want a short tagline.
             disposition=None,                  # agent fills: APPLY|COVERED|ARCHIVE|DECIDE|NA|MIXED
-            disposition_note="<APPLY|COVERED|ARCHIVE|DECIDE|NA|MIXED>",
+            disposition_note="",
             rationale="<TODO: explain why this disposition>",
             propagation=[
                 PropagationBranch(
                     branch="a",
                     node=PropagationNode(
                         path=ip.relative_to(workspace).as_posix(),
+                        layer="Layer 0 · monitor source",
                         label="监控源",
+                        modification="<TODO: 改动内容>",
                         children=[
                             PropagationBranch(
                                 branch="a1",
                                 node=PropagationNode(
                                     path=(captures[0].relative_to(workspace).as_posix()
                                           if captures else "<capture>"),
+                                    layer="Layer 0 · capture",
                                     label="capture",
                                     terminal=True,
                                 ),
@@ -208,21 +228,104 @@ def scaffold_proposal(
     )
 
     out_path = pr_dir / "proposal.md"
-    out_path.write_text(dump_proposal(proposal), encoding="utf-8")
+    text = dump_proposal(proposal)
+    text = _inject_disposition_placeholders(text, n_items=len(items))
+    out_path.write_text(text, encoding="utf-8")
     return out_path
+
+
+def _inject_disposition_placeholders(text: str, *, n_items: int) -> str:
+    """Insert the enum-hint placeholder for every item that has no disposition.
+
+    `dump_proposal` emits the `disposition:` key only when set. For brand-new
+    stubs we want a visible enum hint sitting in the *correct* field so the
+    agent edits the right place. We post-process the dumped YAML by inserting
+    `disposition: '<APPLY|...>'` immediately after each item's `monitor_info`
+    line.
+
+    Layout assumed (PyYAML default for our schema):
+        items:
+        - id: '1'
+          monitor_info: ...        ← inject `disposition:` immediately after this
+          extracted: ...
+          rationale: ...
+          propagation:
+          - branch: a
+            ...
+
+    Sub-items are not auto-stubbed (the scaffold doesn't generate sub_items;
+    agents expand them by hand for MIXED parents).
+    """
+    lines = text.splitlines(keepends=False)
+    out: list[str] = []
+    in_items = False
+    pending_item_inject = False
+    item_field_indent = "  "  # PyYAML default: keys of list-element-mappings sit at col 2
+
+    for line in lines:
+        stripped = line.lstrip(" ")
+        indent = len(line) - len(stripped)
+
+        # Top-level section tracking
+        if line.startswith("items:"):
+            in_items = True
+            out.append(line)
+            continue
+        # Leave items block when we hit another top-level mapping key (e.g.
+        # `summary:`, `extra-key:`). A list element `- id: ...` is at indent 0
+        # but starts with `-`, not a mapping key — keep in_items True.
+        if in_items and indent == 0 and stripped and not stripped.startswith(("#", "-")):
+            in_items = False
+            pending_item_inject = False
+            out.append(line)
+            continue
+
+        if in_items:
+            # New item starts with `- id:` at indent 0 (block-style sequence)
+            # PyYAML default emits `- id: ...` at column 0, sibling keys at col 2.
+            if line.startswith("- ") and stripped.startswith("- id:"):
+                pending_item_inject = True
+                item_field_indent = "  "
+                out.append(line)
+                continue
+
+            if pending_item_inject and indent == 2:
+                if stripped.startswith("disposition:"):
+                    # Already has one — pass through, skip injection
+                    pending_item_inject = False
+                elif stripped.startswith("monitor_info:"):
+                    # inject AFTER monitor_info
+                    out.append(line)
+                    out.append(f"{item_field_indent}disposition: '{DISPOSITION_PLACEHOLDER}'")
+                    pending_item_inject = False
+                    continue
+                # Otherwise wait for monitor_info to appear (or a later field
+                # we recognize); fall through to default append.
+
+        out.append(line)
+
+    return "\n".join(out) + ("\n" if text.endswith("\n") else "")
 
 
 def _default_body() -> str:
     return (
         "\n# Proposal\n\n"
-        "<!-- §0.5 will be auto-rendered from frontmatter via `forge pr render <pr-id>`. -->\n\n"
+        "## §0.5 monitor-item view\n\n"
+        f"{RENDER_BEGIN}\n"
+        "<!-- run `forge pr render <pr-id>` to fill this region;\n"
+        "     content between the markers is overwritten on each render. -->\n"
+        f"{RENDER_END}\n\n"
         "## Usage\n\n"
         "1. Fill out each item's `disposition`, `extracted`, `rationale`, and `propagation`\n"
-        "   in the YAML frontmatter above.\n"
+        "   in the YAML frontmatter above. The `disposition:` key carries an enum-hint\n"
+        "   placeholder — replace `<APPLY|COVERED|...>` with the actual value (e.g.\n"
+        "   `disposition: APPLY`).\n"
         "2. For MIXED items, expand `sub_items[]` with one entry per sub-source.\n"
         "3. Run `forge proposal validate <pr-id>` to check schema completeness.\n"
-        "4. Run `forge pr render <pr-id>` to preview the §0.5 view.\n"
-        "5. Once satisfied, present the rendered view to the user for approve/reject.\n\n"
+        "   Validate auto-renders into the BEGIN/END block when the schema is complete.\n"
+        "4. Run `forge pr render <pr-id>` to manually re-render (writes inline by default;\n"
+        "   pass `--stdout` to print instead).\n"
+        "5. Present the rendered view to the user for approve/reject.\n\n"
         "Schema reference: `forge.proposal.schema` (Disposition enum + Item/SubItem dataclasses).\n"
     )
 

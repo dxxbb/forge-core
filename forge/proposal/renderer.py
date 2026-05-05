@@ -35,9 +35,12 @@ Box-drawing: default uses ═ ─ │ └ ├. `--plain` falls back to ASCII (`=
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable
 
+from forge.proposal.scaffold import RENDER_BEGIN, RENDER_END
 from forge.proposal.schema import (
     DecideOption,
     Disposition,
@@ -46,6 +49,8 @@ from forge.proposal.schema import (
     PropagationNode,
     Proposal,
     SubItem,
+    dump_proposal,
+    load_proposal,
 )
 
 
@@ -166,10 +171,9 @@ def _render_item(item: Item, glyphs: _Glyphs, *, width: int) -> list[str]:
     if item.disposition == Disposition.MIXED:
         # parent extracted (overview), then disposition note, then sub-items
         if item.extracted:
-            out.extend(_field_block("提取信息", item.extracted))
+            out.extend(_field_block("提取信息", item.extracted, tree=True))
         if item.disposition:
-            note = item.disposition_note or _DISP_LABEL[item.disposition]
-            out.append(_one_line_field("处理结果", f"{item.disposition.icon} {note}"))
+            out.append(_one_line_field("处理结果", _disposition_title(item)))
         if item.rationale:
             out.extend(_field_block("理由", item.rationale))
         out.append("")
@@ -194,10 +198,9 @@ def _render_item(item: Item, glyphs: _Glyphs, *, width: int) -> list[str]:
 
     # Non-MIXED top-level item
     if item.extracted:
-        out.extend(_field_block("提取信息", item.extracted))
+        out.extend(_field_block("提取信息", item.extracted, tree=True))
     if item.disposition:
-        note = item.disposition_note or _DISP_LABEL[item.disposition]
-        out.append(_one_line_field("处理结果", f"{item.disposition.icon} {note}"))
+        out.append(_one_line_field("处理结果", _disposition_title(item)))
     if item.rationale:
         out.extend(_field_block("理由", item.rationale))
     if item.disposition == Disposition.COVERED and item.covered_by:
@@ -232,7 +235,6 @@ def _render_sub_item(sub: SubItem, parent_id: str, glyphs: _Glyphs, *, width: in
     icon = sub.disposition.icon if sub.disposition else "?"
     label = _DISP_LABEL[sub.disposition] if sub.disposition else "?"
     rule_extra = f" · {sub.rule}" if sub.rule else ""
-    note_extra = f" · 提炼为 {sub.rule}" if sub.rule else ""
     title_left = f"  ── ITEM {parent_id} / sub {sub.id} · {icon} {label}{rule_extra} "
     if glyphs is _PLAIN:
         title_left = title_left.replace("──", "--")
@@ -240,10 +242,10 @@ def _render_sub_item(sub: SubItem, parent_id: str, glyphs: _Glyphs, *, width: in
     out.append(title_left + fill)
     out.append("")
     if sub.extracted:
-        out.extend(_field_block("提取信息", sub.extracted))
+        out.extend(_field_block("提取信息", sub.extracted, tree=True))
 
     if sub.disposition:
-        out.append(_one_line_field("处理结果", f"{icon} {label}{note_extra}"))
+        out.append(_one_line_field("处理结果", _disposition_title(sub)))
     if sub.rationale:
         out.extend(_field_block("理由", sub.rationale))
 
@@ -255,7 +257,8 @@ def _render_sub_item(sub: SubItem, parent_id: str, glyphs: _Glyphs, *, width: in
     if sub.propagation:
         out.append("")
         out.append("  传播链路")
-        out.extend(_render_propagation(sub.propagation, glyphs, indent="  "))
+        out.extend(_render_propagation(sub.propagation, glyphs, indent="  ",
+                                          owner_id=sub.id))
 
     if sub.disposition == Disposition.DECIDE and sub.options:
         out.append("")
@@ -346,14 +349,51 @@ def _render_propagation(
     glyphs: _Glyphs,
     *,
     indent: str,
+    owner_id: str = "",
 ) -> list[str]:
     """Render top-level branches under one item/sub-item. Each branch is a
     `└─ a:` / `└─ b:` block.
+
+    `owner_id` is the id of the item / sub-item this propagation belongs to.
+    When a branch carries `shared_with: [a, b, c, ...]`, the rendering depends
+    on whether `owner_id` is the *first owner*:
+
+      - first owner       → fully expand subtree, append "(共享触发的子链路, 见 sub X / Y / Z)"
+      - subsequent owners → render branch as a leaf with "→ 同 sub <first_owner>"
+        (modification + descendants are not repeated)
+
+    The first owner is the smallest id in `shared_with` that matches an
+    existing sibling. If owner_id is not in shared_with at all, we fall back
+    to "first owner" semantics (full expansion + sibling list).
     """
     out: list[str] = []
     for branch in branches:
-        out.extend(_render_branch(branch, glyphs, indent=indent, depth=0))
+        out.extend(_render_branch(branch, glyphs, indent=indent, depth=0,
+                                   owner_id=owner_id))
     return out
+
+
+def _is_first_owner(branch: PropagationBranch, owner_id: str) -> bool:
+    """True iff this branch should render in full at `owner_id`.
+
+    Convention: "first owner" = the smallest id in shared_with by natural
+    sort. If owner_id is not in shared_with at all, treat owner as first.
+    Empty shared_with means no sharing → render in full unconditionally.
+    """
+    if not branch.shared_with:
+        return True
+    if owner_id and owner_id in branch.shared_with:
+        return _natural_min(branch.shared_with) == owner_id
+    # owner not listed → owner is the canonical owner
+    return True
+
+
+def _natural_min(ids: list[str]) -> str:
+    def key(s: str):
+        # split on . then numerify each part; fallback to lexicographic
+        parts = s.split(".")
+        return tuple(int(p) if p.isdigit() else p for p in parts)
+    return min(ids, key=key)
 
 
 def _render_branch(
@@ -362,15 +402,28 @@ def _render_branch(
     *,
     indent: str,
     depth: int,
+    owner_id: str = "",
 ) -> list[str]:
     """Render a single propagation branch + its node + its children."""
     out: list[str] = []
     pad = indent + (glyphs.indent * depth)
     label = branch.branch
     node = branch.node
+    first_owner = _is_first_owner(branch, owner_id)
+
+    if branch.shared_with and not first_owner:
+        # subsequent owner: render as a leaf, point back to the canonical owner
+        canonical = _natural_min(branch.shared_with)
+        out.append(f"{pad}{glyphs.last} {label}: {_node_head(node)}   (同 sub {canonical} 共享传播)")
+        return out
+
     head = f"{pad}{glyphs.last} {label}: {_node_head(node)}"
-    if branch.shared_with:
-        head += f"   ({label} 与 {', '.join(f'sub {x}' for x in branch.shared_with)} 共享触发)"
+    if branch.shared_with and first_owner:
+        # canonical owner: fully expand, list other siblings
+        others = [x for x in branch.shared_with if x != owner_id]
+        if others:
+            sibs = " / ".join(f"sub {x}" for x in others)
+            head += f"   (共享触发的子链路, 见 {sibs})"
     out.append(head)
     # Modification line:
     if node.modification:
@@ -378,9 +431,11 @@ def _render_branch(
             connector = glyphs.branch if i == 0 else glyphs.v
             out.append(f"{pad}{glyphs.indent}{connector} 修改: {mline}" if i == 0
                        else f"{pad}{glyphs.indent}{glyphs.v}        {mline}")
-    # children: render under increasing depth
+    # children: render under increasing depth (carry owner_id through so nested
+    # `b → c` shared_with treatments stay consistent)
     for child in node.children:
-        out.extend(_render_branch(child, glyphs, indent=indent, depth=depth + 1))
+        out.extend(_render_branch(child, glyphs, indent=indent, depth=depth + 1,
+                                   owner_id=owner_id))
     if (not node.children and not node.modification) or node.terminal:
         out.append(f"{pad}{glyphs.indent}{glyphs.last} (终止)")
     elif not node.children and node.modification:
@@ -530,17 +585,50 @@ def _render_summary_line(proposal: Proposal) -> str:
 
 # ------------------------------------------------------------------ helpers
 
-def _field_block(label: str, value: str) -> list[str]:
+def _field_block(label: str, value: str, *, tree: bool = False) -> list[str]:
     """Render a labelled multi-line field. The label sits at column 2 and
     content at column 14, computed by display width (CJK = 2 cols).
+
+    When `tree=True` and value has multiple lines, continuation lines are
+    rendered with `├─` / `└─` prefixes (last line uses `└─`). The first
+    line is unprefixed (it sits next to the label).
     """
     lines = (value or "").splitlines() or [""]
     label_cols = _display_width(label)
     pad = max(1, 12 - label_cols)
     out = [f"  {label}{' ' * pad}{lines[0]}"]
-    for line in lines[1:]:
-        out.append(f"              {line}")
+    n = len(lines)
+    for i, line in enumerate(lines[1:], start=1):
+        if tree and n > 1:
+            connector = "└─" if i == n - 1 else "├─"
+            # strip any leading spaces that the source string used for visual
+            # nesting — we want a clean tree prefix.
+            stripped = line.lstrip(" ")
+            extra = line[: len(line) - len(stripped)]
+            out.append(f"            {connector} {extra}{stripped}")
+        else:
+            out.append(f"              {line}")
     return out
+
+
+def _disposition_title(owner) -> str:
+    """Compose the 处理结果 title: `[icon] [ENUM_NAME] · [disposition_note]`.
+
+    `disposition_note` is appended only if non-empty (and only if it isn't
+    already a redundant ENUM_NAME echo).
+    """
+    if owner.disposition is None:
+        return ""
+    icon = owner.disposition.icon
+    label = _DISP_LABEL[owner.disposition]
+    note = (owner.disposition_note or "").strip()
+    rule = (getattr(owner, "rule", "") or "").strip()
+    bits = [f"{icon} {label}"]
+    if note and note.upper() != label and note != "ARCHIVE-ONLY":
+        bits.append(note)
+    if rule:
+        bits.append(f"提炼为 {rule}")
+    return " · ".join(bits)
 
 
 def _one_line_field(label: str, value: str) -> str:
@@ -563,3 +651,55 @@ def _display_width(s: str) -> int:
 
 def _rule(ch: str, width: int) -> str:
     return ch * width
+
+
+# ------------------------------------------------------------------ inline write
+
+# Match the BEGIN/END auto-rendered block in a proposal body (DOTALL).
+_INLINE_BLOCK_RE = re.compile(
+    re.escape(RENDER_BEGIN) + r".*?" + re.escape(RENDER_END),
+    re.DOTALL,
+)
+
+
+def render_inline(proposal_path: Path, *, plain: bool = False, width: int = 73) -> tuple[str, bool]:
+    """Render a proposal and write the result into the proposal.md body
+    between the `<!-- BEGIN AUTO-RENDERED -->` / `<!-- END AUTO-RENDERED -->`
+    markers. Returns ``(rendered_text, wrote)``.
+
+    If the body has no markers, this function appends them at the end of the
+    body (so a freshly-scaffolded proposal stays inline-renderable, and a
+    legacy proposal that opted into v0.3 schema after the fact is upgraded
+    on first render).
+
+    Frontmatter is preserved verbatim; only the body region between markers
+    is overwritten.
+    """
+    text = proposal_path.read_text(encoding="utf-8")
+    proposal = load_proposal(text)
+    rendered = render(proposal, plain=plain, width=width).rstrip()
+
+    # Build the new body block (markers always wrap a fenced text block so the
+    # rendered tree is monospaced and reviewers see exact spacing in Obsidian).
+    block = (
+        f"{RENDER_BEGIN}\n\n"
+        f"```text\n"
+        f"{rendered}\n"
+        f"```\n\n"
+        f"{RENDER_END}"
+    )
+
+    body = proposal.body or ""
+    if _INLINE_BLOCK_RE.search(body):
+        new_body = _INLINE_BLOCK_RE.sub(block, body, count=1)
+    else:
+        # No markers — append to the body so subsequent renders are in-place.
+        sep = "\n\n" if body.strip() else ""
+        new_body = (body.rstrip() + sep + block + "\n") if body else ("\n" + block + "\n")
+
+    if new_body == body:
+        return rendered, False
+
+    proposal.body = new_body
+    proposal_path.write_text(dump_proposal(proposal), encoding="utf-8")
+    return rendered, True

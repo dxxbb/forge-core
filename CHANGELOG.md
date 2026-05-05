@@ -2,6 +2,44 @@
 
 记录 `forge-core` 的所有显著变动。
 
+## 0.3.1 (dogfood) — 2026-05-05
+
+主 agent 在 ~/personalOS 真实跑了一遍 v0.3.0,暴露 13 条问题(8 bug + 5 cosmetic/spec)。本版修齐 12 条(P6 仅文档化无代码变更)。
+
+**核心 UX 修复**:proposal.md body 自身就是 review-ready 的 §0.5 视图 — 用户在 Obsidian 里打开 `system/pr/<id>/proposal.md` 直接看到渲染结果,无需 `forge pr render | cat` 之类。
+
+### Fixed
+
+- **P1 · proposal.md body 现在自带 §0.5 视图 (BLOCKING UX)**: `forge proposal new` 在 body 里写 `<!-- BEGIN AUTO-RENDERED -->` ... `<!-- END AUTO-RENDERED -->` 标记块。`forge pr render` 默认行为变为**写入** body 的标记块之间(in-place,保留 frontmatter 和标记外的用户手写内容);加 `--stdout` 才输出到 stdout(原 v0.3.0 行为)。`forge proposal validate` schema 完整时**自动调 render**,让 body 与 schema 同步;加 `--no-render` 跳过。
+- **P2 · stub `disposition:` 字段命名修正,enum 占位放对位置**: v0.3.0 stub 把 `<APPLY|COVERED|...>` 占位放在 `disposition_note:`(非必填字段),agent 容易误改这个 → schema validate 报 missing disposition。v0.3.1 把 enum 占位放在正确的 `disposition:` 字段,占位字符串(`<...|...>`)被 validate / schema 识别为"仍是占位,等同未填",不会乱解析。`disposition_note:` 留空。
+- **P3 · stub propagation 形状对齐 validator**: v0.3.0 stub 用 `label: 监控源` / `terminal: true`,但 APPLY validator 要求 `layer:` + `modification:`,agent 不修就提交会 fail。v0.3.1 stub 默认输出符合 validator 形状的 placeholder(含 `layer: 'Layer 0 · monitor source'` + `modification: '<TODO: 改动内容>'`)。
+- **P4 · ARCHIVE 不再强制要 propagation**: SKILL.md §2 disposition reference 写明 ARCHIVE 是 "Capture-only audit trail, no propagation",但 v0.3.0 validator 仍要求 ARCHIVE 至少一个 propagation branch — 文档与实现不同步。改 validator:ARCHIVE 的 `_REQUIRED_BY_DISPO` 设为空集,允许空 propagation。如果作者**显式**给了 propagation,structural sanity 检查仍会跑(path/label 必有其一,non-terminal APPLY 节点必有 modification)。
+- **P5 / P13 · skill SKILL.md 同步到 user 路径**: sub-agent 改完 `forge/assets/skills/forge/SKILL.md`(forge-core repo),release 完工时显式跑 `forge self-install`,用 v0.3.1 内容覆盖 `~/.claude/skills/forge/SKILL.md`(managed marker 校验)。**注意**: 当前 Claude Code session 不会 reload skill — 主 agent 需要 spawn 新 sub-agent / 开新 session 才能用上新 skill。
+- **P7 · shared_with 行尾不再重复列举所有兄弟**: v0.3.0 给 sub 3.2/3.3/3.4 的 b 节点都追加 "(b 与 sub 3.1, sub 3.2, sub 3.3, sub 3.4 共享触发)",4 次重复读着累。v0.3.1 改为:first owner (id 自然序最小,如 3.1) 显示 "(共享触发的子链路, 见 sub 3.2 / 3.3 / 3.4)",列出**其他**兄弟。
+- **P8 · 共享传播,后续兄弟只显示一行 abbreviation**: 3.2/3.3/3.4 渲染时,b 节点直接是叶子 "(同 sub 3.1 共享传播)",**不再**完整重复 b → c 子链。canonical owner (3.1) 完整展开。
+- **P9 · 处理结果标题始终带 ENUM_NAME + disposition_note**: v0.3.0 标题模板 `[icon] [note 或 ENUM_NAME]` 二选一 — disposition_note 非空时 ENUM_NAME 消失,reviewer 不看 frontmatter 看不出 disposition 是哪个枚举值。v0.3.1 改为 `[icon] [ENUM_NAME] · [disposition_note]`(note 非空时追加,note == ENUM_NAME 时不重复)。`rule:`(APPLY 用)继续以 `· 提炼为 §10` 形式追加。
+- **P10 · 提取信息多行内容渲染成 ├─ / └─ 树形**: 多行 `extracted` 不再平铺缩进,自动按行解析:最后一行 `└─`,其余 `├─`。第一行(label 同行)不加前缀。
+
+### Documented (P6)
+
+- **MIXED 父项的 capture 整体归档不计入 disposition 分布**: v0.3.0 的 dogfood 在总分布显示 `📦 × 7` (含 ITEM 2 + 6 dxy_OS legacy sub-items),但 ITEM 3 的 capture 整体也归档了,没单独计数 — 这是**故意**的,v0.3.1 在 SKILL.md 显式写明:"counting rule for MIXED:disposition distribution counts 仅 sub-items, 不算 MIXED 父项"。父项的 archive trail 在 `disposition_note` 文字里说,不作单独 ARCHIVE 行。新增 test 锁定该不变量。
+
+### Changed
+
+- **`forge` skill doc (`forge/assets/skills/forge/SKILL.md`) v0.3.0 → v0.3.1**: "Process Inbox To Proposal" 流程 step 1/3/4 改写以反映新 stub 形状、validate 自动 render、`pr render` 默认 inline 行为。Disposition reference 表 ARCHIVE 行改为 "Propagation is **optional**"。新增 "Counting rule for MIXED" 段。
+
+### Internal
+
+- 新增 `tests/test_v031_dogfood.py`(15 tests),按 P1 / P2 / P3 / P4 / P6 / P7 / P8 / P9 / P10 / P11 一一锁定回归。**关键 e2e**: `test_p11_pure_stub_fill_validates_clean` 模拟"纯净 agent 第一次跑 `forge proposal new` → 用 sed 替换 stub 占位 → `forge proposal validate` 一遍过",作为下次回归的最强保护。
+- `test_proposal_cli.py::test_render_cli_outputs_view` 拆分为 `test_render_cli_writes_inline_by_default` + `test_render_cli_stdout_flag`,分别锁住默认 inline 行为和 `--stdout` 行为。
+- 全套 `pytest`: **281 passed / 3 skipped** (265 baseline + 1 拆分测试 + 15 dogfood tests)。
+
+### Compat
+
+- v0.3.0 已生成的 proposal.md(body 没有 BEGIN/END 标记)首次跑 `forge pr render` 时,新版本会**追加** BEGIN/END 块到 body 末尾,后续 render 走 in-place 替换。Frontmatter 不动。
+- `forge pr render --stdout` 行为与 v0.3.0 默认行为完全相同(向后兼容旧脚本/automation)。
+- 旧手写 markdown proposal 不受影响:`forge pr render` 仍报 schema-opt-out 并 exit 2,`forge proposal validate` 仍报"schema not opted in",`forge pr done` / `forge approve` 行为不变。
+
 ## 0.3.0 (proposal-render) — 2026-05-05
 
 把 review-gated PR 的"§0.5 监控 item 视图"机制化:agent 不再手写 markdown,改为填一份 schema-aware 的 YAML frontmatter,再用 `forge pr render` 渲染出与手写版形态等价的 §0.5 输出。完全 opt-in,旧的 hand-written proposal 仍兼容。

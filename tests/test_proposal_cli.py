@@ -100,20 +100,41 @@ def test_validate_cli_handles_legacy_handwritten_proposal(tmp_path):
     assert "items" in r.output
 
 
-def test_render_cli_outputs_view(tmp_path):
-    _make_pr(tmp_path, "20260505-183300-test", _ok_proposal())
+def test_render_cli_writes_inline_by_default(tmp_path):
+    """v0.3.1: default writes the §0.5 view into proposal.md body between
+    BEGIN/END markers; stdout only carries a one-line confirmation."""
+    pr_dir = _make_pr(tmp_path, "20260505-183300-test", _ok_proposal())
     r = CliRunner().invoke(main, [
         "pr", "render", "20260505-183300-test", "--root", str(tmp_path),
     ])
     assert r.exit_code == 0
+    assert "rendered" in r.output and "BEGIN/END" in r.output
+
+    body = (pr_dir / "proposal.md").read_text(encoding="utf-8")
+    assert "<!-- BEGIN AUTO-RENDERED" in body
+    assert "<!-- END AUTO-RENDERED" in body
+    assert "ITEM 1" in body
+    assert "📦" in body
+
+
+def test_render_cli_stdout_flag(tmp_path):
+    """`--stdout` prints to stdout without modifying the file (v0.3.0 behavior)."""
+    pr_dir = _make_pr(tmp_path, "20260505-183300-test", _ok_proposal())
+    before = (pr_dir / "proposal.md").read_text(encoding="utf-8")
+    r = CliRunner().invoke(main, [
+        "pr", "render", "20260505-183300-test", "--root", str(tmp_path), "--stdout",
+    ])
+    assert r.exit_code == 0
     assert "ITEM 1" in r.output
     assert "📦" in r.output
+    after = (pr_dir / "proposal.md").read_text(encoding="utf-8")
+    assert before == after, "stdout mode must not modify the file"
 
 
 def test_render_cli_plain_mode(tmp_path):
     _make_pr(tmp_path, "20260505-183300-test", _ok_proposal())
     r = CliRunner().invoke(main, [
-        "pr", "render", "20260505-183300-test", "--root", str(tmp_path), "--plain",
+        "pr", "render", "20260505-183300-test", "--root", str(tmp_path), "--plain", "--stdout",
     ])
     assert r.exit_code == 0
     for ch in ["═", "─", "└"]:

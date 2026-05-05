@@ -76,6 +76,15 @@ class Disposition(str, Enum):
             valid = ", ".join(d.value for d in cls)
             raise ValueError(f"unknown disposition `{raw}` (valid: {valid})") from e
 
+    @classmethod
+    def is_placeholder(cls, raw: Any) -> bool:
+        """True when `raw` is the scaffold placeholder enum hint (still unfilled)."""
+        if not isinstance(raw, str):
+            return False
+        s = raw.strip()
+        # match <APPLY|COVERED|ARCHIVE|DECIDE|NA|MIXED> or simply contains "|"
+        return s.startswith("<") and s.endswith(">") and "|" in s
+
 
 _ICONS = {
     Disposition.APPLY: "✅",       # ✅
@@ -262,7 +271,10 @@ class SubItem:
         if not isinstance(data, dict):
             raise ValueError(f"sub-item must be a mapping, got {type(data).__name__}")
         d_raw = data.get("disposition")
-        disposition = Disposition.parse(d_raw) if d_raw else None
+        if d_raw and not Disposition.is_placeholder(d_raw):
+            disposition = Disposition.parse(d_raw)
+        else:
+            disposition = None
         return cls(
             id=str(data.get("id", "") or ""),
             monitor_info=str(data.get("monitor_info", "") or ""),
@@ -342,7 +354,10 @@ class Item:
         if not isinstance(data, dict):
             raise ValueError(f"item must be a mapping, got {type(data).__name__}")
         d_raw = data.get("disposition")
-        disposition = Disposition.parse(d_raw) if d_raw else None
+        if d_raw and not Disposition.is_placeholder(d_raw):
+            disposition = Disposition.parse(d_raw)
+        else:
+            disposition = None
         return cls(
             id=str(data.get("id", "") or ""),
             monitor_info=str(data.get("monitor_info", "") or ""),

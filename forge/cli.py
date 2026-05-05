@@ -834,12 +834,22 @@ def _resolve_pr_dir(workspace: Path, pr_ref: str) -> Path | None:
     show_default=True,
     help="Render width for top/bot rules.",
 )
-def pr_render(pr_ref: str, root: str | None, plain: bool, width: int) -> None:
+@click.option(
+    "--stdout",
+    "to_stdout",
+    is_flag=True,
+    help="Print to stdout instead of writing inline into proposal.md body.",
+)
+def pr_render(pr_ref: str, root: str | None, plain: bool, width: int, to_stdout: bool) -> None:
     """Render the §0.5 monitor-item view from a proposal's schema frontmatter.
 
-    Reads `system/pr/<pr_ref>/proposal.md`, deserializes the YAML frontmatter,
-    and prints a deterministic per-item / per-sub-item view (icons +
-    propagation tree) to stdout.
+    Default behavior (v0.3.1+): writes the rendered view into the proposal.md
+    body between the `<!-- BEGIN AUTO-RENDERED -->` / `<!-- END AUTO-RENDERED -->`
+    markers. Reviewers reading proposal.md see the rendered tree directly,
+    no redirect/sed gymnastics. The frontmatter is preserved verbatim.
+
+    Use `--stdout` to print to stdout without touching the file (the v0.3.0
+    behavior; useful for piping or terminal preview).
 
     The schema is opt-in: a proposal without an `items:` block emits a hint
     and exits non-zero rather than rendering an empty view. Hand-written
@@ -847,7 +857,7 @@ def pr_render(pr_ref: str, root: str | None, plain: bool, width: int) -> None:
     without going through this renderer.
     """
     from forge.proposal.schema import load_proposal_file, has_schema
-    from forge.proposal.renderer import render
+    from forge.proposal.renderer import render, render_inline
 
     workspace = _root(root)
     pr_dir = _resolve_pr_dir(workspace, pr_ref)
@@ -874,7 +884,16 @@ def pr_render(pr_ref: str, root: str | None, plain: bool, width: int) -> None:
         )
         sys.exit(2)
 
-    click.echo(render(proposal, plain=plain, width=width), nl=False)
+    if to_stdout:
+        click.echo(render(proposal, plain=plain, width=width), nl=False)
+        return
+
+    rendered, wrote = render_inline(proposal_path, plain=plain, width=width)
+    rel = proposal_path.relative_to(workspace).as_posix()
+    if wrote:
+        click.echo(f"rendered §0.5 view into {rel} (between BEGIN/END markers)")
+    else:
+        click.echo(f"OK   {rel}: §0.5 view already up-to-date (no change)")
 
 
 # ---------- v0.3: proposal group (new / validate) ----------
@@ -937,13 +956,22 @@ def proposal_new(root: str | None, inbox_arg: str | None, title: str) -> None:
 @proposal_group.command("validate")
 @click.argument("pr_ref", type=str)
 @click.option("--root", type=click.Path(), default=None, help="Workspace root (default: cwd).")
-def proposal_validate(pr_ref: str, root: str | None) -> None:
+@click.option(
+    "--no-render",
+    is_flag=True,
+    help="Skip auto-render after validation passes.",
+)
+def proposal_validate(pr_ref: str, root: str | None, no_render: bool) -> None:
     """Validate a proposal's schema frontmatter.
 
     Reports each violation (path + message + hint) in `forge doctor` style.
     Exit code is non-zero when any violation is found. Hand-written proposals
     without an `items[]` block report exactly one issue ("schema not opted in")
     so the caller can distinguish them from genuinely broken schemas.
+
+    On success, validate auto-syncs the §0.5 view into the proposal body
+    between the BEGIN/END markers (same as `forge pr render`). Pass
+    `--no-render` to skip that step.
     """
     from forge.proposal.validate import validate_file
 
@@ -959,7 +987,16 @@ def proposal_validate(pr_ref: str, root: str | None) -> None:
 
     issues = validate_file(proposal_path)
     if not issues:
-        click.echo(f"OK   {proposal_path.relative_to(workspace).as_posix()}: schema is complete")
+        rel = proposal_path.relative_to(workspace).as_posix()
+        click.echo(f"OK   {rel}: schema is complete")
+        if not no_render:
+            from forge.proposal.renderer import render_inline
+            try:
+                _, wrote = render_inline(proposal_path)
+                if wrote:
+                    click.echo(f"     auto-rendered §0.5 view into body (BEGIN/END block)")
+            except Exception as e:    # noqa: BLE001 — info message only
+                click.echo(f"     (auto-render skipped: {e})")
         return
     rel = proposal_path.relative_to(workspace).as_posix()
     click.echo(f"FAIL {rel}: {len(issues)} schema issue(s)")

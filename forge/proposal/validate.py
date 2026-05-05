@@ -41,10 +41,15 @@ class ValidationIssue:
 # Required-fields-by-disposition table.
 # Each entry says: for disposition X, these fields must be non-empty
 # (additionally to monitor_info / extracted / rationale which are universal).
+#
+# ARCHIVE has no required propagation: ARCHIVE semantics is "capture-only audit
+# trail, no propagation" (per SKILL.md §2 disposition reference). If an author
+# happens to declare a propagation tree on an ARCHIVE node we still validate its
+# structural integrity, but we don't *require* one.
 _REQUIRED_BY_DISPO: dict[Disposition, set[str]] = {
     Disposition.APPLY: {"propagation"},
     Disposition.COVERED: {"covered_by"},
-    Disposition.ARCHIVE: {"propagation"},   # archive trail is one trivial branch
+    Disposition.ARCHIVE: set(),
     Disposition.DECIDE: {"options"},
     Disposition.NA: {"reason"},
     Disposition.MIXED: {"sub_items"},
@@ -218,21 +223,22 @@ def _validate_disposition_payload(
 
     required = _REQUIRED_BY_DISPO.get(dispo, set())
 
-    if "propagation" in required:
-        if not owner.propagation:
-            issues.append(ValidationIssue(
-                f"{prefix}.propagation",
-                f"{dispo.value} item must declare a propagation tree",
-                "at least one branch with a node",
-            ))
-        else:
-            for k, branch in enumerate(owner.propagation):
-                _validate_branch(
-                    branch,
-                    f"{prefix}.propagation[{k}]",
-                    require_modification=(dispo == Disposition.APPLY),
-                    issues=issues,
-                )
+    # Always walk propagation if present (structural sanity); only enforce
+    # presence when the disposition explicitly requires it.
+    if "propagation" in required and not owner.propagation:
+        issues.append(ValidationIssue(
+            f"{prefix}.propagation",
+            f"{dispo.value} item must declare a propagation tree",
+            "at least one branch with a node",
+        ))
+    if owner.propagation:
+        for k, branch in enumerate(owner.propagation):
+            _validate_branch(
+                branch,
+                f"{prefix}.propagation[{k}]",
+                require_modification=(dispo == Disposition.APPLY),
+                issues=issues,
+            )
 
     if "covered_by" in required and not owner.covered_by:
         issues.append(ValidationIssue(
