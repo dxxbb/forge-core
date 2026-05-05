@@ -27,6 +27,21 @@ def _root(path: str | None) -> Path:
     return Path(path).resolve() if path else Path.cwd()
 
 
+def _looks_like_personal_os(workspace: Path) -> bool:
+    """True iff workspace looks like a personalOS / v0428 layout root.
+
+    Used by `forge ingest` to redirect users to `forge capture` instead of
+    asking them to bootstrap a parallel legacy SP layout (which the skill
+    explicitly forbids).
+    """
+    return (
+        (workspace / "capture").is_dir()
+        or (workspace / "system" / "inbox").is_dir()
+        or (workspace / "context build" / "sections").is_dir()
+        or (workspace / "context build" / "config").is_dir()
+    )
+
+
 @click.group()
 @click.version_option(__version__, prog_name="forge")
 def main() -> None:
@@ -1220,6 +1235,22 @@ def ingest(
 
     # ---- default path: dump everything into workspace.md ----
     workspace = _root(root)
+    # Bug 2: in a personalOS / v0428 layout, `forge ingest` is the wrong tool —
+    # the user should run `forge capture`. Detect that case and redirect with
+    # a clear deprecation message instead of suggesting `forge new` (the skill
+    # forbids `forge new` for personalOS onboarding).
+    if _looks_like_personal_os(workspace):
+        click.echo(
+            f"warning: `forge ingest` is the legacy SP-layout flow. "
+            f"{workspace} is a personalOS workspace.",
+            err=True,
+        )
+        click.echo(
+            "use `forge capture --from <path>` (or `--from-claude-memory`) instead. "
+            "ingest aborts here without modifying the workspace.",
+            err=True,
+        )
+        sys.exit(2)
     if not (workspace / "sp" / "section").exists():
         click.echo(
             f"error: {workspace} is not a forge workspace. "
