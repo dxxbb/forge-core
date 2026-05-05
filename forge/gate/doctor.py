@@ -129,7 +129,68 @@ def run(root: Path) -> DoctorReport:
     for line in coverage:
         report.info.append(line)
 
+    # v0.3: scan system/pr/*/proposal.md for schema completeness (info/warn only)
+    for line in _proposal_schema_lines(root):
+        if line.startswith("WARN: "):
+            report.warnings.append(line[len("WARN: "):])
+        else:
+            report.info.append(line)
+
     return report
+
+
+def _proposal_schema_lines(root: Path) -> list[str]:
+    """Per-PR schema completeness summary (info-only).
+
+    For each `system/pr/<id>/proposal.md`, count items / sub-items / how many
+    have all required fields. PRs without an `items:` block (hand-written
+    legacy proposals) are reported as `schema: opt-out` info — never as an
+    error or warning, since hand-written proposals remain fully supported by
+    `forge pr done` / `forge approve`.
+    """
+    pr_dir = root / "system" / "pr"
+    if not pr_dir.is_dir():
+        return []
+
+    # Lazy import: doctor is also exercised from minimal test fixtures that may
+    # not have the proposal subpackage installed in older snapshots.
+    try:
+        from forge.proposal.schema import load_proposal_file, has_schema
+        from forge.proposal.validate import validate_proposal
+    except Exception:
+        return []
+
+    out: list[str] = []
+    proposals = sorted(pr_dir.glob("*/proposal.md"))
+    if not proposals:
+        return []
+    for p in proposals:
+        rel = p.relative_to(root).as_posix()
+        try:
+            proposal = load_proposal_file(p)
+        except ValueError as e:
+            out.append(f"WARN: proposal `{rel}`: frontmatter parse failed: {e}")
+            continue
+        if not has_schema(proposal):
+            out.append(f"proposal `{rel}`: schema=opt-out (legacy hand-written)")
+            continue
+        issues = validate_proposal(proposal)
+        n_items = len(proposal.items)
+        n_sub = sum(len(i.sub_items) for i in proposal.items)
+        if not issues:
+            out.append(
+                f"proposal `{rel}`: schema=ok ({n_items} item(s)"
+                + (f", {n_sub} sub-item(s)" if n_sub else "")
+                + ")"
+            )
+        else:
+            # not warn-fatal — schema is opt-in. Surface count so user can run
+            # `forge proposal validate` to see details.
+            out.append(
+                f"proposal `{rel}`: schema={len(issues)} issue(s) — "
+                f"run `forge proposal validate {p.parent.name}` for detail"
+            )
+    return out
 
 
 def _asset_coverage(root: Path, sections: dict) -> list[str]:

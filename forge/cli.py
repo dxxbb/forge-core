@@ -821,6 +821,155 @@ def _resolve_pr_dir(workspace: Path, pr_ref: str) -> Path | None:
     return bare if bare.is_dir() else None
 
 
+# ---------- v0.3: pr render (schema-driven §0.5 renderer) ----------
+
+@pr.command("render")
+@click.argument("pr_ref", type=str)
+@click.option("--root", type=click.Path(), default=None, help="Workspace root (default: cwd).")
+@click.option("--plain", is_flag=True, help="ASCII-only output (no box-drawing characters).")
+@click.option(
+    "--width",
+    type=int,
+    default=73,
+    show_default=True,
+    help="Render width for top/bot rules.",
+)
+def pr_render(pr_ref: str, root: str | None, plain: bool, width: int) -> None:
+    """Render the §0.5 monitor-item view from a proposal's schema frontmatter.
+
+    Reads `system/pr/<pr_ref>/proposal.md`, deserializes the YAML frontmatter,
+    and prints a deterministic per-item / per-sub-item view (icons +
+    propagation tree) to stdout.
+
+    The schema is opt-in: a proposal without an `items:` block emits a hint
+    and exits non-zero rather than rendering an empty view. Hand-written
+    markdown proposals continue to work via `forge pr done` / `forge approve`
+    without going through this renderer.
+    """
+    from forge.proposal.schema import load_proposal_file, has_schema
+    from forge.proposal.renderer import render
+
+    workspace = _root(root)
+    pr_dir = _resolve_pr_dir(workspace, pr_ref)
+    if pr_dir is None:
+        click.echo(f"error: PR not found: {pr_ref}", err=True)
+        sys.exit(1)
+    proposal_path = pr_dir / "proposal.md"
+    if not proposal_path.is_file():
+        click.echo(f"error: proposal.md not found in {pr_dir}", err=True)
+        sys.exit(1)
+
+    try:
+        proposal = load_proposal_file(proposal_path)
+    except ValueError as e:
+        click.echo(f"error: {e}", err=True)
+        sys.exit(1)
+
+    if not has_schema(proposal):
+        click.echo(
+            "error: proposal has no v0.3 schema (no items[] in frontmatter).\n"
+            "  This proposal was hand-written. Open it in $EDITOR to read it,\n"
+            "  or scaffold a new schema-aware one with `forge proposal new`.",
+            err=True,
+        )
+        sys.exit(2)
+
+    click.echo(render(proposal, plain=plain, width=width), nl=False)
+
+
+# ---------- v0.3: proposal group (new / validate) ----------
+
+@main.group("proposal")
+def proposal_group() -> None:
+    """Schema-aware proposal authoring (v0.3+)."""
+
+
+@proposal_group.command("new")
+@click.option("--root", type=click.Path(), default=None, help="Workspace root (default: cwd).")
+@click.option(
+    "--inbox",
+    "inbox_arg",
+    default=None,
+    help="Inbox file (path / filename / id-prefix). Default: every pending inbox under system/inbox/.",
+)
+@click.option(
+    "--title",
+    default="context-import",
+    show_default=True,
+    help="Slug for the new PR id (will be appended to YYYYMMDD-HHMMSS).",
+)
+def proposal_new(root: str | None, inbox_arg: str | None, title: str) -> None:
+    """Scaffold a new schema-aware proposal under system/pr/<id>/.
+
+    Reads pending inbox file(s), pre-fills the `items[]` skeleton (one item per
+    inbox source) with monitor_info / extracted derived from the inbox + capture
+    frontmatter. Disposition / rationale / propagation are left as placeholders
+    for the agent to fill in. Run `forge proposal validate` afterwards.
+    """
+    from forge.proposal.scaffold import resolve_inbox_arg, scaffold_proposal
+
+    workspace = _root(root)
+    if not (workspace / "system" / "inbox").exists():
+        click.echo(
+            f"error: {workspace} does not look like a personalOS workspace "
+            "(missing system/inbox/).",
+            err=True,
+        )
+        sys.exit(1)
+    try:
+        inbox_files = resolve_inbox_arg(workspace, inbox_arg)
+    except (FileNotFoundError, ValueError) as e:
+        click.echo(f"error: {e}", err=True)
+        sys.exit(1)
+    if not inbox_files:
+        click.echo("error: no pending inbox items (system/inbox/ is empty).", err=True)
+        sys.exit(1)
+
+    out_path = scaffold_proposal(workspace, inbox_files, title=title)
+    rel = out_path.relative_to(workspace).as_posix()
+    click.echo(f"created proposal stub: {rel}")
+    click.echo("next:")
+    click.echo("  - fill out items[].disposition / extracted / rationale / propagation")
+    click.echo(f"  - forge proposal validate {out_path.parent.name} --root {workspace}")
+    click.echo(f"  - forge pr render {out_path.parent.name} --root {workspace}")
+
+
+@proposal_group.command("validate")
+@click.argument("pr_ref", type=str)
+@click.option("--root", type=click.Path(), default=None, help="Workspace root (default: cwd).")
+def proposal_validate(pr_ref: str, root: str | None) -> None:
+    """Validate a proposal's schema frontmatter.
+
+    Reports each violation (path + message + hint) in `forge doctor` style.
+    Exit code is non-zero when any violation is found. Hand-written proposals
+    without an `items[]` block report exactly one issue ("schema not opted in")
+    so the caller can distinguish them from genuinely broken schemas.
+    """
+    from forge.proposal.validate import validate_file
+
+    workspace = _root(root)
+    pr_dir = _resolve_pr_dir(workspace, pr_ref)
+    if pr_dir is None:
+        click.echo(f"error: PR not found: {pr_ref}", err=True)
+        sys.exit(1)
+    proposal_path = pr_dir / "proposal.md"
+    if not proposal_path.is_file():
+        click.echo(f"error: proposal.md not found in {pr_dir}", err=True)
+        sys.exit(1)
+
+    issues = validate_file(proposal_path)
+    if not issues:
+        click.echo(f"OK   {proposal_path.relative_to(workspace).as_posix()}: schema is complete")
+        return
+    rel = proposal_path.relative_to(workspace).as_posix()
+    click.echo(f"FAIL {rel}: {len(issues)} schema issue(s)")
+    for issue in issues:
+        click.echo(f"  - {issue.path}: {issue.message}")
+        if issue.hint:
+            click.echo(f"      hint: {issue.hint}")
+    sys.exit(1)
+
+
 # ---------- personalOS capture/import ----------
 
 @main.command("capture")

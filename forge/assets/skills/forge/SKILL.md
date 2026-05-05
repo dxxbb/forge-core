@@ -1,6 +1,6 @@
 ---
 name: forge
-version: 0.2.2
+version: 0.3.0
 description: "Initialize and operate a personalOS workspace with forge. Use when the user says they want to create/setup/build a forge or personalOS workspace, manage agent context, import existing CLAUDE.md/AGENTS.md/memory, review context changes, or approve/reject context updates. This skill is personalOS-layout-first and must not use legacy `forge new` / `sp` onboarding."
 metadata:
   requires:
@@ -360,71 +360,91 @@ Imported raw material into capture and created an inbox item. Reply "process inb
 
 ## Process Inbox To Proposal
 
-Read pending inbox items and their capture sources.
+Read pending inbox items and their capture sources, then turn them into
+a schema-aware proposal under `system/pr/<id>/proposal.md`.
 
-Create:
+The schema-driven flow (default for v0.3+):
 
-```text
-system/pr/<YYYYMMDD-HHMMSS>-context-import/proposal.md
+### 1. Scaffold The Proposal Stub
+
+```bash
+forge proposal new --root <path>                       # all pending inbox
+forge proposal new --root <path> --inbox <id-prefix>   # one inbox item
 ```
 
-Proposal must separate:
+This creates `system/pr/<YYYYMMDD-HHMMSS>-context-import/proposal.md` with
+v0.3 YAML schema frontmatter pre-populated:
 
-```text
-1. candidate assets
-   - user space
-   - workspace
-   - assist config
-   - public knowledge base
+- `inbox_sources`, `capture_sources` derived from the inbox files
+- `items[]` skeleton — one item per inbox source, with `monitor_info` and
+  `extracted` pre-filled from inbox + capture frontmatter
+- Each item's `disposition`, `rationale`, `propagation` left as
+  placeholders for you to fill in
 
-2. candidate context projections
-   - about user
-   - workspace
-   - knowledge base
-   - preference
-   - skill
+### 2. Fill The Schema
 
-3. risks
-   - privacy
-   - overgeneralization
-   - stale facts
-   - uncertain claims
+Edit the proposal frontmatter. For each item, set:
 
-4. proposed file changes
-
-5. section integration  (REQUIRED — this is what bridges asset → agent)
+```yaml
+items:
+  - id: '1'
+    monitor_info: <path + size + nature>
+    extracted: |
+      capture/.../<file>
+      <key facts, dates, quotes>
+    disposition: APPLY | COVERED | ARCHIVE | DECIDE | NA | MIXED
+    disposition_note: <one-line tag, e.g. "提炼为新规则 §10">
+    rationale: |
+      <why this disposition? cite covering asset / new content / boundary>
+    propagation:
+      - branch: a
+        node:
+          path: feedback-log.md
+          layer: "Layer 1 · asset"
+          modification: |
+            末尾追加 §10 ...
+          children:
+            - branch: b
+              shared_with: [3.2, 3.3]   # optional, if this branch is shared with other sub-items
+              node:
+                path: preference.md
+                layer: "Layer 2 · section"
+                modification: ...
+                children: []   # leaf
 ```
 
-For step 5, every asset file the proposal writes or modifies MUST be
-classified by **how the agent will reach it**. Pick exactly one form per
-file:
+For `MIXED` items (e.g. an auto-memory dump with N files), use `sub_items[]`
+where each sub-item has its own disposition + propagation.
 
-| Form         | When to use                                                        | Effect on section                              |
-|--------------|--------------------------------------------------------------------|------------------------------------------------|
-| inline       | Short, high-frequency, must be in working context every session.   | Section body summarizes / paraphrases content. |
-| L1 pointer   | Medium length; agent reads on demand.                              | Section body says `详见 <path>`.               |
-| L2 index     | Many files under one topic; agent navigates via index.             | Section points to an index file; index lists assets. |
-| summary      | Long content but TLDR is enough for routing.                       | Section has TLDR; full text stays in asset.    |
-| archive-only | Capture/raw evidence, private, or working draft not for agent yet. | Section does NOT reference it. Justify why.    |
+For `DECIDE` items, use `options[]` (each option has its own propagation
+tree); set `recommendation` to the preferred option id.
 
-For every non-archive form, the proposal must list the section name(s) and
-how the upstream / body changes. Example table:
+`COVERED` items need `covered_by` (where the content already lives).
+`NA` items need `reason` (e.g. "auto-memory index, not asset content").
 
-```markdown
-| Asset file                                                  | Form        | Target section | How                          |
-|-------------------------------------------------------------|-------------|----------------|------------------------------|
-| assist config/collaboration preference/feedback-log.md       | L1 pointer  | preference     | upstream + 1-line ref in body |
-| capture/import/20260429-152310/raw.md                        | archive-only| —              | raw evidence, kept for trail |
-| public knowledge base/topic/tech/ai/memory-patterns.md       | L2 index    | knowledge base | already covered by topic/index.md |
+### 3. Validate
+
+```bash
+forge proposal validate <pr-id> --root <path>
 ```
 
-`forge doctor` will report per-asset-dir bridge coverage after the proposal
-applies — use it as a sanity check, not a gate.
+Reports schema violations in `forge doctor` style. Fix until the validator
+returns `OK`.
 
-Do not edit asset files or context sections yet.
+### 4. Render For User Review
 
-After writing the proposal, mark the inbox item as processed (it is now
-represented by the proposal under `system/pr/`):
+```bash
+forge pr render <pr-id> --root <path>          # box-drawing
+forge pr render <pr-id> --root <path> --plain  # ASCII only
+```
+
+This emits the §0.5 monitor-item view: per-item / per-sub-item disposition
++ propagation tree + merged-PR diff summary + approve pipeline. Show this
+output to the user — do NOT hand-write a parallel markdown view.
+
+### 5. Process Inbox
+
+After proposing, close the inbox items the proposal represents:
 
 ```bash
 forge inbox done --root <path> <inbox-file-path>
@@ -436,8 +456,34 @@ proposal under `system/pr/` is the new state of record.
 Then tell the user:
 
 ```text
-Proposal written to system/pr/<id>/proposal.md. Review it and reply approve / reject / revise.
+Proposal written to system/pr/<id>/proposal.md. Run `forge pr render <id>` to see the §0.5 view, then reply approve / reject / revise.
 ```
+
+### Disposition reference
+
+Every monitored item / sub-item MUST be classified into exactly one of:
+
+| Icon | Disposition | When to use                                                      |
+|------|-------------|------------------------------------------------------------------|
+| ✅   | APPLY       | Distill into a new asset/section change. Requires propagation tree with modifications. |
+| ⏭   | COVERED     | Already covered by an existing asset → skip. Requires `covered_by`. |
+| 📦   | ARCHIVE     | Capture-only audit trail, no propagation into asset/section/runtime. |
+| ❓   | DECIDE      | Needs user decision. Multiple propagation options; user picks one. |
+| ➖   | NA          | Index file / not asset content. Requires `reason`.               |
+| 🔀   | MIXED       | Composite item — `sub_items[]` each get their own disposition.   |
+
+`forge doctor` will report per-asset-dir bridge coverage after the proposal
+applies — use it as a sanity check, not a gate. It also reports each PR's
+schema completeness alongside (info-only).
+
+### Fallback: hand-written markdown proposal
+
+If the schema is too rigid for a particular case (rare), you may still write
+the proposal body as plain markdown without an `items:` block. `forge pr
+done` / `forge approve` continue to work on hand-written proposals. But
+`forge pr render` and `forge proposal validate` only operate on schema-
+opted-in proposals; the validator/doctor will report the proposal as
+`schema=opt-out` and skip schema checks. Default to schema-driven.
 
 ## Review Proposal
 
