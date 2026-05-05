@@ -221,7 +221,9 @@ def test_ingest_detect_zero_found_gives_two_next_steps(tmp_path: Path, monkeypat
     result = runner.invoke(main, ["ingest", "--detect"])
     assert result.exit_code == 0
     assert "no importable sources found" in result.output
-    assert "forge ingest --from" in result.output
+    # v0.2.3 (Bug 1): detect now recommends `forge capture` instead of legacy
+    # `forge ingest`, since ingest is invalid in personalOS roots.
+    assert "forge capture --from" in result.output
     assert "$EDITOR sp/section/" in result.output
 
 
@@ -239,7 +241,9 @@ def test_ingest_detect_finds_claude_memory(tmp_path: Path, monkeypatch) -> None:
     assert result.exit_code == 0
     assert "Claude auto-memory" in result.output
     assert "-test-project" in result.output
-    assert "forge ingest --from-claude-memory" in result.output
+    # v0.2.3 (Bug 1): detect recommends `forge capture --from-claude-memory`
+    # instead of legacy `forge ingest --from-claude-memory`.
+    assert "forge capture --from-claude-memory" in result.output
 
 
 def test_ingest_from_claude_memory_dump_writes_section(tmp_path: Path, monkeypatch) -> None:

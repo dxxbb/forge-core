@@ -645,41 +645,86 @@ def watch(root: str | None) -> None:
 
 
 @main.group()
-def inbox() -> None:
+@click.option(
+    "--root",
+    type=click.Path(),
+    default=None,
+    help="Workspace root (default: cwd). Applies to all inbox subcommands.",
+)
+@click.pass_context
+def inbox(ctx: click.Context, root: str | None) -> None:
     """Inbox of proposed changes pending triage."""
+    # Bug 7: stash the group-level --root so subcommands can fall back to it
+    # when their per-subcommand --root is not set.
+    ctx.ensure_object(dict)
+    ctx.obj["root"] = root
+
+
+def _inbox_root(ctx: click.Context, sub_root: str | None) -> Path:
+    """Resolve workspace root: per-subcommand --root wins, else group-level."""
+    parent_root = None
+    if ctx.parent is not None and isinstance(ctx.parent.obj, dict):
+        parent_root = ctx.parent.obj.get("root")
+    return _root(sub_root or parent_root)
+
+
+def _list_personal_os_inbox(workspace: Path) -> list[Path]:
+    """Return system/inbox/*.md items, the personalOS source of truth."""
+    inbox_dir = workspace / "system" / "inbox"
+    if not inbox_dir.exists():
+        return []
+    return sorted(inbox_dir.glob("*.md"))
 
 
 @inbox.command("list")
 @click.option("--root", type=click.Path(), default=None)
-def inbox_list(root: str | None) -> None:
-    items = Inbox(_root(root)).list()
-    if not items:
+@click.pass_context
+def inbox_list(ctx: click.Context, root: str | None) -> None:
+    """List pending inbox items.
+
+    In a personalOS workspace, lists files under `system/inbox/*.md` (same source
+    as `forge monitor`). In a legacy SP workspace, falls back to the historical
+    `.forge/governance/inbox/` queue.
+    """
+    workspace = _inbox_root(ctx, root)
+    personal_items = _list_personal_os_inbox(workspace)
+    legacy_items = Inbox(workspace).list()
+
+    if not personal_items and not legacy_items:
         click.echo("(inbox is empty)")
         return
-    for t in items:
-        click.echo(f"  {t.id:04d}  {t.event_type:<18} {t.path}")
+
+    # Bug 6: render personalOS items first — that's the active flow.
+    for p in personal_items:
+        rel = p.relative_to(workspace).as_posix() if p.is_relative_to(workspace) else str(p)
+        click.echo(f"  pending  import-context  {rel}")
+
+    for t in legacy_items:
+        click.echo(f"  {t.id:04d}     {t.event_type:<14} {t.path}")
 
 
 @inbox.command("skip")
 @click.argument("todo_id", type=int)
 @click.option("--reason", "-m", required=True)
 @click.option("--root", type=click.Path(), default=None)
-def inbox_skip(todo_id: int, reason: str, root: str | None) -> None:
-    Inbox(_root(root)).skip(todo_id, reason=reason)
+@click.pass_context
+def inbox_skip(ctx: click.Context, todo_id: int, reason: str, root: str | None) -> None:
+    Inbox(_inbox_root(ctx, root)).skip(todo_id, reason=reason)
     click.echo(f"skipped inbox/{todo_id:04d}")
 
 
 @inbox.command("done")
 @click.argument("path", type=click.Path())
 @click.option("--root", type=click.Path(), default=None, help="Workspace root (default: cwd).")
-def inbox_done(path: str, root: str | None) -> None:
+@click.pass_context
+def inbox_done(ctx: click.Context, path: str, root: str | None) -> None:
     """Mark an inbox item as processed by deleting it.
 
     PATH may be absolute, or relative to the workspace root. Works for both
     legacy `.forge/governance/inbox/` items and personalOS `system/inbox/`
     items — the file is removed; capture/ and system/pr/ keep the audit trail.
     """
-    workspace = _root(root)
+    workspace = _inbox_root(ctx, root)
     target = Path(path).expanduser()
     if not target.is_absolute():
         target = (workspace / target).resolve()
