@@ -2,6 +2,44 @@
 
 记录 `forge-core` 的所有显著变动。
 
+## 0.3.3 (render width + wrap) — 2026-05-06
+
+主 agent 在 ~/personalOS dogfood v0.3.2 时反馈 proposal.md body §0.5 渲染输出"换行奇怪":default render width 73 cols,但文本行(`提取信息`、`理由`、`修改:` 等)长达 100+ chars 没自动 wrap,Obsidian / 终端按 viewport 折回时折叠点不规则。frontmatter 区也有若干 130-176 byte 的长 plain scalar 单行(无内嵌 `\n`),YAML dumper 未做软换行,看着挤。本版统一处理:render 默认 wrap 到 78 cols(display width,CJK = 2 cols),frontmatter dumper 默认在中文/ASCII 标点处 break long plain scalar。
+
+### Added
+
+- **`render(..., width=78, wrap=True)` 默认 wrap**: `forge.proposal.renderer.render` 默认参数从 `width=73` → `width=78`,新增 `wrap: bool = True` 控制内容软换行。常量 `WRAP_WIDTH = 78` 暴露在模块 top-level,所有内部 helper 使用同一默认。
+- **content soft-wrap helper `_wrap_line`**: 通用软换行函数,优先在 CJK / ASCII 标点(`，。、；：！？,;.!?）)】」』→`)处断开,其次 ASCII 空格;超长无断点的字符串走 hard-cut(display-width-aware)。每个调用点提供 `first_prefix` / `cont_prefix` 决定行首和续行前缀,所以 wrap 不破坏 tree 形状或字段对齐。
+- **`提取信息` 多行 + tree-prefix wrap**: `_field_block(tree=True)` 处理 `extracted` 的多行值时,每段(用户原 `\n` 切)单独 wrap;段首 `├─` / `└─`,wrap 续行 `│ ` / `  ` (跟段首对齐),保持 tree 整体性。
+- **`修改:` 行 wrap 用 `│        ` 续行 prefix**: `_render_branch` / `_render_merged_propagation` 的 modification 渲染:**第一行** `├─ 修改: ...`,后续(用户 `\n` 或 wrap 自动)统一 `│        ` (8-space pad),visually 对齐到 `修改:` 后的内容列。这恢复了 v0.3.2 的 `│        ` continuation,同时支持 wrap-induced sub-lines。
+- **box 边框 / sub-item 标题 display-width 对齐**: `══ ITEM N ═══...═` 起始行、`═══...═` 闭合行、`── ITEM N / sub N.M · ICON ──...──` 子项标题条全部按 display width(CJK = 2 cols)pad,起止两行严格等宽。
+- **COVERED 压缩列表 row-wrap**: `_render_covered_table` 在 label 或 covered_by 让单行 row 超过 `width` cols 时,fallback 到双行 stacked form: `<id>  <label-wrap>` / `         → <covered_by-wrap>`。labels / paths 自身也走 `_wrap_line` 防爆破。
+- **`forge pr render --width N` flag**: CLI 默认值从 73 改为 78,显式 `--width N` 让用户调整。
+- **`forge pr render --no-wrap` flag**: 关掉 content soft-wrap(legacy v0.3.2-and-earlier 行为),box rules 仍按 `--width` 渲染,兼容老期望。
+- **`reformat_text(..., break_long_lines=True)` 默认开**: 在 `forge.proposal.reformat` 加 `_walk_break_long`:递归走 frontmatter dict,对长 string 标量(display width > 90 cols),在 CJK / ASCII 标点(`，。；：、！？)）】」』,;.!?→`)处插入 `\n`,然后 `_ForgeDumper` 自动用 block scalar (`|`) 输出。无标点可断的句子保持单行(保守不硬切)。仅 plain-scalar 单行才触发,已有 `\n` 的 multi-line 字段不动。
+- **`forge proposal reformat --no-break-lines` flag**: 关掉 break-long-lines 的内容 mutation,只做 v0.3.2 的 YAML 风格归一化。
+- **`needs_reformat(text, break_long_lines=True)` 默认开**: 与 `reformat_text` 同步,doctor / dogfood 检测时把"需要 break long lines"也算作需要 reformat。
+
+### Fixed
+
+- **`_render_item` / `_render_sub_item` 等所有标题条 pad 方法从 `len()` 改为 `_display_width()`**: v0.3.2 用 Python `len()`(char count)算 fill 长度,在含 CJK / emoji 的标题(如 `── ITEM 3 / sub 3.13 · ✅ APPLY ──`)上结果偏短,起止边框宽度不一致。改用 display-width 后边框严格等宽。
+
+### Tests
+
+- 新增 `tests/test_v033_render_width.py`(29 cases):`_wrap_line` 单元(默认宽度、短行、CJK 标点 break、ASCII 空格 break、续行 prefix、无断点 fallback);`render` 集成(default width 78、显式 `--width 60`、`--no-wrap`、box 起止等宽、sub-item 标题 pad、modification wrap 用 `│ ` 续行、modification multi-line 不变成多个 `├─ 修改:` 头部、`提取信息` tree wrap 用 `│ ` 续行、v0.3.1 P10 回归);frontmatter dumper(`_break_long_string` CJK 标点 break、`→` 作为 break point、ASCII 无 punct 不切、`reformat_text` 默认 break、`--no-break-lines` opt-out、idempotent、preserves semantics、`needs_reformat` detect)。CLI 端到端(`forge pr render` default width 78、`--width 60`、`--no-wrap`、`forge proposal reformat` default break、`--no-break-lines`)。**总数 300 → 329 通过**(3 skipped 不变)。
+
+### E2E (~/personalOS dogfood)
+
+在 `~/personalOS/system/pr/20260505-211750-context-import/proposal.md` 上跑 `forge proposal reformat` + `forge pr render` 后:
+
+- frontmatter 区(line 1-639): display-width > 95 cols 单行 = **2 行**(下降 from 大量 130-176 byte 长行;两行均为无内部 break 标点的单句)
+- body 区 BEGIN..END(line 645-1245): display-width > 90 cols 单行 = **0 行**(原 13 行长 row 全部 wrap;COVERED 压缩列表也修正)
+- box rule 起止等宽: 全部 78 cols(`══ ITEM N ═══...═` ↔ `═══...═` 对齐)
+
+### Skill
+
+- `forge` skill doc(`forge/assets/skills/forge/SKILL.md`)v0.3.2 → v0.3.3:"Process Inbox To Proposal" §3 加一段说明 v0.3.3 起 render / reformat 默认 wrap / break-long-lines 到 78 / 90 cols,以及 `--width N` / `--no-wrap` / `--no-break-lines` opt-out。`forge self-install` 同步到 `~/.claude/skills/forge/SKILL.md`。
+
 ## 0.3.2 (yaml block-scalar) — 2026-05-06
 
 主 agent 在 ~/personalOS 跑 v0.3.1 的 `forge proposal new`,proposal.md frontmatter 里多行字符串字段(`extracted` / `rationale` / `covered_by`)被 PyYAML 默认 dump 成两种丑陋形态:**(A)** double-quoted flow scalar(单行 632–746 字符塞 `\n` escape),**(B)** single-quoted folded scalar(段落间双 newline + 6-space 缩进 + `''` 转义)。Obsidian 里读着累、diff 难看、ergonomics 拉。本版统一用 YAML literal block scalar (`|`)。

@@ -95,18 +95,47 @@ _DISP_LABEL = {
 }
 
 
+# v0.3.3: default render wrap width. Long extracted/rationale/modification
+# lines are soft-wrapped to this column count (display-width, CJK = 2 cols)
+# preferentially at CJK punctuation, then ASCII space. Box rules
+# (`══════` / `──────`) and sub-item title bars also length-equalize to
+# this width. CLI exposes `--width N` and `--no-wrap` overrides.
+WRAP_WIDTH = 78
+
+# CJK punctuation that's a natural break point for soft-wrap (after this
+# punctuation, before next char). Includes the flow-arrow `→` used as a step
+# separator in dxyOS / forge content. ASCII `:` is intentionally excluded
+# so label-value patterns like `**Icon**: ✅` don't break right after the colon.
+_CJK_BREAK_AFTER = "，。、；：！？,;.!?）)】」』→"
+
+
 # ------------------------------------------------------------------ render
 
-def render(proposal: Proposal, *, plain: bool = False, width: int = 73) -> str:
-    """Render the §0.5 view of a Proposal. Returns the full text."""
+def render(
+    proposal: Proposal,
+    *,
+    plain: bool = False,
+    width: int = WRAP_WIDTH,
+    wrap: bool = True,
+) -> str:
+    """Render the §0.5 view of a Proposal. Returns the full text.
+
+    `width` is the target column count for box rules and the soft-wrap
+    threshold for content lines (display width: CJK / fullwidth = 2 cols).
+    `wrap=False` disables content soft-wrap entirely (legacy v0.3.2-and-earlier
+    behavior). Box rules still use `width`.
+    """
     glyphs = _PLAIN if plain else _BOX
     out: list[str] = []
 
     out.append("§0.5 · 监控 item 视图 (per-item · disposition + 传播树)")
     out.append("")
-    out.append(
-        "**Icon**: ✅ APPLY · ⏭ COVERED · 📦 ARCHIVE · ❓ DECIDE · ➖ N/A · 🔀 MIXED"
-    )
+    legend = "**Icon**: ✅ APPLY · ⏭ COVERED · 📦 ARCHIVE · ❓ DECIDE · ➖ N/A · 🔀 MIXED"
+    if wrap and _display_width(legend) > width:
+        # Wrap at ` · ` separators by using them as ASCII-space breaks.
+        out.extend(_wrap_line(legend, width=width, first_prefix="", cont_prefix="          "))
+    else:
+        out.append(legend)
 
     counts = _count_dispositions(proposal)
     if counts:
@@ -120,11 +149,11 @@ def render(proposal: Proposal, *, plain: bool = False, width: int = 73) -> str:
     out.append("")
 
     for item in proposal.items:
-        out.extend(_render_item(item, glyphs, width=width))
+        out.extend(_render_item(item, glyphs, width=width, wrap=wrap))
         out.append("")
 
     # Summary: merged propagation
-    merged = _render_merged_propagation(proposal, glyphs)
+    merged = _render_merged_propagation(proposal, glyphs, width=width, wrap=wrap)
     if merged:
         out.append(_rule(glyphs.h_single, width))
         out.append("")
@@ -146,7 +175,12 @@ def render(proposal: Proposal, *, plain: bool = False, width: int = 73) -> str:
     if summary_line:
         out.append(_rule(glyphs.h_single, width))
         out.append("")
-        out.append(f"**一句话总结**: {summary_line}")
+        if wrap:
+            out.extend(_wrap_line(summary_line, width=width,
+                                  first_prefix="**一句话总结**: ",
+                                  cont_prefix="                "))
+        else:
+            out.append(f"**一句话总结**: {summary_line}")
         out.append("")
 
     return "\n".join(out).rstrip() + "\n"
@@ -155,27 +189,30 @@ def render(proposal: Proposal, *, plain: bool = False, width: int = 73) -> str:
 # ------------------------------------------------------------------ items
 
 
-def _render_item(item: Item, glyphs: _Glyphs, *, width: int) -> list[str]:
+def _render_item(item: Item, glyphs: _Glyphs, *, width: int, wrap: bool = True) -> list[str]:
     out: list[str] = []
     title = f"══ ITEM {item.id} " if glyphs is _BOX else f"== ITEM {item.id} "
-    fill = glyphs.h_double * max(2, width - len(title))
-    out.append(title + fill)
+    # Box title row: pad to `width` columns of display width (CJK = 2 cols).
+    title_cols = _display_width(title)
+    fill_count = max(2, width - title_cols)
+    out.append(title + glyphs.h_double * fill_count)
     monitor_label = "   监控:  "
     out.append(monitor_label + (item.monitor_info or "").splitlines()[0]
                if item.monitor_info else (monitor_label + "(no monitor info)"))
     for line in (item.monitor_info or "").splitlines()[1:]:
         out.append("           " + line)
+    # Closing rule: same column width as title row.
     out.append(glyphs.h_double * width)
     out.append("")
 
     if item.disposition == Disposition.MIXED:
         # parent extracted (overview), then disposition note, then sub-items
         if item.extracted:
-            out.extend(_field_block("提取信息", item.extracted, tree=True))
+            out.extend(_field_block("提取信息", item.extracted, tree=True, width=width, wrap=wrap))
         if item.disposition:
-            out.append(_one_line_field("处理结果", _disposition_title(item)))
+            out.extend(_one_line_field_lines("处理结果", _disposition_title(item), width=width, wrap=wrap))
         if item.rationale:
-            out.extend(_field_block("理由", item.rationale))
+            out.extend(_field_block("理由", item.rationale, width=width, wrap=wrap))
         out.append("")
         # render each sub-item
         # group COVERED & NA sub-items at the tail in compressed list form
@@ -185,7 +222,7 @@ def _render_item(item: Item, glyphs: _Glyphs, *, width: int) -> list[str]:
         na = [s for s in item.sub_items if s.disposition == Disposition.NA]
 
         for sub in prominent:
-            out.extend(_render_sub_item(sub, item.id, glyphs, width=width))
+            out.extend(_render_sub_item(sub, item.id, glyphs, width=width, wrap=wrap))
             out.append("")
 
         if covered:
@@ -198,19 +235,19 @@ def _render_item(item: Item, glyphs: _Glyphs, *, width: int) -> list[str]:
 
     # Non-MIXED top-level item
     if item.extracted:
-        out.extend(_field_block("提取信息", item.extracted, tree=True))
+        out.extend(_field_block("提取信息", item.extracted, tree=True, width=width, wrap=wrap))
     if item.disposition:
-        out.append(_one_line_field("处理结果", _disposition_title(item)))
+        out.extend(_one_line_field_lines("处理结果", _disposition_title(item), width=width, wrap=wrap))
     if item.rationale:
-        out.extend(_field_block("理由", item.rationale))
+        out.extend(_field_block("理由", item.rationale, width=width, wrap=wrap))
     if item.disposition == Disposition.COVERED and item.covered_by:
-        out.append(_one_line_field("已覆盖于", item.covered_by))
+        out.extend(_one_line_field_lines("已覆盖于", item.covered_by, width=width, wrap=wrap))
     if item.disposition == Disposition.NA and item.reason:
-        out.append(_one_line_field("原因", item.reason))
+        out.extend(_one_line_field_lines("原因", item.reason, width=width, wrap=wrap))
     if item.propagation:
         out.append("")
         out.append("  传播链路")
-        out.extend(_render_propagation(item.propagation, glyphs, indent="  "))
+        out.extend(_render_propagation(item.propagation, glyphs, indent="  ", width=width, wrap=wrap))
     if item.disposition == Disposition.DECIDE and item.options:
         out.append("")
         out.append("  传播链路 (多选项, 等用户选)")
@@ -218,7 +255,7 @@ def _render_item(item: Item, glyphs: _Glyphs, *, width: int) -> list[str]:
             out.append("")
             out.append(f"  选项 {opt.id} · {opt.description}")
             if opt.propagation:
-                out.extend(_render_propagation(opt.propagation, glyphs, indent="  "))
+                out.extend(_render_propagation(opt.propagation, glyphs, indent="  ", width=width, wrap=wrap))
             else:
                 out.append(f"  {glyphs.last} (无传播)")
         if item.recommendation:
@@ -226,11 +263,11 @@ def _render_item(item: Item, glyphs: _Glyphs, *, width: int) -> list[str]:
             out.append(f"  推荐    {item.recommendation}")
     if item.risk:
         out.append("")
-        out.extend(_field_block("风险", item.risk))
+        out.extend(_field_block("风险", item.risk, width=width, wrap=wrap))
     return out
 
 
-def _render_sub_item(sub: SubItem, parent_id: str, glyphs: _Glyphs, *, width: int) -> list[str]:
+def _render_sub_item(sub: SubItem, parent_id: str, glyphs: _Glyphs, *, width: int, wrap: bool = True) -> list[str]:
     out: list[str] = []
     icon = sub.disposition.icon if sub.disposition else "?"
     label = _DISP_LABEL[sub.disposition] if sub.disposition else "?"
@@ -238,27 +275,29 @@ def _render_sub_item(sub: SubItem, parent_id: str, glyphs: _Glyphs, *, width: in
     title_left = f"  ── ITEM {parent_id} / sub {sub.id} · {icon} {label}{rule_extra} "
     if glyphs is _PLAIN:
         title_left = title_left.replace("──", "--")
-    fill = glyphs.h_single * max(2, width - len(title_left))
-    out.append(title_left + fill)
+    # Pad sub-item title bar to `width` cols of display width (CJK = 2 cols).
+    title_cols = _display_width(title_left)
+    fill_count = max(2, width - title_cols)
+    out.append(title_left + glyphs.h_single * fill_count)
     out.append("")
     if sub.extracted:
-        out.extend(_field_block("提取信息", sub.extracted, tree=True))
+        out.extend(_field_block("提取信息", sub.extracted, tree=True, width=width, wrap=wrap))
 
     if sub.disposition:
-        out.append(_one_line_field("处理结果", _disposition_title(sub)))
+        out.extend(_one_line_field_lines("处理结果", _disposition_title(sub), width=width, wrap=wrap))
     if sub.rationale:
-        out.extend(_field_block("理由", sub.rationale))
+        out.extend(_field_block("理由", sub.rationale, width=width, wrap=wrap))
 
     if sub.disposition == Disposition.COVERED and sub.covered_by:
-        out.append(_one_line_field("已覆盖于", sub.covered_by))
+        out.extend(_one_line_field_lines("已覆盖于", sub.covered_by, width=width, wrap=wrap))
     if sub.disposition == Disposition.NA and sub.reason:
-        out.append(_one_line_field("原因", sub.reason))
+        out.extend(_one_line_field_lines("原因", sub.reason, width=width, wrap=wrap))
 
     if sub.propagation:
         out.append("")
         out.append("  传播链路")
         out.extend(_render_propagation(sub.propagation, glyphs, indent="  ",
-                                          owner_id=sub.id))
+                                          owner_id=sub.id, width=width, wrap=wrap))
 
     if sub.disposition == Disposition.DECIDE and sub.options:
         out.append("")
@@ -267,7 +306,7 @@ def _render_sub_item(sub: SubItem, parent_id: str, glyphs: _Glyphs, *, width: in
             out.append("")
             out.append(f"  选项 {opt.id} · {opt.description}")
             if opt.propagation:
-                out.extend(_render_propagation(opt.propagation, glyphs, indent="  "))
+                out.extend(_render_propagation(opt.propagation, glyphs, indent="  ", width=width, wrap=wrap))
             else:
                 out.append(f"  {glyphs.last} (无传播)")
         if sub.recommendation:
@@ -275,7 +314,7 @@ def _render_sub_item(sub: SubItem, parent_id: str, glyphs: _Glyphs, *, width: in
             out.append(f"  推荐    {sub.recommendation}")
     if sub.risk:
         out.append("")
-        out.extend(_field_block("风险", sub.risk))
+        out.extend(_field_block("风险", sub.risk, width=width, wrap=wrap))
     return out
 
 
@@ -286,12 +325,21 @@ def _render_covered_table(
     *,
     width: int,
 ) -> list[str]:
+    """Render the compressed COVERED table at the tail of a MIXED item.
+
+    v0.3.3: when label or covered_by would overflow `width` cols on a single
+    row, the row falls back to a two-line stacked form:
+        3.2   <label>
+              <covered_by>
+    so the table stays within the requested width.
+    """
     out: list[str] = []
     icon = Disposition.COVERED.icon
     title_left = f"  ── ITEM {parent_id} · {len(subs)} 个 {icon} COVERED (压缩列表) "
     if glyphs is _PLAIN:
         title_left = title_left.replace("──", "--")
-    fill = glyphs.h_single * max(2, width - len(title_left))
+    title_cols = _display_width(title_left)
+    fill = glyphs.h_single * max(2, width - title_cols)
     out.append(title_left + fill)
     out.append("")
     out.append("   #     提取的 memory file                    已覆盖位置")
@@ -309,7 +357,24 @@ def _render_covered_table(
         if not label:
             label = "(no extracted info)"
         covered = sub.covered_by or "(no covered_by)"
-        out.append(f"   {sid:<5} {label:<37} {covered}")
+        # Try the single-row aligned form first.
+        single = f"   {sid:<5} {label:<37} {covered}"
+        if _display_width(single) <= width and "\n" not in single:
+            out.append(single)
+            continue
+        # Overflow → stack: id+label on row 1, covered_by indented on row 2.
+        # Soft-wrap the label too if it overflows on its own.
+        label_first_prefix = f"   {sid:<5} "
+        label_cont_prefix = "         "
+        out.extend(_wrap_line(label, width=width,
+                              first_prefix=label_first_prefix,
+                              cont_prefix=label_cont_prefix))
+        # covered_by continuation row, also wrap-aware.
+        cov_first = "         → "
+        cov_cont = "           "
+        out.extend(_wrap_line(covered, width=width,
+                              first_prefix=cov_first,
+                              cont_prefix=cov_cont))
     return out
 
 
@@ -325,7 +390,8 @@ def _render_na_list(
     title_left = f"  ── ITEM {parent_id} · {len(subs)} 个 {icon} N/A (索引文件, 无传播) "
     if glyphs is _PLAIN:
         title_left = title_left.replace("──", "--")
-    fill = glyphs.h_single * max(2, width - len(title_left))
+    title_cols = _display_width(title_left)
+    fill = glyphs.h_single * max(2, width - title_cols)
     out.append(title_left + fill)
     out.append("")
     for sub in subs:
@@ -350,6 +416,8 @@ def _render_propagation(
     *,
     indent: str,
     owner_id: str = "",
+    width: int = WRAP_WIDTH,
+    wrap: bool = True,
 ) -> list[str]:
     """Render top-level branches under one item/sub-item. Each branch is a
     `└─ a:` / `└─ b:` block.
@@ -369,7 +437,7 @@ def _render_propagation(
     out: list[str] = []
     for branch in branches:
         out.extend(_render_branch(branch, glyphs, indent=indent, depth=0,
-                                   owner_id=owner_id))
+                                   owner_id=owner_id, width=width, wrap=wrap))
     return out
 
 
@@ -403,6 +471,8 @@ def _render_branch(
     indent: str,
     depth: int,
     owner_id: str = "",
+    width: int = WRAP_WIDTH,
+    wrap: bool = True,
 ) -> list[str]:
     """Render a single propagation branch + its node + its children."""
     out: list[str] = []
@@ -425,17 +495,28 @@ def _render_branch(
             sibs = " / ".join(f"sub {x}" for x in others)
             head += f"   (共享触发的子链路, 见 {sibs})"
     out.append(head)
-    # Modification line:
+    # Modification line. The user-supplied modification string is a single
+    # logical block: only its FIRST line gets `├─ 修改: `; subsequent lines
+    # (whether user-supplied via `\n` or auto-inserted via wrap) all get
+    # `│        ` (8-space pad after the bar) to keep visual alignment.
     if node.modification:
-        for i, mline in enumerate(node.modification.splitlines()):
-            connector = glyphs.branch if i == 0 else glyphs.v
-            out.append(f"{pad}{glyphs.indent}{connector} 修改: {mline}" if i == 0
-                       else f"{pad}{glyphs.indent}{glyphs.v}        {mline}")
+        mod_first_prefix = f"{pad}{glyphs.indent}{glyphs.branch} 修改: "
+        mod_cont_prefix = f"{pad}{glyphs.indent}{glyphs.v}        "
+        mlines = node.modification.splitlines() or [""]
+        for i, mline in enumerate(mlines):
+            paragraph_first = mod_first_prefix if i == 0 else mod_cont_prefix
+            if not wrap:
+                out.append(f"{paragraph_first}{mline}")
+                continue
+            wrapped = _wrap_line(mline, width=width,
+                                 first_prefix=paragraph_first,
+                                 cont_prefix=mod_cont_prefix)
+            out.extend(wrapped)
     # children: render under increasing depth (carry owner_id through so nested
     # `b → c` shared_with treatments stay consistent)
     for child in node.children:
         out.extend(_render_branch(child, glyphs, indent=indent, depth=depth + 1,
-                                   owner_id=owner_id))
+                                   owner_id=owner_id, width=width, wrap=wrap))
     if (not node.children and not node.modification) or node.terminal:
         out.append(f"{pad}{glyphs.indent}{glyphs.last} (终止)")
     elif not node.children and node.modification:
@@ -476,7 +557,9 @@ def _count_dispositions(proposal: Proposal) -> dict[Disposition, int]:
     return counts
 
 
-def _render_merged_propagation(proposal: Proposal, glyphs: _Glyphs) -> list[str]:
+def _render_merged_propagation(
+    proposal: Proposal, glyphs: _Glyphs, *, width: int = WRAP_WIDTH, wrap: bool = True
+) -> list[str]:
     """Walk all APPLY items / sub-items, dedupe their propagation by node path,
     and render a single tree view.
 
@@ -538,8 +621,18 @@ def _render_merged_propagation(proposal: Proposal, glyphs: _Glyphs) -> list[str]
         if node.layer:
             head += f"   ({node.layer})"
         out.append(head)
+        mod_first_prefix = f"{pad}{glyphs.indent}{glyphs.branch} 修改: "
+        mod_cont_prefix = f"{pad}{glyphs.indent}{glyphs.v}        "
         for mline in node.modifications:
-            out.append(f"{pad}{glyphs.indent}{glyphs.branch} 修改: {mline}")
+            sub_lines = mline.splitlines() or [""]
+            for i, sub in enumerate(sub_lines):
+                paragraph_first = mod_first_prefix if i == 0 else mod_cont_prefix
+                if wrap:
+                    out.extend(_wrap_line(sub, width=width,
+                                          first_prefix=paragraph_first,
+                                          cont_prefix=mod_cont_prefix))
+                else:
+                    out.append(f"{paragraph_first}{sub}")
         children_list = list(node.children.values())
         for i, child in enumerate(children_list):
             emit(child, depth + 1, last=(i == len(children_list) - 1))
@@ -585,18 +678,54 @@ def _render_summary_line(proposal: Proposal) -> str:
 
 # ------------------------------------------------------------------ helpers
 
-def _field_block(label: str, value: str, *, tree: bool = False) -> list[str]:
+# Continuation-prefix patterns for `_field_block`:
+#   - tree=True (multi-line `提取信息`): first line at col 14 next to label,
+#     subsequent paragraph-firsts use `├─` (or `└─` for the last paragraph),
+#     and wrap-continuations within a paragraph use `│ ` (preserves tree shape).
+#   - tree=False: first line next to label, subsequent paragraph-firsts and
+#     all wrap-continuations use plain `              ` 14-space indent.
+_FIELD_VALUE_COL = 14   # `  LABEL    VALUE` — value starts at display col 14
+
+
+def _field_block(
+    label: str,
+    value: str,
+    *,
+    tree: bool = False,
+    width: int = WRAP_WIDTH,
+    wrap: bool = True,
+) -> list[str]:
     """Render a labelled multi-line field. The label sits at column 2 and
     content at column 14, computed by display width (CJK = 2 cols).
 
     When `tree=True` and value has multiple lines, continuation lines are
     rendered with `├─` / `└─` prefixes (last line uses `└─`). The first
     line is unprefixed (it sits next to the label).
+
+    v0.3.3: each user-supplied paragraph is also soft-wrapped to `width`
+    columns (display width). Wrap continuation prefix:
+      - tree=True, paragraph started by `├─ ` → continuation uses `│  ` then
+        14-space indent (so chars line up under the paragraph content).
+      - tree=True, paragraph started by `└─ ` → continuation uses `   ` then
+        14-space indent (no bar after last child).
+      - tree=False → continuation uses 14-space indent (same as paragraph
+        start), keeping the value column aligned.
     """
     lines = (value or "").splitlines() or [""]
     label_cols = _display_width(label)
     pad = max(1, 12 - label_cols)
-    out = [f"  {label}{' ' * pad}{lines[0]}"]
+    # First paragraph: starts inline with the label.
+    first_prefix = f"  {label}{' ' * pad}"
+    # Wrap-continuation for the first paragraph (no tree connector, just
+    # 14-space indent so it lines up under the value column).
+    first_cont_prefix = " " * _FIELD_VALUE_COL
+    out: list[str] = []
+    if wrap:
+        out.extend(_wrap_line(lines[0], width=width,
+                              first_prefix=first_prefix,
+                              cont_prefix=first_cont_prefix))
+    else:
+        out.append(first_prefix + lines[0])
     n = len(lines)
     for i, line in enumerate(lines[1:], start=1):
         if tree and n > 1:
@@ -605,9 +734,22 @@ def _field_block(label: str, value: str, *, tree: bool = False) -> list[str]:
             # nesting — we want a clean tree prefix.
             stripped = line.lstrip(" ")
             extra = line[: len(line) - len(stripped)]
-            out.append(f"            {connector} {extra}{stripped}")
+            paragraph_prefix = f"            {connector} {extra}"
+            # wrap continuation: `│ ` (or `  ` for the last paragraph) then
+            # 12-space indent so total reaches the same column as `extra` start.
+            bar = "│ " if connector == "├─" else "  "
+            cont_prefix = f"            {bar}{' ' * len(extra)}"
+            content = stripped
         else:
-            out.append(f"              {line}")
+            paragraph_prefix = "              "
+            cont_prefix = "              "
+            content = line
+        if wrap:
+            out.extend(_wrap_line(content, width=width,
+                                  first_prefix=paragraph_prefix,
+                                  cont_prefix=cont_prefix))
+        else:
+            out.append(paragraph_prefix + content)
     return out
 
 
@@ -632,9 +774,25 @@ def _disposition_title(owner) -> str:
 
 
 def _one_line_field(label: str, value: str) -> str:
+    """Legacy single-line emit (kept for tests; new call sites should use
+    `_one_line_field_lines` to allow soft-wrap)."""
     label_cols = _display_width(label)
     pad = max(1, 12 - label_cols)
     return f"  {label}{' ' * pad}{value}"
+
+
+def _one_line_field_lines(
+    label: str, value: str, *, width: int = WRAP_WIDTH, wrap: bool = True
+) -> list[str]:
+    """One-line field with soft-wrap. Continuation lines are 14-space-indented
+    so they line up under the value column."""
+    label_cols = _display_width(label)
+    pad = max(1, 12 - label_cols)
+    first_prefix = f"  {label}{' ' * pad}"
+    cont_prefix = " " * _FIELD_VALUE_COL
+    if not wrap:
+        return [first_prefix + value]
+    return _wrap_line(value, width=width, first_prefix=first_prefix, cont_prefix=cont_prefix)
 
 
 def _display_width(s: str) -> int:
@@ -653,6 +811,113 @@ def _rule(ch: str, width: int) -> str:
     return ch * width
 
 
+# --------------------- v0.3.3: soft-wrap helper ---------------------
+
+def _wrap_line(
+    content: str,
+    *,
+    width: int,
+    first_prefix: str,
+    cont_prefix: str,
+) -> list[str]:
+    """Soft-wrap `content` so that `prefix + segment` fits within `width`
+    display columns. First segment uses `first_prefix`, subsequent segments
+    use `cont_prefix`. Break preference:
+
+      1. After a CJK / ASCII break punctuation (e.g. `,。;:.!?` and matching
+         CJK forms). The punctuation stays on the previous line.
+      2. At an ASCII whitespace.
+      3. Hard cut at the column limit (last resort, for unbroken runs of
+         long ASCII or non-punctuated CJK runs).
+
+    Empty content returns a single `first_prefix.rstrip()` line; pure-empty
+    paragraphs become `[first_prefix.rstrip()]` to preserve blank-paragraph
+    semantics from the v0.3.1 P10 tree rendering.
+    """
+    if content == "":
+        # Preserve the empty-paragraph affordance (rstrip trailing spaces of
+        # the prefix to avoid trailing whitespace in output).
+        return [first_prefix.rstrip(" ") if first_prefix.strip() == "" else first_prefix]
+
+    out: list[str] = []
+    remaining = content
+    prefix = first_prefix
+    while True:
+        prefix_cols = _display_width(prefix)
+        budget = max(8, width - prefix_cols)
+        # If remaining fits, emit and done.
+        if _display_width(remaining) <= budget:
+            out.append(prefix + remaining)
+            return out
+        # Find best break point ≤ budget cols.
+        cut = _find_break(remaining, budget)
+        if cut <= 0:
+            # Could not find a break point at all (extremely long single token).
+            # Hard-cut to budget.
+            cut = _hard_cut(remaining, budget)
+            if cut <= 0:
+                # Pathological: emit full line and bail.
+                out.append(prefix + remaining)
+                return out
+        head = remaining[:cut].rstrip(" ")
+        tail = remaining[cut:].lstrip(" ")
+        out.append(prefix + head)
+        if not tail:
+            return out
+        remaining = tail
+        prefix = cont_prefix
+
+
+def _find_break(s: str, budget: int) -> int:
+    """Return the index in `s` (Python char index) at which to cut so that
+    `s[:idx]` fits within `budget` display columns AND ends at a natural
+    break boundary. Returns 0 if no good break exists.
+
+    Strategy: scan forward column-by-column; remember the *last* break
+    candidate we passed within budget. A break candidate is the position
+    *after* a CJK/ASCII break punctuation, or the position *of* an ASCII
+    space. When we exceed budget, return the latest candidate.
+    """
+    cols = 0
+    last_punct_break = 0   # index after the last in-budget punctuation
+    last_space_break = 0   # index of the last in-budget space
+    for i, ch in enumerate(s):
+        ch_cols = 2 if _is_wide(ch) else 1
+        # Going to exceed? stop scanning.
+        if cols + ch_cols > budget:
+            # Prefer punctuation break over space break.
+            if last_punct_break > 0:
+                return last_punct_break
+            if last_space_break > 0:
+                return last_space_break
+            return 0
+        cols += ch_cols
+        # Update break candidates AFTER counting this char.
+        if ch in _CJK_BREAK_AFTER:
+            last_punct_break = i + 1
+        elif ch == " ":
+            # Break AT the space (consumer rstrips/lstrips around).
+            last_space_break = i
+    # All of s fits.
+    return len(s)
+
+
+def _hard_cut(s: str, budget: int) -> int:
+    """Return the largest index such that `s[:idx]` fits in `budget` cols."""
+    cols = 0
+    for i, ch in enumerate(s):
+        ch_cols = 2 if _is_wide(ch) else 1
+        if cols + ch_cols > budget:
+            return i
+        cols += ch_cols
+    return len(s)
+
+
+def _is_wide(ch: str) -> bool:
+    import unicodedata
+    return unicodedata.east_asian_width(ch) in ("F", "W")
+
+
 # ------------------------------------------------------------------ inline write
 
 # Match the BEGIN/END auto-rendered block in a proposal body (DOTALL).
@@ -662,7 +927,13 @@ _INLINE_BLOCK_RE = re.compile(
 )
 
 
-def render_inline(proposal_path: Path, *, plain: bool = False, width: int = 73) -> tuple[str, bool]:
+def render_inline(
+    proposal_path: Path,
+    *,
+    plain: bool = False,
+    width: int = WRAP_WIDTH,
+    wrap: bool = True,
+) -> tuple[str, bool]:
     """Render a proposal and write the result into the proposal.md body
     between the `<!-- BEGIN AUTO-RENDERED -->` / `<!-- END AUTO-RENDERED -->`
     markers. Returns ``(rendered_text, wrote)``.
@@ -677,7 +948,7 @@ def render_inline(proposal_path: Path, *, plain: bool = False, width: int = 73) 
     """
     text = proposal_path.read_text(encoding="utf-8")
     proposal = load_proposal(text)
-    rendered = render(proposal, plain=plain, width=width).rstrip()
+    rendered = render(proposal, plain=plain, width=width, wrap=wrap).rstrip()
 
     # Build the new body block (markers always wrap a fenced text block so the
     # rendered tree is monospaced and reviewers see exact spacing in Obsidian).

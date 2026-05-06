@@ -830,9 +830,15 @@ def _resolve_pr_dir(workspace: Path, pr_ref: str) -> Path | None:
 @click.option(
     "--width",
     type=int,
-    default=73,
+    default=78,
     show_default=True,
-    help="Render width for top/bot rules.",
+    help="Target column count for box rules and content soft-wrap (display width, CJK = 2 cols).",
+)
+@click.option(
+    "--no-wrap",
+    "no_wrap",
+    is_flag=True,
+    help="Disable content soft-wrap (legacy v0.3.2-and-earlier behavior). Box rules still use --width.",
 )
 @click.option(
     "--stdout",
@@ -840,7 +846,7 @@ def _resolve_pr_dir(workspace: Path, pr_ref: str) -> Path | None:
     is_flag=True,
     help="Print to stdout instead of writing inline into proposal.md body.",
 )
-def pr_render(pr_ref: str, root: str | None, plain: bool, width: int, to_stdout: bool) -> None:
+def pr_render(pr_ref: str, root: str | None, plain: bool, width: int, no_wrap: bool, to_stdout: bool) -> None:
     """Render the §0.5 monitor-item view from a proposal's schema frontmatter.
 
     Default behavior (v0.3.1+): writes the rendered view into the proposal.md
@@ -885,10 +891,10 @@ def pr_render(pr_ref: str, root: str | None, plain: bool, width: int, to_stdout:
         sys.exit(2)
 
     if to_stdout:
-        click.echo(render(proposal, plain=plain, width=width), nl=False)
+        click.echo(render(proposal, plain=plain, width=width, wrap=not no_wrap), nl=False)
         return
 
-    rendered, wrote = render_inline(proposal_path, plain=plain, width=width)
+    rendered, wrote = render_inline(proposal_path, plain=plain, width=width, wrap=not no_wrap)
     rel = proposal_path.relative_to(workspace).as_posix()
     if wrote:
         click.echo(f"rendered §0.5 view into {rel} (between BEGIN/END markers)")
@@ -1037,7 +1043,19 @@ def proposal_validate(
     is_flag=True,
     help="Don't keep a `.bak` of the pre-reformat file.",
 )
-def proposal_reformat(pr_ref: str, root: str | None, no_backup: bool) -> None:
+@click.option(
+    "--no-break-lines",
+    "no_break_lines",
+    is_flag=True,
+    help=(
+        "Don't break long plain-scalar frontmatter strings at punctuation. "
+        "Default (v0.3.3+) inserts `\\n` after CJK / ASCII punctuation when a "
+        "single line exceeds 90 cols, then dumps as a block scalar."
+    ),
+)
+def proposal_reformat(
+    pr_ref: str, root: str | None, no_backup: bool, no_break_lines: bool
+) -> None:
     """Reformat a proposal's YAML frontmatter to use block-scalar (`|`) form.
 
     Loads the existing proposal.md, re-dumps the frontmatter through forge's
@@ -1047,6 +1065,9 @@ def proposal_reformat(pr_ref: str, root: str | None, no_backup: bool) -> None:
     Idempotent: a file already in block-scalar form is reported as `no change`.
     By default a `.bak` of the pre-reformat file is kept beside the proposal;
     pass `--no-backup` to suppress.
+
+    v0.3.3 default: long single-line plain scalars (>90 cols) are broken at
+    CJK / ASCII punctuation. Pass `--no-break-lines` to skip that pass.
     """
     from forge.proposal.reformat import reformat_file
 
@@ -1060,7 +1081,11 @@ def proposal_reformat(pr_ref: str, root: str | None, no_backup: bool) -> None:
         click.echo(f"error: proposal.md not found in {pr_dir}", err=True)
         sys.exit(1)
 
-    res = reformat_file(proposal_path, backup=not no_backup)
+    res = reformat_file(
+        proposal_path,
+        backup=not no_backup,
+        break_long_lines=not no_break_lines,
+    )
     rel = proposal_path.relative_to(workspace).as_posix()
     if not res.changed:
         click.echo(f"OK   {rel}: already block-scalar (no change)")

@@ -1,6 +1,6 @@
 ---
 name: forge
-version: 0.3.2
+version: 0.3.3
 description: "Initialize and operate a personalOS workspace with forge. Use when the user says they want to create/setup/build a forge or personalOS workspace, manage agent context, import existing CLAUDE.md/AGENTS.md/memory, review context changes, or approve/reject context updates. This skill is personalOS-layout-first and must not use legacy `forge new` / `sp` onboarding."
 metadata:
   requires:
@@ -450,12 +450,21 @@ auto-rendered §0.5 view — is left untouched. Pass `--no-reformat` to skip,
 or run `forge proposal reformat <pr-id> --root <path>` standalone to fix
 existing v0.3.1 PRs without re-validating.
 
+v0.3.3+: reformat additionally breaks any single-line plain scalar > 90
+display cols at CJK / ASCII punctuation (`，。；：、！？)）】」』,;.!?→`),
+inserting `\n` so the output goes to block-scalar (`|`) form. This keeps
+Obsidian / terminal viewers from folding plain scalars at unpredictable
+widths. Pass `--no-break-lines` to skip the break-long-lines pass and keep
+the v0.3.2 YAML-style-only normalization.
+
 ### 4. Render For User Review
 
 ```bash
 forge pr render <pr-id> --root <path>            # default: writes inline into proposal.md body
 forge pr render <pr-id> --root <path> --plain    # ASCII only (still inline)
 forge pr render <pr-id> --root <path> --stdout   # print to stdout, do not modify the file
+forge pr render <pr-id> --root <path> --width 78 # explicit wrap width (default 78)
+forge pr render <pr-id> --root <path> --no-wrap  # disable content soft-wrap (legacy v0.3.2)
 ```
 
 The default behavior writes the rendered §0.5 view into the proposal body
@@ -464,6 +473,13 @@ markers — the reviewer opens `proposal.md` in Obsidian / editor and sees
 the per-item disposition + propagation tree + merged diff + approve pipeline
 directly, no redirection needed. User-authored content outside the markers
 is preserved.
+
+v0.3.3+: render and reformat default to wrap content at 78 display cols
+(CJK = 2 cols), preferring CJK / ASCII punctuation (`，。、；：！？,;.!?→`)
+or ASCII whitespace as break points; box rules / sub-item title bars
+length-equalize to the same width. Use `--width N` to change the wrap /
+border target, or `--no-wrap` to revert to the v0.3.2 unwrapped output
+(box rules still respect `--width`).
 
 Use `--stdout` only when you specifically need the text in the terminal
 (e.g. piping through grep). Do NOT hand-write a parallel markdown view.
