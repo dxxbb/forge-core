@@ -1,6 +1,6 @@
 """forge: a review-gated context compiler. (PyPI package: context-forge)"""
 
-__version__ = "0.3.3"
+__version__ = "0.3.4"
 
 from forge.compiler.section import Section
 from forge.compiler.config import Config

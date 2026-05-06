@@ -102,11 +102,26 @@ _DISP_LABEL = {
 # this width. CLI exposes `--width N` and `--no-wrap` overrides.
 WRAP_WIDTH = 78
 
-# CJK punctuation that's a natural break point for soft-wrap (after this
-# punctuation, before next char). Includes the flow-arrow `→` used as a step
-# separator in dxyOS / forge content. ASCII `:` is intentionally excluded
-# so label-value patterns like `**Icon**: ✅` don't break right after the colon.
-_CJK_BREAK_AFTER = "，。、；：！？,;.!?）)】」』→"
+# CJK punctuation that's a natural break point for soft-wrap.
+#
+# v0.3.4: split into two classes to avoid mid-token cuts on dot-extension
+# filenames / IPs / domains / version strings:
+#
+#   _CJK_BREAK_AFTER  — fullwidth CJK punct + close brackets + flow-arrow.
+#                       Break IMMEDIATELY after these (CJK doesn't need a
+#                       trailing space).
+#   _ASCII_BREAK_AFTER — narrow ASCII punct (.,;!? — note `:` is excluded so
+#                       label-value patterns don't break right after the colon).
+#                       Only register as a break candidate when followed by a
+#                       space or end-of-string. This means `CLAUDE.md`,
+#                       `192.168.1.1`, `example.com`, `v0.3.3`, etc. are NEVER
+#                       split at the `.`, but `(provenance 注释明示),upstream`
+#                       still breaks correctly because the comma is a CJK
+#                       fullwidth comma — and `... ship it. Next phase ...`
+#                       breaks at the `. ` boundary because `.` is followed by
+#                       a space.
+_CJK_BREAK_AFTER = "，。、；：！？）】」』→"
+_ASCII_BREAK_AFTER = ",;.!?)"
 
 
 # ------------------------------------------------------------------ render
@@ -704,12 +719,19 @@ def _field_block(
 
     v0.3.3: each user-supplied paragraph is also soft-wrapped to `width`
     columns (display width). Wrap continuation prefix:
-      - tree=True, paragraph started by `├─ ` → continuation uses `│  ` then
-        14-space indent (so chars line up under the paragraph content).
-      - tree=True, paragraph started by `└─ ` → continuation uses `   ` then
-        14-space indent (no bar after last child).
+      - tree=True, paragraph started by `├─ X` → continuation uses `│  X`
+        (3 display cols `│  ` + same `len(extra)` indent), so the
+        continuation chars line up at the same column as the paragraph
+        content.
+      - tree=True, paragraph started by `└─ X` → continuation uses `   X`
+        (3 display cols of plain spaces — no `│` after a closing branch).
       - tree=False → continuation uses 14-space indent (same as paragraph
         start), keeping the value column aligned.
+
+    v0.3.4: bar `│ ` (2 display cols) → `│  ` (3 cols) and trailing `  ` →
+    `   ` (3 cols), so continuation chars align at the same column as the
+    paragraph's first content char (├─ / └─ themselves are 2 cols + 1 sep
+    = 3 cols, matching).
     """
     lines = (value or "").splitlines() or [""]
     label_cols = _display_width(label)
@@ -735,9 +757,13 @@ def _field_block(
             stripped = line.lstrip(" ")
             extra = line[: len(line) - len(stripped)]
             paragraph_prefix = f"            {connector} {extra}"
-            # wrap continuation: `│ ` (or `  ` for the last paragraph) then
-            # 12-space indent so total reaches the same column as `extra` start.
-            bar = "│ " if connector == "├─" else "  "
+            # v0.3.4 wrap continuation: `│  ` (├─ branches) or `   ` (└─
+            # last branch — no bar; subtree terminates). Both are 3 display
+            # cols, matching `├─ ` / `└─ ` so wrap continuation chars line up
+            # in the SAME column as paragraph content. Also add `len(extra)`
+            # spaces so leading-indented paragraphs (e.g. continuation bullets)
+            # keep their content column.
+            bar = "│  " if connector == "├─" else "   "
             cont_prefix = f"            {bar}{' ' * len(extra)}"
             content = stripped
         else:
@@ -895,6 +921,14 @@ def _find_break(s: str, budget: int) -> int:
         # Update break candidates AFTER counting this char.
         if ch in _CJK_BREAK_AFTER:
             last_punct_break = i + 1
+        elif ch in _ASCII_BREAK_AFTER:
+            # v0.3.4: ASCII punct is a break candidate ONLY when followed by
+            # whitespace or end-of-string. This guards file extensions
+            # (CLAUDE.md), IPs (192.168.1.1), domains (example.com), version
+            # strings (v0.3.3), and any "punct stuck inside a token" form.
+            next_ch = s[i + 1] if i + 1 < len(s) else ""
+            if next_ch == "" or next_ch == " ":
+                last_punct_break = i + 1
         elif ch == " ":
             # Break AT the space (consumer rstrips/lstrips around).
             last_space_break = i

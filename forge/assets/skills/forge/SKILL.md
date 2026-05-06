@@ -1,6 +1,6 @@
 ---
 name: forge
-version: 0.3.3
+version: 0.3.4
 description: "Initialize and operate a personalOS workspace with forge. Use when the user says they want to create/setup/build a forge or personalOS workspace, manage agent context, import existing CLAUDE.md/AGENTS.md/memory, review context changes, or approve/reject context updates. This skill is personalOS-layout-first and must not use legacy `forge new` / `sp` onboarding."
 metadata:
   requires:
@@ -451,11 +451,19 @@ or run `forge proposal reformat <pr-id> --root <path>` standalone to fix
 existing v0.3.1 PRs without re-validating.
 
 v0.3.3+: reformat additionally breaks any single-line plain scalar > 90
-display cols at CJK / ASCII punctuation (`，。；：、！？)）】」』,;.!?→`),
-inserting `\n` so the output goes to block-scalar (`|`) form. This keeps
-Obsidian / terminal viewers from folding plain scalars at unpredictable
-widths. Pass `--no-break-lines` to skip the break-long-lines pass and keep
-the v0.3.2 YAML-style-only normalization.
+display cols at CJK / ASCII punctuation, inserting `\n` so the output goes
+to block-scalar (`|`) form. This keeps Obsidian / terminal viewers from
+folding plain scalars at unpredictable widths. Pass `--no-break-lines` to
+skip the break-long-lines pass and keep the v0.3.2 YAML-style-only
+normalization.
+
+v0.3.4+: punctuation set is split — CJK fullwidth `，。；：、！？）】」』→`
+break IMMEDIATELY (no trailing space needed), but ASCII `,;.!?)` are break
+candidates ONLY when followed by space or end-of-string. This guards file
+extensions (`CLAUDE.md`), IPs (`192.168.1.1`), domains (`example.com`),
+and version strings (`v0.3.3`) from being split mid-token. **For Chinese
+sentence breaks, write the fullwidth `，` — ASCII `,` between CJK chars
+is no longer a break candidate.**
 
 ### 4. Render For User Review
 
@@ -475,11 +483,17 @@ directly, no redirection needed. User-authored content outside the markers
 is preserved.
 
 v0.3.3+: render and reformat default to wrap content at 78 display cols
-(CJK = 2 cols), preferring CJK / ASCII punctuation (`，。、；：！？,;.!?→`)
-or ASCII whitespace as break points; box rules / sub-item title bars
-length-equalize to the same width. Use `--width N` to change the wrap /
-border target, or `--no-wrap` to revert to the v0.3.2 unwrapped output
-(box rules still respect `--width`).
+(CJK = 2 cols), preferring CJK fullwidth punctuation (`，。、；：！？）】」』→`)
+or ASCII punct + space or ASCII whitespace as break points; box rules /
+sub-item title bars length-equalize to the same width. Use `--width N` to
+change the wrap / border target, or `--no-wrap` to revert to the v0.3.2
+unwrapped output (box rules still respect `--width`).
+
+v0.3.4+: tree-form `提取信息` continuation prefix is corrected — `├─ X`
+paragraph wraps to `│  X` (3 cols) and `└─ X` last paragraph wraps to
+`   X` (3 spaces, no `│`). The wrapped content column now strictly aligns
+with the paragraph's first content char, eliminating the v0.3.3 1-column
+visual offset.
 
 Use `--stdout` only when you specifically need the text in the terminal
 (e.g. piping through grep). Do NOT hand-write a parallel markdown view.

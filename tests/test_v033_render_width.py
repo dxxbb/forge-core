@@ -67,16 +67,37 @@ def test_wrap_short_line_passes_through():
 
 
 def test_wrap_long_chinese_breaks_at_punct():
-    """A long Chinese line breaks at the latest in-budget CJK punctuation."""
+    """A long Chinese line breaks at the latest in-budget CJK punctuation.
+
+    v0.3.4: ASCII `,` between CJK chars (without trailing space) is no longer
+    a break candidate — use the CJK fullwidth `，` if you mean "this is a
+    Chinese sentence break".
+    """
     s = "内容是 forge-core 编译产物 (provenance 注释明示),upstream 全部为 personalOS 现有 asset。"
     out = _wrap_line(s, width=78, first_prefix="            ├─ ",
                      cont_prefix="            │  ")
     # Each emitted line must fit within 78 cols
     for line in out:
         assert _disp(line) <= 78, (line, _disp(line))
-    # First line ends with a CJK punct (comma) — break-after, comma stays on prev
-    assert out[0].rstrip().endswith("(provenance 注释明示),")
     # Continuation prefix on second line
+    assert out[1].startswith("            │  ")
+    # v0.3.4: break at ASCII space (after `(provenance 注释明示),upstream`),
+    # NOT inside the ASCII comma — those ASCII puncts only break when followed
+    # by space/EOS.
+    full = "".join(out)
+    assert "内容" in full and "asset" in full   # roundtrip
+
+
+def test_wrap_long_chinese_breaks_at_cjk_fullwidth_punct():
+    """v0.3.4: `，` (fullwidth comma) IS a break candidate (no trailing space
+    requirement, since CJK doesn't need it)."""
+    s = "内容是 forge-core 编译产物（provenance 注释明示），upstream 全部为 personalOS 现有 asset。"
+    out = _wrap_line(s, width=78, first_prefix="            ├─ ",
+                     cont_prefix="            │  ")
+    for line in out:
+        assert _disp(line) <= 78, (line, _disp(line))
+    # First line ends with the CJK fullwidth comma — break-after, comma stays
+    assert out[0].rstrip().endswith("，"), out[0]
     assert out[1].startswith("            │  ")
 
 
@@ -374,12 +395,16 @@ def test_break_long_string_short_unchanged():
 
 
 def test_break_long_string_breaks_at_cjk_punct():
-    s = "甲乙丙丁戊己庚辛壬癸,子丑寅卯辰巳午未申酉戌亥,東南西北中前後左右上下,春夏秋冬,東西南北。"
+    """v0.3.4: use CJK fullwidth `，` for "Chinese sentence break". ASCII `,`
+    between CJK chars (no trailing space) is NOT a break candidate — guards
+    `CLAUDE.md` / `192.168.1.1` / `v0.3.3` from being split."""
+    s = "甲乙丙丁戊己庚辛壬癸，子丑寅卯辰巳午未申酉戌亥，東南西北中前後左右上下，春夏秋冬，東西南北。"
     out = _break_long_string(s, threshold=30)
     assert "\n" in out
-    # Each line ≤ 30 cols
+    # Each line ≤ 30 cols (or contains no `，` past the head, meaning we ran
+    # out of break candidates within this segment).
     for line in out.split("\n"):
-        assert _disp(line) <= 30 or "," not in line[: -1]
+        assert _disp(line) <= 30 or "，" not in line[: -1]
 
 
 def test_break_long_string_no_cjk_punct_kept_whole():
@@ -391,8 +416,13 @@ def test_break_long_string_no_cjk_punct_kept_whole():
 
 
 def test_break_long_string_arrow_is_break_point():
-    """`→` (the flow-arrow) is a recognized break point (used heavily in dxyOS)."""
-    s = "状态 A → 状态 B → 状态 C → 状态 D → 最终状态,该规则在 forge triage 期间触发。"
+    """`→` (the flow-arrow) is a recognized break point (used heavily in dxyOS).
+
+    v0.3.4: use CJK fullwidth `，` for the trailing comma so `最终状态，该规则`
+    is also a candidate break (was ASCII comma before, no longer breaks
+    between CJK chars without space).
+    """
+    s = "状态 A → 状态 B → 状态 C → 状态 D → 最终状态，该规则在 forge triage 期间触发。"
     out = _break_long_string(s, threshold=30)
     assert "\n" in out
     for line in out.split("\n"):
@@ -401,15 +431,19 @@ def test_break_long_string_arrow_is_break_point():
 
 def test_reformat_text_breaks_long_plain_scalar_by_default():
     """A v0.3.2-shaped frontmatter with a long single-line plain scalar gets
-    `\n` inserted by reformat_text (default break_long_lines=True)."""
+    `\n` inserted by reformat_text (default break_long_lines=True).
+
+    v0.3.4: uses CJK fullwidth `，` for "Chinese sentence break" — ASCII `,`
+    between CJK chars is no longer a break candidate.
+    """
     text = (
         "---\n"
         "kind: pr\n"
         "items:\n"
         "- id: '1'\n"
         "  monitor_info: short\n"
-        "  rationale: 这是一个非常长的 rationale 字符串,包含多个 CJK 标点,"
-        "应该被 break 函数在标点处切开,以便 Obsidian 显示更友好。\n"
+        "  rationale: 这是一个非常长的 rationale 字符串，包含多个 CJK 标点，"
+        "应该被 break 函数在标点处切开，以便 Obsidian 显示更友好。\n"
         "---\n\nbody.\n"
     )
     new_text, changed = reformat_text(text)
@@ -448,8 +482,8 @@ def test_reformat_break_lines_idempotent():
         "items:\n"
         "- id: '1'\n"
         "  monitor_info: short\n"
-        "  rationale: 这是一个非常长的 rationale 字符串,包含多个 CJK 标点,"
-        "应该被 break 函数在标点处切开,以便 Obsidian 显示更友好。\n"
+        "  rationale: 这是一个非常长的 rationale 字符串，包含多个 CJK 标点，"
+        "应该被 break 函数在标点处切开，以便 Obsidian 显示更友好。\n"
         "---\n\nbody.\n"
     )
     once, c1 = reformat_text(text)
@@ -495,8 +529,8 @@ def test_needs_reformat_detects_long_plain_scalar():
         "items:\n"
         "- id: '1'\n"
         "  monitor_info: short\n"
-        "  rationale: 这是一个非常长的 rationale 字符串,包含多个 CJK 标点和分隔,"
-        "应该被 break 函数在标点处切开,以便 Obsidian 显示更友好,"
+        "  rationale: 这是一个非常长的 rationale 字符串，包含多个 CJK 标点和分隔，"
+        "应该被 break 函数在标点处切开，以便 Obsidian 显示更友好，"
         "这里再加一些内容把它变得很长很长。\n"
         "---\n\nbody.\n"
     )
@@ -599,8 +633,8 @@ def test_cli_proposal_reformat_default_breaks_lines(tmp_path):
         "items:\n"
         "- id: '1'\n"
         "  monitor_info: short\n"
-        "  rationale: 这是一个非常长的 rationale 字符串,包含多个 CJK 标点,"
-        "应该被 reformat 切开,以便 Obsidian 显示更友好。这里再加一些内容把它变得很长。\n"
+        "  rationale: 这是一个非常长的 rationale 字符串，包含多个 CJK 标点，"
+        "应该被 reformat 切开，以便 Obsidian 显示更友好。这里再加一些内容把它变得很长。\n"
         "---\n\nbody.\n"
     )
     (pr_dir / "proposal.md").write_text(text, encoding="utf-8")

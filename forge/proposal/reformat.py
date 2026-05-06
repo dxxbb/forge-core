@@ -36,9 +36,21 @@ from forge.proposal.schema import _split_frontmatter, forge_yaml_dump
 BREAK_LONG_LINES_THRESHOLD = 90
 
 # Punctuation after which we may insert `\n` to break a long plain scalar.
-# Order: prefer break after CJK fullwidth punctuation, then ASCII. Includes
-# the flow-arrow `→` because dxyOS / forge content uses it as a step separator.
-_BREAK_AFTER_CHARS = "，。；：、！？)）】」』,;.!?→"
+#
+# v0.3.4: split into two classes (mirrors renderer._CJK_BREAK_AFTER /
+# _ASCII_BREAK_AFTER) to avoid mid-token cuts on dot-extension filenames /
+# IPs / domains / version strings (e.g. `CLAUDE.md`, `192.168.1.1`,
+# `example.com`, `v0.3.3`).
+#
+# `_CJK_BREAK_AFTER`  — fullwidth CJK punct + close brackets + flow-arrow
+#                       (break IMMEDIATELY after).
+# `_ASCII_BREAK_AFTER` — narrow ASCII punct (`.,;!?`); only register as a
+#                       break candidate when the next char is whitespace or
+#                       end-of-string.
+_CJK_BREAK_AFTER = "，。；：、！？）】」』→"
+_ASCII_BREAK_AFTER = ",;.!?)"
+# Backward-compat alias (some tests import this).
+_BREAK_AFTER_CHARS = _CJK_BREAK_AFTER + _ASCII_BREAK_AFTER
 
 
 @dataclass
@@ -107,6 +119,10 @@ def _find_punct_break(s: str, budget: int) -> int:
     within `budget` cols AND `s[idx-1]` is a break-point punctuation char.
 
     Returns 0 if no such position exists.
+
+    v0.3.4: ASCII `.,;!?` are break candidates ONLY when followed by space
+    or end-of-string, so file extensions (`CLAUDE.md`), IPs, domains, and
+    version strings stay intact across line breaks.
     """
     cols = 0
     last_punct_idx = 0
@@ -116,8 +132,12 @@ def _find_punct_break(s: str, budget: int) -> int:
         if cols + ch_cols > budget:
             return last_punct_idx
         cols += ch_cols
-        if ch in _BREAK_AFTER_CHARS:
+        if ch in _CJK_BREAK_AFTER:
             last_punct_idx = i + 1
+        elif ch in _ASCII_BREAK_AFTER:
+            next_ch = s[i + 1] if i + 1 < len(s) else ""
+            if next_ch == "" or next_ch == " ":
+                last_punct_idx = i + 1
     return last_punct_idx
 
 

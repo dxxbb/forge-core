@@ -2,6 +2,38 @@
 
 记录 `forge-core` 的所有显著变动。
 
+## 0.3.4 (wrap corners) — 2026-05-06
+
+主 agent 在 ~/personalOS dogfood v0.3.3 渲染 `system/pr/20260505-211750-context-import/proposal.md` 时,发现 wrap 算法三个 corner-case bug:**(A)** 文件名 `CLAUDE.md` 被在 `.` 处错切成 `CLAUDE.\n│ md`(类似还会影响 `forge.md`、`192.168.1.1`、`example.com`、`v0.3.3` 等);**(B)** `└─ X` 末节段落 wrap 续行 prefix 是 14 空格,跟前 3 cols 段首 `└─ ` 视觉错位;**(C)** `├─ X` 段落 wrap 续行 prefix 是 `│ `(2 cols)而段首 `├─ ` 是 3 cols,差 1 列。本版统一修。
+
+### Fixed
+
+- **Bug A · ASCII `,;.!?)` 跟随 space 才作 break candidate**: `forge.proposal.renderer._find_break` 之前把 ASCII 句号 `.`、逗号 `,`、分号 `;`、感叹号 `!`、问号 `?`、右括号 `)` 一律当 break point,导致文件扩展名(`CLAUDE.md` → `CLAUDE.` + `md`)、IP(`192.168.1.1`)、域名(`example.com`)、版本号(`v0.3.3`)等"标点夹在 token 内部"的形态被切断。v0.3.4 把 break-after 集合拆成两类:`_CJK_BREAK_AFTER`(fullwidth `，。；：、！？）】」』` + `→`,break 立即生效)和 `_ASCII_BREAK_AFTER`(`,;.!?)`,**仅当下一字符是 space 或 EOS 才作 break candidate**)。`forge.proposal.reformat._find_punct_break` 同步,frontmatter break-long-lines 也遵循相同规则。
+- **Bug B · `└─ X` 段落 wrap 续行用 `   `(3 cols)对齐**: `_field_block(tree=True)` 的最后一个 paragraph(连接器 `└─`)wrap 续行 prefix 之前是 12 空格 + `  `(2 空格)= 14 空格,但段首是 12 空格 + `└─` + 1 空格 = 15 cols,内容起点错位 1 列。改为 12 空格 + `   `(3 空格)= 15 cols,跟段首内容严格同列,且**没有 `│`**(末节子树终止)。
+- **Bug C · `├─ X` 段落 wrap 续行用 `│  `(3 cols)对齐**: 同上,`├─` 连接器 wrap 续行之前是 12 空格 + `│ `(│ + 1 空格)= 14 cols,跟段首 `├─` + 1 空格 = 15 cols 错位。改为 12 空格 + `│  `(│ + 2 空格)= 15 cols,续行内容跟段首内容(`Why:` 等)严格同列对齐。
+
+### Tests
+
+- 新增 `tests/test_v034_wrap_corners.py`(14 cases):
+  - **Bug A**:`CLAUDE.md` / IP `192.168.1.1` / 域名 `example.com` / 版本号 `v0.3.3` 不被切;ASCII `. ` / `, ` 后跟空格仍是 break;CJK fullwidth `，。` 仍立即 break;`_find_break` 在 `CLAUDE.md` 内部不返回 dot-break;`_find_break` 在 `First. Second.` 处正确返回 dot-break。
+  - **Bug B**:`render` 后 `└─` 段落续行严格 `<12sp>   `(3 cols, 无 `│`),内容起点对齐到段首内容列。
+  - **Bug C**:`render` 后 `├─` 段落续行严格 `<12sp>│  `(3 cols),内容起点对齐到段首内容列。
+  - **回归**:CJK fullwidth `，` 单独的多行 extracted 仍正常 wrap 到 78 cols;`_CJK_BREAK_AFTER` / `_ASCII_BREAK_AFTER` 两集合不互相泄露 ASCII / non-ASCII 字符。
+- 更新 `tests/test_v033_render_width.py`:`test_wrap_long_chinese_breaks_at_punct`、`test_break_long_string_breaks_at_cjk_punct`、`test_break_long_string_arrow_is_break_point`、4 处 `test_reformat_*`、`test_needs_reformat_*`、`test_cli_proposal_reformat_default_breaks_lines` 共 7 处 fixture 中的 ASCII `,`(夹在 CJK 字符之间)改为 fullwidth `，`,匹配 v0.3.4 新约定:**ASCII `,` 在 CJK 字符之间不再作 break candidate,中文断句请用 fullwidth `，`**。新增 `test_wrap_long_chinese_breaks_at_cjk_fullwidth_punct` 单独 pin fullwidth `，` 的 break-after 行为。**总数 329 → 344 通过**(3 skipped 不变)。
+
+### E2E (~/personalOS dogfood)
+
+在 `~/personalOS/system/pr/20260505-211750-context-import/proposal.md` 上重 render(`forge pr render --stdout`):
+
+- sub 3.13 `提取信息` 段:`├─ 原文承认: "该偏好已经在 CLAUDE.md About user 段写明 ...` 全行可读,**`CLAUDE.md` 不再被 dot-split**(v0.3.3 → v0.3.4 diff:`CLAUDE.\n│ md` 消失,改为 `CLAUDE.md ` 整词不切)。
+- sub 3.13 `├─ Why:` 段:续行 prefix 从 `│ 默认还是说中文` 变 `│  triage 中纠正)`(2 cols → 3 cols),`triage` / `Why:` 起点同列。
+- sub 3.13 `└─ shell 命令` 段:续行 prefix 从 `              user 明确说英文时切换。`(14 空格)变 `   user 明确说英文时切换。`(3 空格,无 `│`),`user` / `shell` 起点同列。
+- 全文 `grep "CLAUDE\.$"` body 区(line 645+)= **0 matches**(v0.3.3 时该段渲染含 `CLAUDE.\n` 行,v0.3.4 已修)。
+
+### Skill
+
+- `forge` skill doc(`forge/assets/skills/forge/SKILL.md`):无需新增章节(wrap 行为是 render layer 内部事,用户面 API 不变)。`forge self-install` 同步把版本号 reference 从 v0.3.3 → v0.3.4(如有)。
+
 ## 0.3.3 (render width + wrap) — 2026-05-06
 
 主 agent 在 ~/personalOS dogfood v0.3.2 时反馈 proposal.md body §0.5 渲染输出"换行奇怪":default render width 73 cols,但文本行(`提取信息`、`理由`、`修改:` 等)长达 100+ chars 没自动 wrap,Obsidian / 终端按 viewport 折回时折叠点不规则。frontmatter 区也有若干 130-176 byte 的长 plain scalar 单行(无内嵌 `\n`),YAML dumper 未做软换行,看着挤。本版统一处理:render 默认 wrap 到 78 cols(display width,CJK = 2 cols),frontmatter dumper 默认在中文/ASCII 标点处 break long plain scalar。
