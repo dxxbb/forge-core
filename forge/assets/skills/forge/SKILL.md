@@ -1,6 +1,6 @@
 ---
 name: forge
-version: 0.3.1
+version: 0.3.2
 description: "Initialize and operate a personalOS workspace with forge. Use when the user says they want to create/setup/build a forge or personalOS workspace, manage agent context, import existing CLAUDE.md/AGENTS.md/memory, review context changes, or approve/reject context updates. This skill is personalOS-layout-first and must not use legacy `forge new` / `sp` onboarding."
 metadata:
   requires:
@@ -441,6 +441,14 @@ Reports schema violations in `forge doctor` style. Fix until the validator
 returns `OK`. On success the validator auto-renders the §0.5 view into the
 proposal body's BEGIN/END block (same as `forge pr render`); pass
 `--no-render` to skip that step.
+
+v0.3.2+: validate also auto-reformats the YAML frontmatter so multi-line
+strings (`extracted`, `rationale`, `covered_by`, …) are emitted as YAML
+literal block scalars (`|`) instead of single-line `\n`-escaped flow scalars
+or folded `'…'` scalars. The proposal body — including the BEGIN/END
+auto-rendered §0.5 view — is left untouched. Pass `--no-reformat` to skip,
+or run `forge proposal reformat <pr-id> --root <path>` standalone to fix
+existing v0.3.1 PRs without re-validating.
 
 ### 4. Render For User Review
 

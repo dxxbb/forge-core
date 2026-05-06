@@ -961,7 +961,14 @@ def proposal_new(root: str | None, inbox_arg: str | None, title: str) -> None:
     is_flag=True,
     help="Skip auto-render after validation passes.",
 )
-def proposal_validate(pr_ref: str, root: str | None, no_render: bool) -> None:
+@click.option(
+    "--no-reformat",
+    is_flag=True,
+    help="Skip auto-reformat (frontmatter → block-scalar) before validating.",
+)
+def proposal_validate(
+    pr_ref: str, root: str | None, no_render: bool, no_reformat: bool
+) -> None:
     """Validate a proposal's schema frontmatter.
 
     Reports each violation (path + message + hint) in `forge doctor` style.
@@ -969,11 +976,14 @@ def proposal_validate(pr_ref: str, root: str | None, no_render: bool) -> None:
     without an `items[]` block report exactly one issue ("schema not opted in")
     so the caller can distinguish them from genuinely broken schemas.
 
-    On success, validate auto-syncs the §0.5 view into the proposal body
+    By default validate auto-reformats the frontmatter so multi-line strings
+    use YAML block-scalar (`|`) form (v0.3.2+). Pass `--no-reformat` to skip.
+    On success, validate also auto-syncs the §0.5 view into the proposal body
     between the BEGIN/END markers (same as `forge pr render`). Pass
     `--no-render` to skip that step.
     """
     from forge.proposal.validate import validate_file
+    from forge.proposal.reformat import reformat_file
 
     workspace = _root(root)
     pr_dir = _resolve_pr_dir(workspace, pr_ref)
@@ -984,6 +994,18 @@ def proposal_validate(pr_ref: str, root: str | None, no_render: bool) -> None:
     if not proposal_path.is_file():
         click.echo(f"error: proposal.md not found in {pr_dir}", err=True)
         sys.exit(1)
+
+    if not no_reformat:
+        try:
+            res = reformat_file(proposal_path, backup=False)
+            if res.changed:
+                rel = proposal_path.relative_to(workspace).as_posix()
+                click.echo(
+                    f"     reformatted frontmatter → block-scalar "
+                    f"({res.before_bytes} → {res.after_bytes} bytes): {rel}"
+                )
+        except Exception as e:    # noqa: BLE001 — info only; validate still runs
+            click.echo(f"     (auto-reformat skipped: {e})")
 
     issues = validate_file(proposal_path)
     if not issues:
@@ -1005,6 +1027,51 @@ def proposal_validate(pr_ref: str, root: str | None, no_render: bool) -> None:
         if issue.hint:
             click.echo(f"      hint: {issue.hint}")
     sys.exit(1)
+
+
+@proposal_group.command("reformat")
+@click.argument("pr_ref", type=str)
+@click.option("--root", type=click.Path(), default=None, help="Workspace root (default: cwd).")
+@click.option(
+    "--no-backup",
+    is_flag=True,
+    help="Don't keep a `.bak` of the pre-reformat file.",
+)
+def proposal_reformat(pr_ref: str, root: str | None, no_backup: bool) -> None:
+    """Reformat a proposal's YAML frontmatter to use block-scalar (`|`) form.
+
+    Loads the existing proposal.md, re-dumps the frontmatter through forge's
+    block-scalar dumper, writes back. Body (including the BEGIN/END auto-
+    rendered §0.5 view) is preserved verbatim.
+
+    Idempotent: a file already in block-scalar form is reported as `no change`.
+    By default a `.bak` of the pre-reformat file is kept beside the proposal;
+    pass `--no-backup` to suppress.
+    """
+    from forge.proposal.reformat import reformat_file
+
+    workspace = _root(root)
+    pr_dir = _resolve_pr_dir(workspace, pr_ref)
+    if pr_dir is None:
+        click.echo(f"error: PR not found: {pr_ref}", err=True)
+        sys.exit(1)
+    proposal_path = pr_dir / "proposal.md"
+    if not proposal_path.is_file():
+        click.echo(f"error: proposal.md not found in {pr_dir}", err=True)
+        sys.exit(1)
+
+    res = reformat_file(proposal_path, backup=not no_backup)
+    rel = proposal_path.relative_to(workspace).as_posix()
+    if not res.changed:
+        click.echo(f"OK   {rel}: already block-scalar (no change)")
+        return
+    click.echo(
+        f"OK   {rel}: reformatted "
+        f"({res.before_bytes} → {res.after_bytes} bytes)"
+    )
+    if res.backup is not None:
+        bak_rel = res.backup.relative_to(workspace).as_posix()
+        click.echo(f"     backup kept at: {bak_rel}")
 
 
 # ---------- personalOS capture/import ----------

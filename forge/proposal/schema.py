@@ -32,6 +32,48 @@ from typing import Any
 import yaml
 
 
+# ----------------------------------------------------------------------------
+# YAML dumper: force block-scalar (`|`) style for any string containing newlines
+# ----------------------------------------------------------------------------
+#
+# v0.3.1 default `yaml.safe_dump` produces two ugly forms for multi-line strings
+# in our schema:
+#   • flow scalar with literal `\n` escapes (632–746 chars on a single line), or
+#   • folded `'…'` scalar with `''` quote-escaping and double-newline paragraph
+#     breaks plus 6-space indentation.
+# Both are unreadable inside Obsidian and create churn on round-trip. v0.3.2
+# normalizes every multi-line string to YAML literal block scalar (`|`) so the
+# frontmatter stays close to the literal text the agent wrote.
+
+class _ForgeDumper(yaml.SafeDumper):
+    """SafeDumper subclass that prefers block-scalar `|` for multi-line strings."""
+
+
+def _represent_str(dumper: yaml.SafeDumper, data: str):
+    if "\n" in data:
+        # Strip trailing whitespace on each line; a trailing space on a literal
+        # block scalar line forces yaml to fall back to a quoted style.
+        cleaned = "\n".join(line.rstrip() for line in data.split("\n"))
+        return dumper.represent_scalar("tag:yaml.org,2002:str", cleaned, style="|")
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data)
+
+
+_ForgeDumper.add_representer(str, _represent_str)
+
+
+def forge_yaml_dump(data: Any) -> str:
+    """Project-wide YAML dump: block-scalar for multi-line strings, unicode kept,
+    field order preserved, lines not auto-wrapped."""
+    return yaml.dump(
+        data,
+        Dumper=_ForgeDumper,
+        sort_keys=False,
+        allow_unicode=True,
+        width=10**9,
+        default_flow_style=False,
+    )
+
+
 class Disposition(str, Enum):
     """Per-item disposition icon enum.
 
@@ -459,7 +501,13 @@ def _split_frontmatter(text: str) -> tuple[str, str]:
                 body_start += 1
             if body_start < len(rest) and rest[body_start] == "\n":
                 body_start += 1
-            return rest[4:end], rest[body_start:]
+            # Include the newline that precedes `---` in the frontmatter slice
+            # (rest[4:end+1]) so a literal block scalar (`|`) ending on the
+            # last frontmatter line still terminates on a clean line break —
+            # otherwise PyYAML loads the trailing `\n` away and round-trip
+            # flips the chomp indicator from `|` (clip) to `|-` (strip).
+            fm_end = end + 1 if end < len(rest) and rest[end] == "\n" else end
+            return rest[4:fm_end], rest[body_start:]
         cursor = after
 
 
@@ -507,17 +555,18 @@ def load_proposal(text: str) -> Proposal:
 def dump_proposal(proposal: Proposal) -> str:
     """Serialize a Proposal back to `---\\nyaml\\n---\\n\\nbody` text."""
     fm = proposal.to_yaml()
-    fm_text = yaml.safe_dump(
-        fm,
-        sort_keys=False,
-        allow_unicode=True,
-        width=10**9,           # don't auto-wrap our long strings
-        default_flow_style=False,
-    ).rstrip()
+    fm_text = forge_yaml_dump(fm)
+    # Do NOT rstrip: a trailing `\n` after a literal block scalar (`|`) is
+    # semantically meaningful (clip vs strip indicator). Just normalize the
+    # boundary so we have exactly one newline before the closing `---`.
+    if not fm_text.endswith("\n"):
+        fm_text += "\n"
     body = proposal.body or ""
     if body and not body.startswith("\n"):
         body = "\n" + body
-    return f"---\n{fm_text}\n---\n{body}".rstrip("\n") + "\n"
+    out = f"---\n{fm_text}---\n{body}"
+    # Ensure file ends with exactly one trailing newline.
+    return out.rstrip("\n") + "\n"
 
 
 def has_schema(proposal: Proposal) -> bool:

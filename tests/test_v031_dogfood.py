@@ -416,8 +416,10 @@ def test_validate_no_render_flag_skips_auto_render(tmp_path):
     proposal_path.write_text(text, encoding="utf-8")
 
     before = proposal_path.read_text(encoding="utf-8")
+    # v0.3.2: validate auto-reformats by default; pass --no-reformat to keep
+    # the file byte-identical (this test only exercises --no-render).
     r = runner.invoke(main, ["proposal", "validate", pr_id, "--root", str(root),
-                              "--no-render"])
+                              "--no-render", "--no-reformat"])
     assert r.exit_code == 0
     assert "auto-rendered" not in r.output
     after = proposal_path.read_text(encoding="utf-8")
@@ -457,15 +459,14 @@ def test_p6_mixed_parent_capture_not_double_counted():
 # ---------------- skill version sync sanity (P5/P13)
 
 
-def test_skill_md_carries_v031_version():
+def test_skill_md_carries_current_version():
     """The packaged SKILL.md should advertise the current forge version so the
     agent picks up the right operating manual after `forge self-install`."""
     from forge import __version__
-    assert __version__ == "0.3.1"
-    # The packaged asset's frontmatter version should match.
+    # The packaged asset's frontmatter version should match the package version.
     src = Path(__file__).resolve().parent.parent / "forge" / "assets" / "skills" / "forge" / "SKILL.md"
     text = src.read_text(encoding="utf-8")
     m = re.search(r"^version:\s*(\S+)", text, re.MULTILINE)
     assert m, "SKILL.md missing `version:` frontmatter key"
-    assert m.group(1) == "0.3.1", \
-        f"SKILL.md version is {m.group(1)}, expected 0.3.1"
+    assert m.group(1) == __version__, \
+        f"SKILL.md version is {m.group(1)}, expected {__version__}"

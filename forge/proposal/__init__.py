@@ -27,8 +27,15 @@ from forge.proposal.schema import (
     Disposition,
     load_proposal,
     dump_proposal,
+    forge_yaml_dump,
 )
 from forge.proposal.validate import validate_proposal, ValidationIssue
+from forge.proposal.reformat import (
+    ReformatResult,
+    needs_reformat,
+    reformat_file,
+    reformat_text,
+)
 
 __all__ = [
     "Proposal",
@@ -40,6 +47,11 @@ __all__ = [
     "Disposition",
     "load_proposal",
     "dump_proposal",
+    "forge_yaml_dump",
     "validate_proposal",
     "ValidationIssue",
+    "ReformatResult",
+    "needs_reformat",
+    "reformat_file",
+    "reformat_text",
 ]

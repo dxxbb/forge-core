@@ -2,6 +2,39 @@
 
 记录 `forge-core` 的所有显著变动。
 
+## 0.3.2 (yaml block-scalar) — 2026-05-06
+
+主 agent 在 ~/personalOS 跑 v0.3.1 的 `forge proposal new`,proposal.md frontmatter 里多行字符串字段(`extracted` / `rationale` / `covered_by`)被 PyYAML 默认 dump 成两种丑陋形态:**(A)** double-quoted flow scalar(单行 632–746 字符塞 `\n` escape),**(B)** single-quoted folded scalar(段落间双 newline + 6-space 缩进 + `''` 转义)。Obsidian 里读着累、diff 难看、ergonomics 拉。本版统一用 YAML literal block scalar (`|`)。
+
+### Fixed
+
+- **多行字符串 dump 用 block scalar**: 新增 `forge.proposal.schema._ForgeDumper`(yaml.SafeDumper subclass)+ custom str representer:任何含 `\n` 的字符串自动用 `style='|'`,行尾 trailing whitespace 清理(否则 PyYAML 会 fallback 到 quoted style)。`dump_proposal` 通过 `forge_yaml_dump()` 走新 dumper。stub / validate auto-render / pr render 路径全部受益,无需在调用处改动。
+- **`_split_frontmatter` 保留 closing `---` 之前的换行**: v0.3.1 切下来的 frontmatter slice 不含 `---` 之前的换行,导致 `|`(clip,保留 1 个尾部 `\n`)round-trip 后变成 `|-`(strip)。修 split 把 trailing `\n` 留在 frontmatter slice 里,literal block scalar 的 chomp indicator 现在 round-trip 稳定。
+- **`dump_proposal` 不再 rstrip 整个 dump 输出**: v0.3.1 用 `yaml.safe_dump(...).rstrip()`,会把 block scalar 末尾必要的换行也吃掉。改为只在最末尾保证一个 trailing newline,中间的 chomp 语义保留。
+
+### Added
+
+- **`forge proposal reformat <pr-id>` 命令**: 一次性把现有 proposal.md frontmatter 重 dump 成 block-scalar 形态。idempotent(已经 block-scalar 的文件返回 `no change`),body(含 `<!-- BEGIN AUTO-RENDERED -->` / `<!-- END -->` 之间的 §0.5 渲染块)逐字保留。默认写一份 `proposal.md.bak`,加 `--no-backup` 关闭。
+- **`forge proposal validate` 默认顺手 reformat**: 默认行为先 reformat 再 validate,变更时打印 `reformatted frontmatter → block-scalar (X → Y bytes)`。加 `--no-reformat` 关闭(用于"我只想 lint 不想动文件"的场景)。
+
+### Migration
+
+现有 v0.3.1 PR(尤其是 `~/personalOS/system/pr/<id>/proposal.md`)建议跑一次:
+
+```bash
+forge proposal reformat <pr-id> --root <workspace>
+```
+
+或下次 `forge proposal validate` 时 auto-reformat 会顺手处理。语义不变(load → 同 dict),仅 YAML 序列化形态从 flow/folded → block-scalar。
+
+### Tests
+
+新增 `tests/test_v032_yaml_block_scalar.py`(19 cases):dumper 单元、`reformat_text` 行为、CLI 端到端、idempotency、body 保留、`--no-reformat` opt-out。`test_v031_dogfood::test_validate_no_render_flag_skips_auto_render` 加 `--no-reformat` 适配新默认。**总数 281 → 300 通过**(3 skipped 不变)。
+
+### Skill
+
+- `forge` skill doc(`forge/assets/skills/forge/SKILL.md`)v0.3.1 → v0.3.2:"Process Inbox To Proposal" §3 加一段说明 v0.3.2 起 validate 默认 auto-reformat,以及 `forge proposal reformat` standalone 用法。`forge self-install` 同步到 `~/.claude/skills/forge/SKILL.md`。
+
 ## 0.3.1 (dogfood) — 2026-05-05
 
 主 agent 在 ~/personalOS 真实跑了一遍 v0.3.0,暴露 13 条问题(8 bug + 5 cosmetic/spec)。本版修齐 12 条(P6 仅文档化无代码变更)。
