@@ -2,6 +2,36 @@
 
 记录 `forge-core` 的所有显著变动。
 
+## 0.4.0 (workspace-project sync) — 2026-05-07
+
+新增 `kind: project` onepage 上游同步链路:用户在 `workspace/project/<name>/onepage.md` 声明外部工作目录(`upstream.local_dir` + 可选 `git_remote` / `status_sources`)后,forge 即可在本地 git HEAD 与 `last_synced.commit` 不一致时报变化、把 `git log/diff/status` + status_sources head 抓为 capture inbox 项,并在 PR approve 时把当前 HEAD 写回 `last_synced`。本版只做"觉察 + 抓状态 + 写回",不自动总结、不远端 fetch、不复杂 diff。
+
+### Added
+
+- **schema 识别**: `forge/governance/workspace_project.py` 新增 `ProjectOnepage` / `load_project_onepage` / `discover_project_onepages`,用 PyYAML 解析嵌套 frontmatter(`upstream:` / `last_synced:`),tilde / env 展开,YAML auto-parse 的 datetime 标准化为 ISO 字串。`kind: project` 之外的 onepage 仍按旧路径处理(向后兼容)。
+- **doctor INFO lint**: `forge/gate/doctor.py` 新增 `_project_onepage_lines`,扫到 `kind: project` 但缺 `upstream.local_dir` 时输出 INFO(不是 WARN / ERROR)——onepage 仍是合法 onepage,只是 sync 链路未启用。无 project onepage 时此段不出现。
+- **forge monitor 扩展**: `forge/cli.py::monitor` 新增 `_workspace_project_updates`,对每个有 upstream 的 project 跑 `probe_project`(本地 `git rev-parse HEAD` vs `last_synced.commit`、`status_sources` mtime vs `last_synced.at`)。drift 进 attention `next:` 列表为 `workspace-project changed: <name> · ...` 行;`local_dir` 缺失 / 非 git 仅输出 `warn:`,不把 status 抬到 attention。
+- **forge capture --workspace-project `<name>`**: capture 路径新增第 4 个互斥 input mode。命中时合成 capture markdown(`# Summary` + `## Commits since last_synced`(git log oneline)+ `## Diff stat since last_synced`(git diff --stat)+ `## Working tree status`(git status --short)+ `## Status sources`(每文件 head 50 行 + mtime)),写入 `capture/import/<ts>/workspace-project-<name>.md` + `system/inbox/<ts>-workspace-project-<name>.md`(`type: workspace-project-update`)。从未 sync(`last_synced.commit` 空)走"showing last 20 commits" fallback,不报错。
+- **forge pr done atomic last_synced 写回**: approve(非 `--reject`)时,`_sync_last_synced_for_modified_onepages` 扫工作树中已修改的 project onepage,从 `upstream.local_dir` 读当前 HEAD,把 `{commit, at}` 注入 onepage frontmatter。用户下一次 git commit 把 last_synced 跟 onepage body 改动绑成一笔——审核+写回原子化。`--reject` 不动 onepage(PR 不代表真实 sync)。
+- **SKILL.md `Workspace-Project Sync` 章节**: `forge/assets/skills/forge/SKILL.md` 加一节解释 schema、`forge capture --workspace-project` 触发、PR 审核回写 last_synced 流程。`forge monitor` 触发清单加 `workspace-project changed: <name>` 一行。
+- **subprocess only**: 不引入 GitPython 等外部 dep,所有 git 调用走 `subprocess.run`,从不 `git fetch`(纯本地 state 信号)。
+
+### Tests
+
+- 新增 `tests/test_v040_workspace_project_sync.py`(29 cases),分 5 组:
+  - **schema 解析**(6):`load_project_onepage` 全字段、跳过非 `kind: project`、空 `upstream` 容忍、`~` 展开、`discover_project_onepages` 排序与过滤、`split_frontmatter` 处理 YAML 嵌套。
+  - **doctor INFO lint**(2):missing `upstream.local_dir` 进 INFO 而非 WARN/ERROR;无 project onepage 时不输出此段。
+  - **monitor probe + CLI**(7):commit drift / never-synced / status_source mtime drift / `local_dir` 不存在 / 非 git;CLI `monitor` 检到 drift 报 `workspace-project changed`、无 drift 报 `status: clean`、`local_dir` 缺失仅 `warn:` 不抬 attention。
+  - **capture CLI**(5):正常路径写 capture + inbox、未知 name 报错、缺 `upstream.local_dir` 报错、与其他 input mode 互斥、never-synced 走 last-20 fallback。
+  - **last_synced 写回**(7):`update_last_synced` 注入 / 跳过非 project / 覆盖旧值;`find_modified_project_onepages` 检 modified + untracked;`pr done` approve 路径写回、`--reject` 路径不写回。
+  - **e2e**(1):真上游 git repo + 真 personalOS root + monitor → capture → 改 onepage → 创 fake PR → `pr done` 全链路,assert `last_synced.commit` 等于新上游 HEAD。
+- **总数 344 → 373 通过**(3 skipped 不变)。
+
+### Skill / install
+
+- `forge self-install` 同步 v0.4.0 (`forge/assets/skills/forge/SKILL.md` `version: 0.4.0`)。
+- onepage 老版本(`kind` 非 `project` 或 无 `upstream:`)无任何变化:不进 monitor / doctor / capture 新逻辑。
+
 ## 0.3.4 (wrap corners) — 2026-05-06
 
 主 agent 在 ~/personalOS dogfood v0.3.3 渲染 `system/pr/20260505-211750-context-import/proposal.md` 时,发现 wrap 算法三个 corner-case bug:**(A)** 文件名 `CLAUDE.md` 被在 `.` 处错切成 `CLAUDE.\n│ md`(类似还会影响 `forge.md`、`192.168.1.1`、`example.com`、`v0.3.3` 等);**(B)** `└─ X` 末节段落 wrap 续行 prefix 是 14 空格,跟前 3 cols 段首 `└─ ` 视觉错位;**(C)** `├─ X` 段落 wrap 续行 prefix 是 `│ `(2 cols)而段首 `├─ ` 是 3 cols,差 1 列。本版统一修。

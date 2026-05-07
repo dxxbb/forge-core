@@ -800,8 +800,50 @@ def pr_done(pr_ref: str, reject: bool, message: str, root: str | None) -> None:
     with log_file.open("a", encoding="utf-8") as f:
         f.write(line)
 
+    # v0.4: on approve, scan currently-modified project onepages and inject
+    # last_synced (commit + at). The user's next git commit picks them up
+    # alongside the onepage body change — atomic from the user's perspective.
+    # On --reject we leave onepages alone (PR did not represent a real sync).
+    synced_onepages: list[Path] = []
+    if not reject:
+        synced_onepages = _sync_last_synced_for_modified_onepages(workspace, now)
+
     shutil.rmtree(pr_dir)
     click.echo(f"done: {decision} pr/{pr_dir.name} → system/{log_dir.name}/{log_file.name}")
+    for op_path in synced_onepages:
+        try:
+            rel = op_path.relative_to(workspace).as_posix()
+        except ValueError:
+            rel = str(op_path)
+        click.echo(f"  updated last_synced: {rel}")
+
+
+def _sync_last_synced_for_modified_onepages(workspace: Path, at_iso: str) -> list[Path]:
+    """For each currently-modified project onepage, inject last_synced.
+
+    `commit` is taken from the onepage's `upstream.local_dir` HEAD at the
+    time of approve. Returns the list of onepages we mutated. Silently
+    no-op when no onepages are modified or workspace isn't a git repo.
+    """
+    try:
+        from forge.governance import workspace_project as wp
+    except Exception:
+        return []
+
+    modified = wp.find_modified_project_onepages(workspace)
+    updated: list[Path] = []
+    for path in modified:
+        op = wp.load_project_onepage(path)
+        if op is None or op.local_dir is None:
+            continue
+        if not op.local_dir.exists() or not wp.is_git_repo(op.local_dir):
+            continue
+        h = wp.head_hash(op.local_dir)
+        if not h:
+            continue
+        if wp.update_last_synced(path, commit=h, at=at_iso):
+            updated.append(path)
+    return updated
 
 
 def _resolve_pr_dir(workspace: Path, pr_ref: str) -> Path | None:
@@ -1119,6 +1161,13 @@ def proposal_reformat(
     default=None,
     help="With --from-claude-memory, restrict to one project slug.",
 )
+@click.option(
+    "--workspace-project",
+    "workspace_project",
+    default=None,
+    help="Capture state of an external project working dir declared in "
+    "workspace/project/<name>/onepage.md (kind: project + upstream metadata).",
+)
 @click.option("--root", type=click.Path(), default=None, help="personalOS root (default: cwd).")
 @click.option("--title", default="import-context", help="Inbox slug/title.")
 def capture_cmd(
@@ -1126,6 +1175,7 @@ def capture_cmd(
     from_stdin: bool,
     from_claude_memory: bool,
     claude_project: str | None,
+    workspace_project: str | None,
     root: str | None,
     title: str,
 ) -> None:
@@ -1135,9 +1185,13 @@ def capture_cmd(
     assets, proposals, or runtime output. The next step is human/agent triage
     from system/inbox/ into system/pr/.
     """
-    input_modes = [bool(source), from_stdin, from_claude_memory]
+    input_modes = [bool(source), from_stdin, from_claude_memory, bool(workspace_project)]
     if sum(input_modes) != 1:
-        click.echo("error: pick exactly one input mode (--from / --from-stdin / --from-claude-memory)", err=True)
+        click.echo(
+            "error: pick exactly one input mode "
+            "(--from / --from-stdin / --from-claude-memory / --workspace-project)",
+            err=True,
+        )
         sys.exit(1)
 
     workspace = _root(root)
@@ -1150,6 +1204,16 @@ def capture_cmd(
             err=True,
         )
         sys.exit(1)
+
+    # workspace-project mode runs through a separate code path: source is a
+    # synthesized markdown (git log + diff stat + status sources), not a raw
+    # file copy. Title defaults to a workspace-project-specific slug for
+    # clarity in capture/inbox listings.
+    if workspace_project:
+        if title == "import-context":
+            title = f"workspace-project-{workspace_project}"
+        _capture_workspace_project(workspace, workspace_project, title)
+        return
 
     if source:
         source_path = Path(source).resolve()
@@ -1260,6 +1324,116 @@ def _digest_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _capture_workspace_project(workspace: Path, project_name: str, title: str) -> None:
+    """Capture an external project's working-dir state into capture/import/
+    and create an inbox item of type `workspace-project-update`.
+
+    Looks up the matching project onepage by `name:` field first, then
+    directory name fallback (`workspace/project/<name>/onepage.md`).
+    """
+    from forge.governance import workspace_project as wp
+
+    capture_root = workspace / "capture" / "import"
+    inbox_root = workspace / "system" / "inbox"
+
+    onepages = wp.discover_project_onepages(workspace)
+    match: wp.ProjectOnepage | None = None
+    for op in onepages:
+        if op.name == project_name:
+            match = op
+            break
+    if match is None:
+        # Fallback: try directory name
+        candidate = workspace / "workspace" / "project" / project_name / "onepage.md"
+        if candidate.is_file():
+            loaded = wp.load_project_onepage(candidate)
+            if loaded is not None:
+                match = loaded
+    if match is None:
+        click.echo(
+            f"error: no project onepage found for `{project_name}` "
+            "(expected workspace/project/<name>/onepage.md with `kind: project`)",
+            err=True,
+        )
+        sys.exit(1)
+
+    if not match.has_upstream:
+        click.echo(
+            f"error: project `{project_name}` has no upstream.local_dir set in "
+            f"{match.path.relative_to(workspace).as_posix()}",
+            err=True,
+        )
+        sys.exit(1)
+
+    if not match.local_dir or not match.local_dir.exists():
+        click.echo(
+            f"error: upstream.local_dir does not exist: {match.local_dir}",
+            err=True,
+        )
+        sys.exit(1)
+    if not wp.is_git_repo(match.local_dir):
+        click.echo(
+            f"error: upstream.local_dir is not a git repo: {match.local_dir}",
+            err=True,
+        )
+        sys.exit(1)
+
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    captured_at = datetime.now().astimezone().isoformat(timespec="seconds")
+
+    capture_text = wp.build_capture_markdown(match, captured_at)
+
+    capture_root.mkdir(parents=True, exist_ok=True)
+    batch_dir = capture_root / ts
+    if batch_dir.exists():
+        suffix = 1
+        while True:
+            candidate_dir = capture_root / f"{ts}-{suffix}"
+            if not candidate_dir.exists():
+                batch_dir = candidate_dir
+                break
+            suffix += 1
+    batch_dir.mkdir(parents=True, exist_ok=False)
+    raw_name = f"workspace-project-{_safe_capture_name(project_name)}.md"
+    raw_path = batch_dir / raw_name
+    raw_path.write_text(capture_text, encoding="utf-8")
+
+    inbox_root.mkdir(parents=True, exist_ok=True)
+    slug = _safe_capture_name(title).strip("-") or f"workspace-project-{project_name}"
+    inbox_path = inbox_root / f"{ts}-{slug}.md"
+    rel_batch = batch_dir.relative_to(workspace).as_posix()
+    rel_raw = raw_path.relative_to(workspace).as_posix()
+    rel_onepage = match.path.relative_to(workspace).as_posix()
+    inbox_path.write_text(
+        "---\n"
+        "kind: inbox\n"
+        "type: workspace-project-update\n"
+        "status: pending\n"
+        f"workspace_project: {project_name}\n"
+        "source:\n"
+        f"  - {rel_batch}/\n"
+        f"  - {rel_onepage}\n"
+        "---\n\n"
+        f"# workspace-project update: {project_name}\n\n"
+        "## Source summary\n\n"
+        f"- onepage: {rel_onepage}\n"
+        f"- local_dir: {match.local_dir}\n"
+        f"- last_synced.commit: {match.last_synced_commit or '(never)'}\n"
+        f"- capture: {rel_raw}\n\n"
+        "## Requested action\n\n"
+        f"Review the captured upstream state and decide what (if anything) to "
+        f"propagate into `{rel_onepage}` body. After approving the resulting "
+        f"PR, forge will inject `last_synced` into the onepage frontmatter.\n\n"
+        "## Review requirement\n\n"
+        "Do not edit the onepage directly. Create a proposal under `system/pr/`.\n",
+        encoding="utf-8",
+    )
+
+    click.echo(f"captured workspace-project: {rel_raw}")
+    click.echo(f"created inbox item: {inbox_path.relative_to(workspace).as_posix()}")
+    click.echo("next: process inbox -> proposal -> review")
+
+
 @main.command("monitor")
 @click.option("--root", type=click.Path(), default=None, help="personalOS root (default: cwd).")
 def monitor(root: str | None) -> None:
@@ -1288,6 +1462,7 @@ def monitor(root: str | None) -> None:
     pending_pr = _pending_proposals(workspace)
     context_drift = _context_drift(workspace)
     import_updates = _import_updates(workspace)
+    project_updates, project_warns = _workspace_project_updates(workspace)
 
     if pending_pr:
         issues.append(f"pending proposals: {len(pending_pr)}")
@@ -1302,10 +1477,23 @@ def monitor(root: str | None) -> None:
         issues.append(f"import source updates: {len(import_updates)}")
         for item in import_updates[:5]:
             actions.append(f"import update: {item}")
+    if project_updates:
+        issues.append(f"workspace-project updates: {len(project_updates)}")
+        for item in project_updates[:5]:
+            actions.append(item)
 
-    if not issues:
+    if not issues and not project_warns:
         click.echo("status: clean")
         click.echo("no pending inbox, proposals, context drift, or known import updates.")
+        return
+
+    if not issues and project_warns:
+        # only WARN-level workspace-project signals — surface them but don't
+        # mark the workspace itself as needing attention.
+        click.echo("status: clean")
+        click.echo("no pending inbox, proposals, context drift, or known import updates.")
+        for w in project_warns:
+            click.echo(f"warn: {w}")
         return
 
     click.echo("status: attention")
@@ -1315,6 +1503,38 @@ def monitor(root: str | None) -> None:
     click.echo("next:")
     for action in actions[:8]:
         click.echo(f"- {action}")
+    if project_warns:
+        click.echo()
+        for w in project_warns:
+            click.echo(f"warn: {w}")
+
+
+def _workspace_project_updates(workspace: Path) -> tuple[list[str], list[str]]:
+    """Return (action_lines, warn_lines) for project onepages with drift.
+
+    Lazy-import the governance helper so legacy fixtures still run.
+    """
+    try:
+        from forge.governance.workspace_project import (
+            discover_project_onepages,
+            probe_project,
+            format_monitor_lines,
+        )
+    except Exception:
+        return [], []
+
+    actions: list[str] = []
+    warns: list[str] = []
+    for op in discover_project_onepages(workspace):
+        if not op.has_upstream:
+            continue
+        status = probe_project(op)
+        for line in format_monitor_lines(status):
+            if line.startswith("workspace-project warn:"):
+                warns.append(line[len("workspace-project warn: "):])
+            else:
+                actions.append(line)
+    return actions, warns
 
 
 def _pending_inbox_items(workspace: Path) -> list[Path]:

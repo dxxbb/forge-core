@@ -1,6 +1,6 @@
 ---
 name: forge
-version: 0.3.4
+version: 0.4.0
 description: "Initialize and operate a personalOS workspace with forge. Use when the user says they want to create/setup/build a forge or personalOS workspace, manage agent context, import existing CLAUDE.md/AGENTS.md/memory, review context changes, or approve/reject context updates. This skill is personalOS-layout-first and must not use legacy `forge new` / `sp` onboarding."
 metadata:
   requires:
@@ -60,7 +60,38 @@ Then choose one next action:
 - If monitor lists pending inbox and no proposal, process inbox to proposal.
 - If monitor lists context source changes, run **Build And Review Runtime**.
 - If monitor lists import source updates, run **Import To Capture** with those concrete updates as the recommended plan.
+- If monitor lists `workspace-project changed: <name> · ...` lines, run **Workspace-Project Sync** for that project.
 - If monitor/doctor fails, show the failing lines and offer to fix.
+
+## Workspace-Project Sync
+
+Some `workspace/project/<name>/onepage.md` files declare an external working directory via frontmatter:
+
+```yaml
+---
+kind: project
+name: <name>
+upstream:
+  local_dir: ~/workspace/projects/<name>/
+  status_sources:
+    - REPORT.md
+last_synced:
+  commit: <git HEAD at last sync>
+  at: <ISO timestamp>
+---
+```
+
+When `forge monitor` reports a `workspace-project changed` line, capture the upstream state and let the user decide what to propagate into the onepage body:
+
+```bash
+forge capture --root <path> --workspace-project <name>
+```
+
+This synthesizes a capture file from `git log <last_synced>..HEAD --oneline`, `git diff --stat`, `git status --short`, and the head of each `status_sources` file, then creates an inbox item of type `workspace-project-update`. Process it through the normal inbox → proposal → review flow.
+
+When the resulting PR is approved (`forge pr done`), forge automatically injects `last_synced.commit` (taken from upstream HEAD) and `last_synced.at` into the onepage frontmatter. The user's git commit picks them up alongside the body change.
+
+`--reject` does not update `last_synced` — the PR did not represent a real sync.
 
 ## Initialize Workspace
 

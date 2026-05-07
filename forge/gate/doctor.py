@@ -136,7 +136,39 @@ def run(root: Path) -> DoctorReport:
         else:
             report.info.append(line)
 
+    # v0.4: lint project onepages (kind: project) for required upstream metadata.
+    # INFO-only: a project onepage missing upstream.local_dir is still a valid
+    # onepage; we just can't drive workspace-project sync until it's filled in.
+    for line in _project_onepage_lines(root):
+        report.info.append(line)
+
     return report
+
+
+def _project_onepage_lines(root: Path) -> list[str]:
+    """v0.4 doctor lint: report project onepages missing upstream metadata.
+
+    Lazy import — older fixture trees may not include the governance subpackage
+    in their site-packages snapshot.
+    """
+    try:
+        from forge.governance.workspace_project import discover_project_onepages
+    except Exception:
+        return []
+
+    out: list[str] = []
+    onepages = discover_project_onepages(root)
+    if not onepages:
+        return out
+    out.append(f"workspace-project onepages: {len(onepages)}")
+    for op in onepages:
+        if not op.has_upstream:
+            rel = op.path.relative_to(root).as_posix() if op.path.is_absolute() else str(op.path)
+            out.append(
+                f"project `{op.name}`: missing upstream.local_dir "
+                f"(set it in {rel} to enable sync)"
+            )
+    return out
 
 
 def _proposal_schema_lines(root: Path) -> list[str]:
