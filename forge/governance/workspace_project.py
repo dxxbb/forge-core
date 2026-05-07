@@ -716,6 +716,200 @@ def update_last_synced(
     return True
 
 
+# ---------- v0.5.1: legacy schema auto-migration ----------
+
+
+@dataclass
+class MigrateOnepageOutcome:
+    """Per-onepage result of `forge migrate-onepage`.
+
+    status:
+      "upgraded"     — was legacy, dirty_hash + dirty_count written
+      "current"      — already on v0.5 schema (has dirty_hash field)
+      "no-baseline"  — has no last_synced.commit (never synced); not a legacy
+                       case. Capture/sync establishes the baseline; we don't
+                       fabricate one.
+      "warn"         — onepage has last_synced but upstream is unreachable
+                       (local_dir missing / not a git repo / no HEAD). Skipped.
+    """
+
+    onepage_path: Path
+    name: str
+    status: str
+    detail: str = ""           # human-readable note (e.g. computed dirty_count)
+    dirty_hash: str = ""       # only set when status == "upgraded"
+    dirty_count: int = 0       # only set when status == "upgraded"
+
+
+@dataclass
+class MigrateOnepageReport:
+    """Aggregate result of a migration pass."""
+
+    upgraded: list[MigrateOnepageOutcome] = field(default_factory=list)
+    current: list[MigrateOnepageOutcome] = field(default_factory=list)
+    no_baseline: list[MigrateOnepageOutcome] = field(default_factory=list)
+    warns: list[MigrateOnepageOutcome] = field(default_factory=list)
+
+    @property
+    def total(self) -> int:
+        return (
+            len(self.upgraded)
+            + len(self.current)
+            + len(self.no_baseline)
+            + len(self.warns)
+        )
+
+
+def _is_legacy_onepage(op: ProjectOnepage) -> bool:
+    """A onepage is "legacy" iff it has been synced (last_synced.commit set)
+    but lacks the v0.5 dirty_hash field. Onepages that have never synced are
+    NOT legacy — capture / approve will establish a v0.5 baseline naturally.
+    """
+    return bool(op.last_synced_commit) and not op.has_dirty_hash_field
+
+
+def count_legacy_onepages(workspace: Path) -> int:
+    """How many project onepages still use the v0.4.x schema (no dirty_hash).
+
+    Used by `forge monitor` to suggest running `forge migrate-onepage`.
+    Cheap: parses frontmatter only, no git calls.
+    """
+    n = 0
+    for op in discover_project_onepages(workspace):
+        if op.has_upstream and _is_legacy_onepage(op):
+            n += 1
+    return n
+
+
+def migrate_legacy_onepage_schema(
+    workspace: Path,
+    *,
+    dry_run: bool = False,
+    now_iso: str | None = None,
+) -> MigrateOnepageReport:
+    """Backfill v0.5 dirty_hash + dirty_count on every legacy project onepage.
+
+    For each onepage under `workspace/project/*/onepage.md`:
+
+      - If `last_synced.commit` is empty → status="no-baseline", skip.
+        (Capture/sync will create the v0.5 baseline; nothing mechanical to do.)
+      - If `last_synced.dirty_hash` is already present → status="current", skip.
+      - Otherwise (legacy v0.4.x, has commit but no dirty_hash):
+          - Probe `upstream.local_dir` for current porcelain snapshot.
+          - If unreachable → status="warn", skip (user must fix local_dir).
+          - Else → write back `last_synced.{commit, at, dirty_hash, dirty_count}`
+            inline (no PR review). `commit` keeps its existing value;
+            `at` is bumped to `now_iso` (or current UTC) so monitor's
+            staleness reminder also resets.
+
+    The onepage's frontmatter is mutated in place via `update_last_synced` —
+    no PR proposal is created, no inbox event is logged. This is a pure
+    mechanical schema upgrade with zero design decisions for the user to
+    review (rationale: the user has no input that would change the result;
+    we're just writing a hash of what's already on disk).
+
+    `dry_run=True` performs all probes but writes nothing.
+    """
+    if now_iso is None:
+        now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    report = MigrateOnepageReport()
+    for op in discover_project_onepages(workspace):
+        if not op.has_upstream:
+            # No upstream declared → not in scope for this migration. Treat
+            # as "current" (nothing to migrate) so totals stay sensible.
+            report.current.append(
+                MigrateOnepageOutcome(
+                    onepage_path=op.path,
+                    name=op.name,
+                    status="current",
+                    detail="no upstream declared",
+                )
+            )
+            continue
+
+        if op.has_dirty_hash_field:
+            report.current.append(
+                MigrateOnepageOutcome(
+                    onepage_path=op.path,
+                    name=op.name,
+                    status="current",
+                    detail="already on v0.5 schema",
+                )
+            )
+            continue
+
+        if not op.last_synced_commit:
+            report.no_baseline.append(
+                MigrateOnepageOutcome(
+                    onepage_path=op.path,
+                    name=op.name,
+                    status="no-baseline",
+                    detail="never synced; capture/sync will establish v0.5 baseline",
+                )
+            )
+            continue
+
+        # Legacy onepage. Probe upstream.
+        local_dir = op.local_dir
+        assert local_dir is not None  # has_upstream guarded
+        if not local_dir.exists():
+            report.warns.append(
+                MigrateOnepageOutcome(
+                    onepage_path=op.path,
+                    name=op.name,
+                    status="warn",
+                    detail=f"local_dir does not exist: {local_dir}",
+                )
+            )
+            continue
+        if not is_git_repo(local_dir):
+            report.warns.append(
+                MigrateOnepageOutcome(
+                    onepage_path=op.path,
+                    name=op.name,
+                    status="warn",
+                    detail=f"local_dir is not a git repo: {local_dir}",
+                )
+            )
+            continue
+
+        dirty_hash, dirty_count = working_tree_snapshot(local_dir)
+        outcome = MigrateOnepageOutcome(
+            onepage_path=op.path,
+            name=op.name,
+            status="upgraded",
+            detail=f"dirty_count={dirty_count}",
+            dirty_hash=dirty_hash,
+            dirty_count=dirty_count,
+        )
+
+        if not dry_run:
+            ok = update_last_synced(
+                op.path,
+                commit=op.last_synced_commit,
+                at=now_iso,
+                dirty_hash=dirty_hash,
+                dirty_count=dirty_count,
+            )
+            if not ok:
+                # Should not happen — load_project_onepage already validated
+                # `kind: project`, but be defensive.
+                report.warns.append(
+                    MigrateOnepageOutcome(
+                        onepage_path=op.path,
+                        name=op.name,
+                        status="warn",
+                        detail="update_last_synced refused (frontmatter mismatch)",
+                    )
+                )
+                continue
+
+        report.upgraded.append(outcome)
+
+    return report
+
+
 def find_modified_project_onepages(workspace: Path) -> list[Path]:
     """List project onepages currently changed in the working tree (vs HEAD).
 

@@ -2,6 +2,36 @@
 
 记录 `forge-core` 的所有显著变动。
 
+## 0.5.1 (legacy onepage schema auto-migrate) — 2026-05-07
+
+修一个 v0.5.0 设计漏洞: legacy onepage(v0.4.x 时代写的 `last_synced` 缺 `dirty_hash` / `dirty_count` 字段)要让 forge 写回新字段,只能走完整 PR review 流程(capture → inbox → proposal → review → approve → pr done)——但这个流程没任何 design 决策需要 user 判断,纯粹是 forge 机械填充 sha256(porcelain)。让 user review 是 over-engineering,违反 forge "review-gated 仅用于有 design 决策的内容" 主线。
+
+### Added
+
+- **`forge migrate-onepage` 命令**: 扫 `workspace/project/*/onepage.md`,对每个"有 `last_synced.commit` 但缺 `dirty_hash` 字段"的 legacy onepage,在 `upstream.local_dir` 跑 `git status --porcelain -uall`,算 sha256 + 计数,inline patch onepage frontmatter 加 `dirty_hash` + `dirty_count` 并把 `at` 更新到当前 UTC。**不走 PR review**(没 design 决策)。`--dry-run` 预览,`--verbose` / `-v` 每个 onepage 一行。分类:`upgraded` / `current`(已 v0.5)/ `no-baseline`(从未同步,等 capture)/ `warn`(`local_dir` 不存在或不是 git repo)。
+- **`forge monitor` 末尾 legacy 提示**: 若检测到 N 个 legacy onepage,在 `status: clean` / `status: attention` 输出末尾追加 `note: N project onepage(s) on legacy schema (no dirty_hash). run \`forge migrate-onepage\` to auto-fill.`。不强制 auto-run, user invoked。
+- **`forge.governance.workspace_project` 新增模块层 API**: `migrate_legacy_onepage_schema(workspace, *, dry_run, now_iso)`、`count_legacy_onepages(workspace)`、`MigrateOnepageReport` / `MigrateOnepageOutcome` dataclass,供其它流程(skill / 测试)直接调用。
+
+### Tests
+
+- 新增 `tests/test_v051_migrate.py`(10 cases):
+  - **legacy onepage → upgraded inline**: 写 dirty_hash + dirty_count, 不创建 PR / inbox。
+  - **already v0.5 → current skip**: 文件 byte-for-byte 不变。
+  - **multiple onepages mixed**: legacy + v0.5 + never-synced 三类各自分类,互不干扰。
+  - **`--dry-run` writes nothing**: 文件 byte-for-byte 不变,但 report 仍正确分类。
+  - **never-synced → no-baseline**(不算 legacy): 等 capture 建立 v0.5 baseline,`count_legacy_onepages` 也不计。
+  - **monitor 末尾提示 legacy 计数 + 命令名**(`status: clean` 路径)。
+  - **monitor 不提示当无 legacy**(belt-and-suspenders)。
+  - **CLI `--dry-run` summary 含 `[dry-run]` / `would be:` / `upgraded=N` / re-run 提示**。
+  - **CLI `--verbose`** 每类各打一行。
+  - **e2e fixture**: legacy onepage + 外部 dirty repo → migrate → 文件 inline 写入 + `probe_project` clean + 无 PR / inbox 残留 + monitor 后续不再提示。
+- **总数 410 → 420 通过**(3 skipped 不变)。
+
+### Skill / docs
+
+- **SKILL.md**(`forge/assets/skills/forge/SKILL.md`)version `0.5.0` → `0.5.1`,monitor 流程加一条 bullet:若 monitor 末尾出现 `note: ... legacy schema`,跑 `forge migrate-onepage` 即可,无需 review。
+- **pyproject.toml** version `0.5.0` → `0.5.1`,`forge/__init__.py` 同步。
+
 ## 0.4.2 (monitor self-loop + README sync) — 2026-05-07
 
 修一个跟 v0.4.1 target install 落地后立刻冒出来的 dogfood bug:`forge monitor --root ~/personalOS` 把本工作区自己绑定的外部 target(`~/.claude/CLAUDE.md` / `~/.codex/AGENTS.md`)报成 "import source updates"——因为 copy-mode `forge approve` 每跑一次就 mtime+contents 双变化, symlink-mode 则 resolve 到我们自己的 runtime artifact, monitor 的 `_import_updates` 不知道这是自己的 output, 当成外部源把它捞回来, 一个 review cycle 就空转一次。同时 README/README.en 顶部的"现状"段还在 v0.1.0 alpha 描述, 跟 v0.2.3-v0.4.1 的 8 个 rc tag、§0.5 schema-aware proposal 渲染、workspace-project sync、target install layout-aware 等新能力对不上。本版一起修。

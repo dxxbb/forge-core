@@ -1473,6 +1473,7 @@ def monitor(root: str | None) -> None:
     context_drift = _context_drift(workspace)
     import_updates = _import_updates(workspace)
     project_updates, project_warns = _workspace_project_updates(workspace)
+    legacy_onepage_count = _legacy_onepage_count(workspace)
 
     if pending_pr:
         issues.append(f"pending proposals: {len(pending_pr)}")
@@ -1495,6 +1496,8 @@ def monitor(root: str | None) -> None:
     if not issues and not project_warns:
         click.echo("status: clean")
         click.echo("no pending inbox, proposals, context drift, or known import updates.")
+        if legacy_onepage_count:
+            click.echo(_legacy_onepage_note(legacy_onepage_count))
         return
 
     if not issues and project_warns:
@@ -1504,6 +1507,8 @@ def monitor(root: str | None) -> None:
         click.echo("no pending inbox, proposals, context drift, or known import updates.")
         for w in project_warns:
             click.echo(f"warn: {w}")
+        if legacy_onepage_count:
+            click.echo(_legacy_onepage_note(legacy_onepage_count))
         return
 
     click.echo("status: attention")
@@ -1517,6 +1522,37 @@ def monitor(root: str | None) -> None:
         click.echo()
         for w in project_warns:
             click.echo(f"warn: {w}")
+    if legacy_onepage_count:
+        click.echo()
+        click.echo(_legacy_onepage_note(legacy_onepage_count))
+
+
+def _legacy_onepage_count(workspace: Path) -> int:
+    """How many project onepages still use v0.4.x last_synced schema (no
+    dirty_hash). Used by `forge monitor` to suggest `forge migrate-onepage`.
+
+    Cheap (frontmatter-only). Lazy import for legacy-fixture safety.
+    """
+    try:
+        from forge.governance.workspace_project import count_legacy_onepages
+    except Exception:
+        return 0
+    try:
+        return count_legacy_onepages(workspace)
+    except Exception:
+        return 0
+
+
+def _legacy_onepage_note(count: int) -> str:
+    """Format the monitor tail-note nudging the user toward `forge migrate-onepage`."""
+    if count == 1:
+        plural = "1 project onepage is"
+    else:
+        plural = f"{count} project onepages are"
+    return (
+        f"note: {plural} on legacy schema (no dirty_hash). "
+        "run `forge migrate-onepage` to auto-fill."
+    )
 
 
 def _workspace_project_updates(workspace: Path) -> tuple[list[str], list[str]]:
@@ -1545,6 +1581,93 @@ def _workspace_project_updates(workspace: Path) -> tuple[list[str], list[str]]:
             else:
                 actions.append(line)
     return actions, warns
+
+
+@main.command("migrate-onepage")
+@click.option("--root", type=click.Path(), default=None, help="personalOS root (default: cwd).")
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Probe each onepage but do not write anything; preview only.",
+)
+@click.option(
+    "--verbose",
+    "-v",
+    is_flag=True,
+    help="Print one line per onepage (upgraded / current / no-baseline / warn).",
+)
+def migrate_onepage(root: str | None, dry_run: bool, verbose: bool) -> None:
+    """Auto-fill v0.5 dirty_hash + dirty_count on legacy project onepages.
+
+    \b
+    Scans `workspace/project/*/onepage.md`. For every onepage with a
+    `last_synced.commit` but no `dirty_hash` field (v0.4.x schema), runs
+    `git status --porcelain -uall` in the upstream local_dir and writes
+    the resulting hash + count back into the frontmatter. Updates `at`
+    to the current UTC timestamp.
+
+    \b
+    This is a pure mechanical schema upgrade — no design decision exists
+    for the user to review (we hash what's already on disk), so it bypasses
+    the standard PR/inbox/approve flow. v0.5 monitor + capture write the
+    same fields naturally; this command only exists to backfill onepages
+    written before v0.5 landed.
+
+    \b
+    Categories:
+      upgraded    — was legacy, dirty_hash + dirty_count written
+      current     — already v0.5 schema (or has no upstream)
+      no-baseline — never synced; `forge capture` will establish baseline
+      warn        — upstream local_dir missing or not a git repo
+    """
+    from forge.governance.workspace_project import migrate_legacy_onepage_schema
+
+    workspace = _root(root)
+    report = migrate_legacy_onepage_schema(workspace, dry_run=dry_run)
+
+    prefix = "[dry-run] " if dry_run else ""
+    n_up = len(report.upgraded)
+    n_cur = len(report.current)
+    n_nb = len(report.no_baseline)
+    n_warn = len(report.warns)
+
+    if report.total == 0:
+        click.echo(f"{prefix}no project onepages found under workspace/project/.")
+        return
+
+    if verbose:
+        for o in report.upgraded:
+            click.echo(
+                f"{prefix}upgraded:    {o.name}  "
+                f"(dirty_count={o.dirty_count}, dirty_hash={o.dirty_hash[:12] or '(empty)'})"
+            )
+        for o in report.no_baseline:
+            click.echo(f"{prefix}no-baseline: {o.name}  ({o.detail})")
+        for o in report.warns:
+            click.echo(f"{prefix}warn:        {o.name}  ({o.detail})")
+        for o in report.current:
+            click.echo(f"{prefix}current:     {o.name}  ({o.detail})")
+        click.echo()
+    else:
+        # Non-verbose: still surface upgraded names + warns inline so the user
+        # has a trace without having to opt in. Keep current/no-baseline silent.
+        for o in report.upgraded:
+            click.echo(f"{prefix}upgraded {o.name} ({o.detail})")
+        for o in report.warns:
+            click.echo(f"{prefix}warn {o.name}: {o.detail}")
+
+    parts = [
+        f"upgraded={n_up}",
+        f"current={n_cur}",
+        f"no-baseline={n_nb}",
+        f"warn={n_warn}",
+    ]
+    summary = "  ".join(parts)
+    if dry_run:
+        click.echo(f"{prefix}would be: {summary}")
+        click.echo("(re-run without --dry-run to apply)")
+    else:
+        click.echo(f"done: {summary}")
 
 
 def _pending_inbox_items(workspace: Path) -> list[Path]:

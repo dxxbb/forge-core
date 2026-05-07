@@ -1,6 +1,6 @@
 ---
 name: forge
-version: 0.5.0
+version: 0.5.1
 description: "Initialize and operate a personalOS workspace with forge. Use when the user says they want to create/setup/build a forge or personalOS workspace, manage agent context, import existing CLAUDE.md/AGENTS.md/memory, review context changes, or approve/reject context updates. This skill is personalOS-layout-first and must not use legacy `forge new` / `sp` onboarding."
 metadata:
   requires:
@@ -61,6 +61,7 @@ Then choose one next action:
 - If monitor lists context source changes, run **Build And Review Runtime**.
 - If monitor lists import source updates, run **Import To Capture** with those concrete updates as the recommended plan.
 - If monitor lists `workspace-project changed: <name> · ...` lines, run **Workspace-Project Sync** for that project.
+- If monitor ends with a `note: N project onepage(s) ... on legacy schema` hint, run `forge migrate-onepage --root <path>` (a pure schema backfill, no review needed) and stop. Use `--dry-run` first if you want a preview.
 - If monitor/doctor fails, show the failing lines and offer to fix.
 
 ## Workspace-Project Sync
