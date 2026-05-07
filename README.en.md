@@ -30,7 +30,7 @@ If any of those felt familiar, this is for you.
                     └──────────────┘
 ```
 
-Status: **v0.1.0 alpha.** Single workspace, local-only, two target adapters. See [Roadmap](#roadmap).
+Status: **v0.4.2-rc1** (8 rc tags shipped over a 2-day dogfood iter on top of v0.1.0: v0.2.3-rc1 / v0.3.0-rc1 / 0.3.1 / 0.3.2 / 0.3.3 / 0.3.4 / 0.4.0-rc1 / 0.4.1-rc1 / 0.4.2-rc1). On top of the v0.1.0 five-pillar baseline this adds: §0.5 schema-aware proposal rendering (v0.3.0), workspace-project upstream sync (v0.4.0), layout-aware `forge target install` for personalOS / v0428 layouts (v0.4.1), and monitor self-loop detection so bound external targets no longer surface as "import source updates" (v0.4.2). Unit tests: **390 / 390** (3 skipped; was 88 at v0.1.0). See [Roadmap](#roadmap).
 
 ---
 

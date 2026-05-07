@@ -1566,6 +1566,7 @@ def _context_drift(workspace: Path) -> bool:
 
 def _import_updates(workspace: Path) -> list[str]:
     records = _latest_capture_records(workspace)
+    target_paths = _target_binding_paths(workspace)
     updates: list[str] = []
 
     for raw_path, label in _FILE_CANDIDATES:
@@ -1578,6 +1579,15 @@ def _import_updates(workspace: Path) -> list[str]:
         except (OSError, UnicodeDecodeError):
             continue
         if len(text.encode("utf-8")) < _MIN_BYTES:
+            continue
+        # v0.4.2 self-loop guard: if this candidate is bound as one of the
+        # workspace's own runtime targets (`.forge/manifest.json` -> targets[]),
+        # skip it. Otherwise `forge approve` flips the target's mtime/contents
+        # every cycle and monitor would falsely flag personalOS's own output as
+        # an external "import update". We compare against both the literal
+        # candidate path and its resolved real path so symlink-mode and
+        # copy-mode bindings both match.
+        if str(p) in target_paths or str(real) in target_paths:
             continue
         # Bug 3: report the symlink path the user/tool actually configured,
         # not the resolved target — so monitor matches `forge ingest --detect`.
@@ -1602,6 +1612,40 @@ def _import_updates(workspace: Path) -> list[str]:
             updates.append(f"Claude Code memory (changed, {file_count} files)")
 
     return updates
+
+
+def _target_binding_paths(workspace: Path) -> set[str]:
+    """Return the absolute paths of every runtime target bound to this workspace.
+
+    Used by ``_import_updates`` to suppress self-loop false positives: when
+    `~/.claude/CLAUDE.md` (or any other configured target) is what *this* forge
+    workspace writes on approve, monitor must not report it as an external
+    "import source update". The set contains both each binding's recorded path
+    and its resolved real path so symlink and copy modes both match.
+
+    No manifest, broken JSON, or empty `targets` -> empty set (legacy SP layouts
+    and pre-target-install workspaces fall through to the historical behavior).
+    """
+    manifest_path = workspace / ".forge" / "manifest.json"
+    if not manifest_path.exists():
+        return set()
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return set()
+    targets = data.get("targets") or []
+    paths: set[str] = set()
+    for binding in targets:
+        raw = binding.get("path") if isinstance(binding, dict) else None
+        if not raw:
+            continue
+        p = Path(raw).expanduser()
+        paths.add(str(p))
+        try:
+            paths.add(str(p.resolve(strict=False)))
+        except OSError:
+            pass
+    return paths
 
 
 def _latest_capture_records(workspace: Path) -> dict[str, dict[str, str]]:

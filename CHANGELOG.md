@@ -2,6 +2,36 @@
 
 记录 `forge-core` 的所有显著变动。
 
+## 0.4.2 (monitor self-loop + README sync) — 2026-05-07
+
+修一个跟 v0.4.1 target install 落地后立刻冒出来的 dogfood bug:`forge monitor --root ~/personalOS` 把本工作区自己绑定的外部 target(`~/.claude/CLAUDE.md` / `~/.codex/AGENTS.md`)报成 "import source updates"——因为 copy-mode `forge approve` 每跑一次就 mtime+contents 双变化, symlink-mode 则 resolve 到我们自己的 runtime artifact, monitor 的 `_import_updates` 不知道这是自己的 output, 当成外部源把它捞回来, 一个 review cycle 就空转一次。同时 README/README.en 顶部的"现状"段还在 v0.1.0 alpha 描述, 跟 v0.2.3-v0.4.1 的 8 个 rc tag、§0.5 schema-aware proposal 渲染、workspace-project sync、target install layout-aware 等新能力对不上。本版一起修。
+
+### Fixed
+
+- **`forge.cli._import_updates` self-loop guard**: 新增 `_target_binding_paths(workspace)` helper, 读 `.forge/manifest.json::targets[]`,把每个 binding 的 `path` 字段(literal + `Path.resolve(strict=False)` 后的 real path)汇成 set。`_import_updates` 遍历 `_FILE_CANDIDATES` 时若 `str(p)` 或 `str(real)` 命中此 set, 直接 `continue`, 不进 capture record digest 比对、不进 updates 列表。symlink-mode 和 copy-mode 两种 binding 都被 cover, 因为我们同时记 literal 和 resolved 形态。
+- **legacy/无 manifest 行为不变**: `.forge/manifest.json` 不存在 / `targets` 为空 / JSON broken 三种情况下 `_target_binding_paths` 返回空 set,沿用历史的"全报"逻辑。Legacy SP layout 工作区 + 还没跑过 `forge target install` 的工作区都不受影响。
+
+### Docs
+
+- **README.md 顶部状态段落 surgical update**: 把"当前: v0.1.0 alpha"段改写为 v0.4.2-rc1 现状,带 8 rc tag 列表 + §0.5 / workspace-project / target install / self-loop detection 新功能 bullet。不动核心叙事 / 30 秒 demo / "5 pillars" architecture / Roadmap 表格——这些 v0.1.0 写就的内容仍然准确。硬核验证表 "单元测试" 行 `106 / 106` → `390 / 390`,带括注"v0.1.0 时 106 / 106"保留历史锚点。
+- **README.en.md 同步**: line 33 的 "Status: v0.1.0 alpha" 段同样 surgical update,内容口径与中文 README 一致。
+- **CHANGELOG.md** 加 v0.4.2 entry(本段)。
+
+### Tests
+
+- 新增 `tests/test_v042_monitor_self_loop.py`(9 cases):
+  - **`_target_binding_paths` helper**(3): 无 manifest / 有 manifest 无 `targets` 键 / 有 binding 时同时收 literal + resolved。
+  - **必修的 4 cases**: case 1 manifest 含 `~/.claude/CLAUDE.md` binding → monitor 不报; case 2 无 manifest → monitor 沿用旧行为, 报 import update; case 3 binding 在但目标 mtime / 内容刚被 `forge approve` 改过 → 仍不报 (这是 self-loop, 不是 external drift); case 4 一个 bound target + 一个 un-bound external source 共存 → 前者被压住, 后者仍正常报。
+  - **symlink-mode 覆盖**(1): symlink → runtime artifact 形态的 binding 同样被 self-loop guard 命中。
+  - **malformed manifest 容错**(1): broken JSON 时 monitor 不 crash, 降级到 legacy 行为。
+- **总数 381 → 390 通过**(3 skipped 不变)。
+
+### Skill / install
+
+- `forge self-install` 同步 v0.4.2(`forge/assets/skills/forge/SKILL.md` `version: 0.4.2`)。
+- 不动 v0.4.0 workspace-project sync 链路、不动 v0.4.1 target install 解析、不动 schema、不引入 dep。
+- e2e fixture(non-personalOS,tmp_path)验证: 假 manifest binding + 假 fake_home 下 `_import_updates` 不报 bound target、仍报 un-bound external source。主 agent ~/personalOS 不动(避免与 dogfood race)。
+
 ## 0.4.1 (target install on personalOS layout) — 2026-05-07
 
 修一个跟 v0.2.3 的 ingest legacy-path bug 同性质的 v0.4.0 遗留:`forge target install <adapter> --to <path>` 在 personalOS / v0428 layout(`context build/config/*.md` + `context build/runtime/<adapter>/<filename>`)下报"no compiled output for adapter ..."(部分老 install 报"no config in sp/config/ has `target: <adapter>`"),原因是 `forge.gate.sync._output_path_for_adapter` 把 runtime artifact 解析成 `state.output_dir / <filename>`(legacy SP 的 flat 形态),没有像 `gate.actions._rebuild_outputs` 那样按 `layout.runtime_nested_by_target` 走 `state.output_dir / <adapter-name> / <filename>` 的嵌套路径。

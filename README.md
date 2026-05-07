@@ -25,7 +25,14 @@
                                          └──────────────────┘
 ```
 
-当前：**v0.1.0 alpha**，单工作区、本地跑、两个输出适配器。
+当前：**v0.4.2-rc1**（沿 v0.1.0 → v0.4.1 dogfood iter，2 天 ship 8 个 rc tag：v0.2.3-rc1 / v0.3.0-rc1 / 0.3.1 / 0.3.2 / 0.3.3 / 0.3.4 / 0.4.0-rc1 / 0.4.1-rc1 / 0.4.2-rc1）。在 v0.1.0 五大 pillar 闭环之上加了：
+
+- **§0.5 schema-aware proposal 渲染**（v0.3.0）——proposal 不再手写, 而是 monitor item view 机械生成, 字段宽度、层级、wrap 都按 schema 走
+- **workspace-project sync**（v0.4.0）——`onepage.md` 声明 `upstream.local_dir` 后, `forge monitor` 报本地 git HEAD vs `last_synced.commit` 漂移, `forge capture --workspace-project` 把 git log/diff/status 抓成 inbox 项, PR approve 原子化写回 last_synced
+- **target install layout-aware**（v0.4.1）——`forge target install` 在 personalOS / v0428 layout (`context build/runtime/<adapter>/`) 和 legacy SP layout 两种 shape 下都正确解析 runtime 路径
+- **monitor self-loop detection**（v0.4.2）——`forge target install` 已绑定到本工作区的外部 path (如 `~/.claude/CLAUDE.md`) 不再被 monitor 误报为 "import source updates"
+
+单元测试 **390 / 390**（v0.1.0 时 88, v0.4.1 时 381, v0.4.2 又 +9）, 3 skipped。逐行保留率 vs `dxy_OS` 手搓 SP 编译的 `CLAUDE.md` 仍维持 **91.5%** 不变。
 
 ---
 
@@ -354,7 +361,7 @@ forge update                              # 自动跑 pipx/uv tool upgrade，再
 | watcher / inbox / rollback（v0.1 stub 级）  | 通过      |
 | Core adapter（claude-code / agents-md）     | 通过      |
 | Contrib adapter（cursor / codex-cli / rulesync-bridge） | 通过 |
-| 单元测试                                    | **106 / 106** |
+| 单元测试                                    | **390 / 390**（3 skipped；v0.1.0 时 106 / 106） |
 
 **行为层**（跑了一次 A/B，小 N）：
 
