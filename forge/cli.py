@@ -805,8 +805,17 @@ def pr_done(pr_ref: str, reject: bool, message: str, root: str | None) -> None:
     # alongside the onepage body change — atomic from the user's perspective.
     # On --reject we leave onepages alone (PR did not represent a real sync).
     synced_onepages: list[Path] = []
+    synthesized_clippings: list[tuple[Path, list[str]]] = []
     if not reject:
         synced_onepages = _sync_last_synced_for_modified_onepages(workspace, now)
+        # v0.6: if this PR is a `web-clipping-synthesize`, stamp the source
+        # clipping(s) frontmatter with `synthesized_at` + `synthesized_into`
+        # (= KB topic paths the proposal touched). Reads proposal.md before
+        # the rmtree below.
+        if kind == "web-clipping-synthesize":
+            synthesized_clippings = _mark_clippings_synthesized_for_pr(
+                workspace, proposal, now
+            )
 
     shutil.rmtree(pr_dir)
     click.echo(f"done: {decision} pr/{pr_dir.name} → system/{log_dir.name}/{log_file.name}")
@@ -816,6 +825,121 @@ def pr_done(pr_ref: str, reject: bool, message: str, root: str | None) -> None:
         except ValueError:
             rel = str(op_path)
         click.echo(f"  updated last_synced: {rel}")
+    for clip_path, into in synthesized_clippings:
+        try:
+            rel = clip_path.relative_to(workspace).as_posix()
+        except ValueError:
+            rel = str(clip_path)
+        if into:
+            click.echo(f"  synthesized: {rel} -> {', '.join(into)}")
+        else:
+            click.echo(f"  synthesized: {rel} (no KB topic propagation found)")
+
+
+def _mark_clippings_synthesized_for_pr(
+    workspace: Path, proposal_path: Path, at_iso: str
+) -> list[tuple[Path, list[str]]]:
+    """For a `web-clipping-synthesize` PR, stamp every source clipping with
+    `synthesized_at` + `synthesized_into`.
+
+    Strategy:
+      - Read proposal frontmatter (YAML) → `inbox_sources[]` workspace-relative.
+      - For each inbox file: read its frontmatter → `web_clipping:` field
+        (workspace-relative path to the clipping).
+      - Collect KB topic paths from the proposal's `items[].propagation` tree
+        — anything under `public knowledge base/topic/`.
+      - Call `mark_synthesized(clipping_path, into=topics, at=at_iso)`.
+
+    Returns list of (clipping_path, topic_paths) for each clipping touched.
+    Silent no-op on parse errors (defensive — pr_done must not fail because
+    of a malformed proposal).
+    """
+    try:
+        from forge.governance import web_clipping as wc
+    except Exception:
+        return []
+
+    if not proposal_path.exists():
+        return []
+    try:
+        import yaml as _yaml
+        text = proposal_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return []
+    if not text.startswith("---"):
+        return []
+    end = text.find("\n---", 3)
+    if end < 0:
+        return []
+    try:
+        fm = _yaml.safe_load(text[3:end].strip()) or {}
+    except _yaml.YAMLError:
+        return []
+    if not isinstance(fm, dict):
+        return []
+
+    inbox_sources = fm.get("inbox_sources") or []
+    if isinstance(inbox_sources, str):
+        inbox_sources = [inbox_sources]
+    if not isinstance(inbox_sources, list):
+        return []
+
+    # Collect KB topic paths from propagation tree
+    items = fm.get("items") or []
+    if not isinstance(items, list):
+        items = []
+    topic_paths: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        prop = item.get("propagation") or []
+        for p in wc.kb_topic_paths_from_propagation(workspace, prop):
+            if p not in topic_paths:
+                topic_paths.append(p)
+        # also walk sub_items for MIXED parents
+        sub_items = item.get("sub_items") or []
+        if isinstance(sub_items, list):
+            for sub in sub_items:
+                if not isinstance(sub, dict):
+                    continue
+                sprop = sub.get("propagation") or []
+                for p in wc.kb_topic_paths_from_propagation(workspace, sprop):
+                    if p not in topic_paths:
+                        topic_paths.append(p)
+
+    out: list[tuple[Path, list[str]]] = []
+    seen: set[Path] = set()
+    for src in inbox_sources:
+        ip = (workspace / str(src)).resolve()
+        if not ip.is_file():
+            continue
+        try:
+            inbox_text = ip.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if not inbox_text.startswith("---"):
+            continue
+        iend = inbox_text.find("\n---", 3)
+        if iend < 0:
+            continue
+        try:
+            ifm = _yaml.safe_load(inbox_text[3:iend].strip()) or {}
+        except _yaml.YAMLError:
+            continue
+        if not isinstance(ifm, dict):
+            continue
+        if str(ifm.get("type") or "").strip() != "web-clipping-synthesize":
+            continue
+        clipping_rel = str(ifm.get("web_clipping") or "").strip()
+        if not clipping_rel:
+            continue
+        clip_path = (workspace / clipping_rel).resolve()
+        if not clip_path.is_file() or clip_path in seen:
+            continue
+        if wc.mark_synthesized(clip_path, into=topic_paths, at=at_iso):
+            out.append((clip_path, list(topic_paths)))
+            seen.add(clip_path)
+    return out
 
 
 def _sync_last_synced_for_modified_onepages(workspace: Path, at_iso: str) -> list[Path]:
@@ -1444,6 +1568,162 @@ def _capture_workspace_project(workspace: Path, project_name: str, title: str) -
     click.echo("next: process inbox -> proposal -> review")
 
 
+@main.command("synthesize-clipping")
+@click.argument("clipping_path", type=click.Path(exists=False, dir_okay=False))
+@click.option("--root", type=click.Path(), default=None, help="personalOS root (default: cwd).")
+@click.option(
+    "--title",
+    default="",
+    help="Inbox slug/title override (default: synthesize-clipping-<slug>).",
+)
+def synthesize_clipping_cmd(
+    clipping_path: str,
+    root: str | None,
+    title: str,
+) -> None:
+    """Stage a web clipping for synthesis into a KB topic page.
+
+    \b
+    Reads a `capture/web clipping/<file>.md` clipping, lists existing KB topic
+    candidates, and creates a capture + inbox item of type
+    `web-clipping-synthesize`. The agent then runs `forge proposal new` to
+    fill in which KB topic should change and how.
+
+    \b
+    The clipping itself is NOT reviewed by the user — only the resulting KB
+    topic update is. After approve, forge stamps `synthesized_at` and
+    `synthesized_into` onto the clipping frontmatter; the clipping file is
+    never deleted.
+    """
+    from forge.governance import web_clipping as wc
+
+    workspace = _root(root)
+    capture_root = workspace / "capture" / "import"
+    inbox_root = workspace / "system" / "inbox"
+    if not capture_root.parent.exists() or not inbox_root.parent.exists():
+        click.echo(
+            f"error: {workspace} does not look like a personalOS workspace "
+            "(expected capture/ and system/).",
+            err=True,
+        )
+        sys.exit(1)
+
+    # Resolve clipping path: accept absolute, workspace-relative, or bare
+    # filename inside `capture/web clipping/`.
+    candidate = Path(clipping_path).expanduser()
+    if candidate.is_absolute() and candidate.is_file():
+        clip_file = candidate
+    else:
+        rel = workspace / clipping_path
+        if rel.is_file():
+            clip_file = rel
+        else:
+            direct = wc.clippings_dir(workspace) / clipping_path
+            if direct.is_file():
+                clip_file = direct
+            elif not direct.suffix:
+                with_md = wc.clippings_dir(workspace) / f"{clipping_path}.md"
+                if with_md.is_file():
+                    clip_file = with_md
+                else:
+                    click.echo(f"error: clipping not found: {clipping_path}", err=True)
+                    sys.exit(1)
+            else:
+                click.echo(f"error: clipping not found: {clipping_path}", err=True)
+                sys.exit(1)
+
+    clipping = wc.load_clipping(clip_file)
+    if clipping is None:
+        click.echo(
+            f"error: {clip_file} has no parseable YAML frontmatter "
+            "(web clippings need at least `---\\n...\\n---` to be synthesized)",
+            err=True,
+        )
+        sys.exit(1)
+    if clipping.is_synthesized:
+        click.echo(
+            f"note: {clip_file.name} already has synthesized_at "
+            f"({clipping.synthesized_at}); creating a new synthesize round."
+        )
+
+    kb_topic_files = wc.discover_kb_topic_files(workspace)
+
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    captured_at = datetime.now().astimezone().isoformat(timespec="seconds")
+    capture_text = wc.build_synthesize_capture_markdown(
+        clipping, kb_topic_files, workspace, captured_at
+    )
+
+    capture_root.mkdir(parents=True, exist_ok=True)
+    batch_dir = capture_root / ts
+    if batch_dir.exists():
+        suffix = 1
+        while True:
+            cand = capture_root / f"{ts}-{suffix}"
+            if not cand.exists():
+                batch_dir = cand
+                break
+            suffix += 1
+    batch_dir.mkdir(parents=True, exist_ok=False)
+    raw_name = f"synthesize-clipping-{_safe_capture_name(clipping.slug)}.md"
+    raw_path = batch_dir / raw_name
+    raw_path.write_text(capture_text, encoding="utf-8")
+
+    inbox_root.mkdir(parents=True, exist_ok=True)
+    slug_base = title or f"synthesize-clipping-{clipping.slug}"
+    slug = _safe_capture_name(slug_base).strip("-") or "synthesize-clipping"
+    inbox_path = inbox_root / f"{ts}-{slug}.md"
+    rel_batch = batch_dir.relative_to(workspace).as_posix()
+    rel_raw = raw_path.relative_to(workspace).as_posix()
+    rel_clipping = clip_file.relative_to(workspace).as_posix()
+    inbox_lines = [
+        "---",
+        "kind: inbox",
+        "type: web-clipping-synthesize",
+        "status: pending",
+        f"web_clipping: {rel_clipping}",
+        f"clipping_slug: {clipping.slug}",
+        "source:",
+        f"  - {rel_batch}/",
+        f"  - {rel_clipping}",
+        "---",
+        "",
+        f"# web-clipping synthesize: {clipping.slug}",
+        "",
+        "## Source summary",
+        "",
+        f"- clipping: {rel_clipping}",
+    ]
+    if clipping.title:
+        inbox_lines.append(f"- title: {clipping.title}")
+    if clipping.source_url:
+        inbox_lines.append(f"- source_url: {clipping.source_url}")
+    inbox_lines.extend([
+        f"- candidate KB topics: {len(kb_topic_files)}",
+        f"- capture: {rel_raw}",
+        "",
+        "## Requested action",
+        "",
+        f"Decide which `public knowledge base/topic/...md` page (or pages) the "
+        "clipping should update. Fill the proposal `propagation` with the chosen "
+        "KB topic path(s) and `disposition: APPLY`. The clipping itself is not "
+        "reviewed.",
+        "",
+        "## Review requirement",
+        "",
+        "User reviews the **KB topic change**, not the clipping content. Do not "
+        "edit KB topics directly — go through `system/pr/`.",
+        "",
+    ])
+    inbox_path.write_text("\n".join(inbox_lines), encoding="utf-8")
+
+    click.echo(f"captured web-clipping-synthesize: {rel_raw}")
+    click.echo(f"created inbox item: {inbox_path.relative_to(workspace).as_posix()}")
+    click.echo(f"clipping: {rel_clipping}")
+    click.echo(f"candidate KB topics: {len(kb_topic_files)}")
+    click.echo("next: forge proposal new --inbox " + inbox_path.name)
+
+
 @main.command("monitor")
 @click.option("--root", type=click.Path(), default=None, help="personalOS root (default: cwd).")
 def monitor(root: str | None) -> None:
@@ -1473,6 +1753,7 @@ def monitor(root: str | None) -> None:
     context_drift = _context_drift(workspace)
     import_updates = _import_updates(workspace)
     project_updates, project_warns = _workspace_project_updates(workspace)
+    clipping_issues, clipping_actions = _web_clipping_pending(workspace)
     legacy_onepage_count = _legacy_onepage_count(workspace)
 
     if pending_pr:
@@ -1492,6 +1773,10 @@ def monitor(root: str | None) -> None:
         issues.append(f"workspace-project updates: {len(project_updates)}")
         for item in project_updates[:5]:
             actions.append(item)
+    if clipping_issues:
+        issues.extend(clipping_issues)
+        for item in clipping_actions:
+            actions.append(f"next: {item}")
 
     if not issues and not project_warns:
         click.echo("status: clean")
@@ -1553,6 +1838,23 @@ def _legacy_onepage_note(count: int) -> str:
         f"note: {plural} on legacy schema (no dirty_hash). "
         "run `forge migrate-onepage` to auto-fill."
     )
+
+
+def _web_clipping_pending(workspace: Path) -> tuple[list[str], list[str]]:
+    """Return (issue_lines, action_lines) for clippings awaiting synthesize.
+
+    Scans `capture/web clipping/*.md`; clippings whose frontmatter lacks
+    `synthesized_at` are pending. Lazy-import keeps legacy fixtures (no
+    `capture/web clipping/` dir) working.
+    """
+    try:
+        from forge.governance.web_clipping import format_monitor_lines
+    except Exception:
+        return [], []
+    try:
+        return format_monitor_lines(workspace)
+    except Exception:
+        return [], []
 
 
 def _workspace_project_updates(workspace: Path) -> tuple[list[str], list[str]]:

@@ -2,6 +2,34 @@
 
 记录 `forge-core` 的所有显著变动。
 
+## 0.6.0 (web-clipping synthesize) — 2026-05-07
+
+补齐原 dxyOS 设计但实现没做的能力:`capture/web clipping/` 下的 raw evidence 不再静默 sit 着——agent 可以把 clipping synthesize 进 KB topic 页, user review **KB topic 怎么变**(不审 clipping 原文),走标准 inbox → PR → review → approve 流程,approve 后 clipping frontmatter 加 `synthesized_at` + `synthesized_into` 标记完成。生命周期 `captured → indexed → cited/synthesized → archived/expired` 的中段补齐;clipping 文件本身永不被删除。
+
+### Added
+
+- **`forge synthesize-clipping <path>` 命令**: 读 `capture/web clipping/<file>.md`,生成 capture 落到 `capture/import/<batch>/synthesize-clipping-<slug>.md` + 创 inbox item `type: web-clipping-synthesize`。capture 内含: clipping 元数据(title / source / captured_at)、候选 KB topic 列表(扫 `public knowledge base/topic/**/*.md`)、clipping body 头 80 行、agent 填 schema 指引。Inbox frontmatter 含 `web_clipping: <path>` 让后续 approve 找回 clipping。支持 absolute / workspace-relative / 裸文件名(`alpha.md` 自动到 `capture/web clipping/`)。
+- **`forge monitor` 扫 web clipping**: 新增"未 synthesize clipping"扫描——读每个 `capture/web clipping/*.md` 的 frontmatter,无 `synthesized_at` 即报 `web-clipping pending synthesize: N` + per-clipping `next: forge synthesize-clipping "<path>"` 行(路径自动加引号,因为 `web clipping/` 含空格)。无 frontmatter 的文件静默忽略(out of scope)。
+- **`forge pr done` 写回 clipping frontmatter**: 当 PR `type: web-clipping-synthesize` 且非 `--reject`,扫 `inbox_sources[]` 找 `web_clipping:` 字段,从 proposal `items[].propagation` 树(含 sub_items)收集所有 `public knowledge base/topic/...md` 路径,把它们 union 到 clipping frontmatter 的 `synthesized_into[]`,同时写入 `synthesized_at` ISO 时间戳。Reject 不写。Print: `synthesized: <clip> -> <topic1>, <topic2>`。
+- **`forge.governance.web_clipping` 新模块**: `WebClipping` dataclass、`load_clipping` / `discover_clippings` / `pending_clippings`、`discover_kb_topic_files`(排除 `topic/` 顶层 `index.md` / `log.md`)、`build_synthesize_capture_markdown`、`mark_synthesized`(union 已有 entries 不重复)、`kb_topic_paths_from_propagation`(BFS 走 propagation 树)、`format_monitor_lines`。
+
+### Design
+
+- **forge 不替 agent 判断 clipping 该进哪个 topic**——只列候选 + 创 stub 走 PR 流程,agent 在填 schema 时决定,user review **KB topic 改动**(不审 clipping)。无 LLM API 调用,无外部依赖。
+- **synthesized 标记跟 source 走**: 选 (a) clipping frontmatter 加字段,而非 (b) `.forge/manifest.json` 维护 list。Rationale: clipping 自身是 source,marker 跟着 source,文件移动不丢追踪,无并行 manifest 同步成本。
+- **生命周期最后是 archive,不 delete**: 永不删 clipping 原文,即使已 synthesized;archive/expire 是 user 手工决策,forge 不介入。
+- **Clipping 可一直 sit**: monitor 报但不 fail(`status: attention` 仅提示,exit 0);不强制 synthesize。
+
+### Tests
+
+- 新增 `tests/test_v060_clipping_synthesize.py`(25 cases),覆盖 WebClipping schema parsing、KB topic discovery、monitor 集成、`forge synthesize-clipping` CLI、capture builder、`mark_synthesized` 写回 + union、propagation 树解析、`forge pr done` approve 写回 + reject 不写、headline e2e fixture(clip → monitor → synthesize → 手填 proposal → approve → frontmatter stamped + 文件不删 + 后续 monitor silent)。
+- **总数 420 → 445 通过**(3 skipped 不变)。
+
+### Skill / docs
+
+- **SKILL.md** version `0.5.1` → `0.6.0`。
+- **pyproject.toml** version `0.5.1` → `0.6.0`(minor bump,新功能);`forge/__init__.py` 同步。
+
 ## 0.5.1 (legacy onepage schema auto-migrate) — 2026-05-07
 
 修一个 v0.5.0 设计漏洞: legacy onepage(v0.4.x 时代写的 `last_synced` 缺 `dirty_hash` / `dirty_count` 字段)要让 forge 写回新字段,只能走完整 PR review 流程(capture → inbox → proposal → review → approve → pr done)——但这个流程没任何 design 决策需要 user 判断,纯粹是 forge 机械填充 sha256(porcelain)。让 user review 是 over-engineering,违反 forge "review-gated 仅用于有 design 决策的内容" 主线。
