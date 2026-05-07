@@ -822,8 +822,11 @@ def _sync_last_synced_for_modified_onepages(workspace: Path, at_iso: str) -> lis
     """For each currently-modified project onepage, inject last_synced.
 
     `commit` is taken from the onepage's `upstream.local_dir` HEAD at the
-    time of approve. Returns the list of onepages we mutated. Silently
-    no-op when no onepages are modified or workspace isn't a git repo.
+    time of approve. v0.5: also snapshot the working tree (dirty_hash +
+    dirty_count from `git status --porcelain`) so monitor can detect
+    subsequent uncommitted dev work. Returns the list of onepages we
+    mutated. Silently no-op when no onepages are modified or workspace
+    isn't a git repo.
     """
     try:
         from forge.governance import workspace_project as wp
@@ -841,7 +844,14 @@ def _sync_last_synced_for_modified_onepages(workspace: Path, at_iso: str) -> lis
         h = wp.head_hash(op.local_dir)
         if not h:
             continue
-        if wp.update_last_synced(path, commit=h, at=at_iso):
+        dirty_hash, dirty_count = wp.working_tree_snapshot(op.local_dir)
+        if wp.update_last_synced(
+            path,
+            commit=h,
+            at=at_iso,
+            dirty_hash=dirty_hash,
+            dirty_count=dirty_count,
+        ):
             updated.append(path)
     return updated
 

@@ -12,9 +12,12 @@ frontmatter:
       status_sources:
         - REPORT.md
         - docs/ver1_plan.md
+      staleness_days: 7         # v0.5: optional, default 7
     last_synced:
       commit: <git HEAD hash at last sync>
       at: <ISO timestamp>
+      dirty_count: 24           # v0.5: number of porcelain entries at sync
+      dirty_hash: <sha256>      # v0.5: sha256 of `git status --porcelain` text
     ---
 
 This module:
@@ -26,14 +29,23 @@ This module:
 
 It deliberately only shells out to `git` (no GitPython etc.) and never makes
 network calls (no `git fetch`). State signals are local: HEAD hash, working
-tree status, and `status_sources` mtimes.
+tree status (count + sha256 of porcelain output), `status_sources` mtimes,
+and time-since-last-sync staleness.
+
+v0.5 (working-tree-aware monitor): HEAD-only drift detection is blind to long
+uncommitted dev sessions. We add (a) a hash of the `git status --porcelain`
+output recorded at last sync so monitor can detect content drift in the
+working tree, and (b) a staleness reminder for projects whose last_synced.at
+is older than `staleness_days` (default 7).
 
 Backward compat: onepages without `kind: project` or without `upstream:` are
-silently ignored — old hand-written onepages keep working unchanged.
+silently ignored. Onepages without dirty_hash (v0.4.x format) are treated as
+"never synced for working-tree purposes" — capture is suggested.
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import subprocess
@@ -43,6 +55,11 @@ from pathlib import Path
 from typing import Iterable
 
 import yaml
+
+
+# v0.5: default time-since-last-sync threshold (in days) for the staleness
+# reminder. Per-project override via `upstream.staleness_days: N` in onepage.
+DEFAULT_STALENESS_DAYS = 7
 
 
 # ---------- frontmatter helpers ----------
@@ -95,6 +112,10 @@ class ProjectOnepage:
     status_sources: list[str] = field(default_factory=list)
     last_synced_commit: str = ""
     last_synced_at: str = ""
+    last_synced_dirty_hash: str = ""     # v0.5: sha256 of porcelain at last sync
+    last_synced_dirty_count: int = 0     # v0.5: porcelain line count at last sync
+    has_dirty_hash_field: bool = False   # v0.5: distinguish "missing field" vs "empty hash"
+    staleness_days: int = DEFAULT_STALENESS_DAYS  # v0.5: per-project override
     frontmatter: dict = field(default_factory=dict)
 
     @property
@@ -141,6 +162,26 @@ def load_project_onepage(path: Path) -> ProjectOnepage | None:
 
     name = str(fm.get("name") or "").strip() or path.parent.name
 
+    # v0.5: optional staleness override (per-project)
+    staleness_raw = upstream.get("staleness_days")
+    try:
+        staleness_days = (
+            int(staleness_raw) if staleness_raw is not None else DEFAULT_STALENESS_DAYS
+        )
+    except (TypeError, ValueError):
+        staleness_days = DEFAULT_STALENESS_DAYS
+    if staleness_days <= 0:
+        staleness_days = DEFAULT_STALENESS_DAYS
+
+    # v0.5: optional dirty_hash / dirty_count
+    has_dirty_hash_field = "dirty_hash" in last_synced
+    dirty_hash = str(last_synced.get("dirty_hash") or "").strip()
+    dirty_count_raw = last_synced.get("dirty_count")
+    try:
+        dirty_count = int(dirty_count_raw) if dirty_count_raw is not None else 0
+    except (TypeError, ValueError):
+        dirty_count = 0
+
     return ProjectOnepage(
         path=path,
         name=name,
@@ -149,6 +190,10 @@ def load_project_onepage(path: Path) -> ProjectOnepage | None:
         status_sources=status_sources,
         last_synced_commit=str(last_synced.get("commit") or "").strip(),
         last_synced_at=_stringify_timestamp(last_synced.get("at")),
+        last_synced_dirty_hash=dirty_hash,
+        last_synced_dirty_count=dirty_count,
+        has_dirty_hash_field=has_dirty_hash_field,
+        staleness_days=staleness_days,
         frontmatter=fm,
     )
 
@@ -237,6 +282,65 @@ def commits_between(local_dir: Path, base: str, head: str = "HEAD") -> int:
         return 0
 
 
+# ---------- v0.5: working-tree (dirty) snapshot helpers ----------
+
+
+def porcelain_status(local_dir: Path) -> tuple[str, int, int]:
+    """Return (raw_porcelain_text, modified_count, untracked_count).
+
+    `raw_porcelain_text` is the verbatim stdout of `git status --porcelain`.
+    Counts are derived by inspecting the two-character XY status code:
+
+      - "??" → untracked
+      - everything else with a non-blank XY → modified
+
+    Empty / failed runs return ("", 0, 0). Caller distinguishes "clean tree"
+    from "couldn't run git" via current_hash etc.
+
+    -uall: list every untracked file individually, not just the parent dir.
+    Otherwise an untracked dir collapses to one entry and our drift hash
+    misses inner edits.
+    """
+    rc, out, _ = _git(local_dir, ["status", "--porcelain", "-uall"])
+    if rc != 0:
+        return "", 0, 0
+    modified = 0
+    untracked = 0
+    for line in out.splitlines():
+        if not line:
+            continue
+        xy = line[:2]
+        if xy == "??":
+            untracked += 1
+        elif xy.strip():
+            modified += 1
+    return out, modified, untracked
+
+
+def compute_dirty_hash(porcelain_text: str) -> str:
+    """sha256 hex of porcelain output. Empty input → empty string.
+
+    We hash the raw bytes verbatim (no normalization). This keeps the hash
+    sensitive to filename encoding, ordering, and even trailing newlines —
+    any working-tree change is reflected.
+    """
+    if not porcelain_text:
+        return ""
+    return hashlib.sha256(porcelain_text.encode("utf-8")).hexdigest()
+
+
+def working_tree_snapshot(local_dir: Path) -> tuple[str, int]:
+    """Convenience: return (dirty_hash, dirty_count) for write-back.
+
+    dirty_count = modified + untracked (total porcelain entry count).
+    A clean tree returns ("", 0).
+    """
+    raw, modified, untracked = porcelain_status(local_dir)
+    if not raw:
+        return "", 0
+    return compute_dirty_hash(raw), modified + untracked
+
+
 @dataclass
 class ProjectStatus:
     """Probe outcome for one project onepage."""
@@ -244,7 +348,9 @@ class ProjectStatus:
     onepage: ProjectOnepage
     issue: str = ""           # set when local_dir missing / not git → WARN
     commit_drift: str = ""    # set when current HEAD != last_synced.commit
+    dirty_drift: str = ""     # v0.5: working tree drift since last_synced
     status_drift: list[str] = field(default_factory=list)  # status_source files newer than last_synced.at
+    staleness: str = ""       # v0.5: time-since-last-sync reminder
     current_hash: str = ""    # current git HEAD (when probe succeeded)
 
 
@@ -260,12 +366,26 @@ def _parse_iso(ts: str) -> datetime | None:
         return None
 
 
-def probe_project(onepage: ProjectOnepage) -> ProjectStatus:
+def probe_project(
+    onepage: ProjectOnepage,
+    *,
+    now: datetime | None = None,
+) -> ProjectStatus:
     """Compute drift signals for one project onepage.
 
     - If local_dir is unset/missing/not a git repo: status.issue is set.
-    - Otherwise: compute commit drift (HEAD vs last_synced.commit) and
-      status_sources mtime drift (file newer than last_synced.at).
+    - Otherwise (priority order, strongest signal first):
+        1. commit_drift  — HEAD differs from last_synced.commit
+        2. dirty_drift   — git status --porcelain hash differs from
+           last_synced.dirty_hash (catches long uncommitted dev work)
+        3. status_drift  — declared status_sources files mtime > last_synced.at
+        4. staleness     — last_synced.at older than `staleness_days` (default 7)
+
+    All four fields populate independently so callers can surface multiple
+    concerns; format_monitor_lines() picks the right priority for display.
+
+    `now` is injectable for deterministic staleness tests; defaults to
+    datetime.now(timezone.utc).
 
     last_synced fields being empty (i.e. never synced) counts as a commit
     drift — we report "N commits ahead since last_synced" (with N from the
@@ -312,6 +432,26 @@ def probe_project(onepage: ProjectOnepage) -> ProjectStatus:
                 f"HEAD differs from last_synced ({last_commit[:7]} → {h[:7]})"
             )
 
+    # v0.5: working tree drift via porcelain hash
+    raw_porcelain, modified_count, untracked_count = porcelain_status(local_dir)
+    current_dirty_hash = compute_dirty_hash(raw_porcelain)
+    if onepage.has_dirty_hash_field:
+        if current_dirty_hash != onepage.last_synced_dirty_hash:
+            status.dirty_drift = (
+                f"working tree drift: {modified_count} modified, "
+                f"{untracked_count} untracked since last_synced"
+            )
+    else:
+        # Legacy v0.4.x onepage with last_synced but no dirty_hash. If the
+        # working tree currently has anything, treat as drift — we have no
+        # baseline so can't claim clean. If empty, stay silent (the project
+        # legitimately had a clean tree at sync, common case).
+        if last_commit and (modified_count + untracked_count) > 0:
+            status.dirty_drift = (
+                f"working tree drift: {modified_count} modified, "
+                f"{untracked_count} untracked (legacy onepage, no dirty_hash baseline)"
+            )
+
     # status_sources mtime check
     last_at = _parse_iso(onepage.last_synced_at)
     for rel in onepage.status_sources:
@@ -322,6 +462,26 @@ def probe_project(onepage: ProjectOnepage) -> ProjectStatus:
         if last_at is None or mtime > last_at:
             status.status_drift.append(rel)
 
+    # v0.5: staleness reminder (only when nothing else changed)
+    if last_at is not None:
+        if now is None:
+            now = datetime.now(timezone.utc)
+        # Normalize to aware datetime in UTC for safe subtraction
+        if last_at.tzinfo is None:
+            last_at_aware = last_at.replace(tzinfo=timezone.utc)
+        else:
+            last_at_aware = last_at
+        if now.tzinfo is None:
+            now_aware = now.replace(tzinfo=timezone.utc)
+        else:
+            now_aware = now
+        delta_days = (now_aware - last_at_aware).total_seconds() / 86400.0
+        if delta_days > onepage.staleness_days:
+            status.staleness = (
+                f"stale: last sync {int(delta_days)} days ago, "
+                f"consider running forge capture --workspace-project {onepage.name}"
+            )
+
     return status
 
 
@@ -329,8 +489,19 @@ def format_monitor_lines(status: ProjectStatus) -> list[str]:
     """Format ProjectStatus into monitor "next:" action lines.
 
     Matches the existing monitor "- workspace-project changed: <name> · ..."
-    convention. Returns one line per concern (commit drift, status drift,
-    or upstream issue).
+    convention. Returns one line per concern.
+
+    v0.5 priority (strongest signal first; a stronger signal suppresses
+    weaker ones to keep the user's monitor surface clean):
+
+      1. issue (warn)            — upstream broken
+      2. commit_drift            — HEAD moved
+      3. dirty_drift             — working tree changed since last sync
+      4. status_drift            — declared status file mtime drift
+      5. staleness               — time-since-last-sync reminder
+
+    Rationale: HEAD movement implies working-tree work also happened, and
+    staleness only matters when nothing more concrete is reported.
     """
     out: list[str] = []
     name = status.onepage.name
@@ -339,8 +510,19 @@ def format_monitor_lines(status: ProjectStatus) -> list[str]:
         return out
     if status.commit_drift:
         out.append(f"workspace-project changed: {name} · {status.commit_drift}")
-    for rel in status.status_drift:
-        out.append(f"workspace-project changed: {name} · status file {rel} modified")
+        return out
+    if status.dirty_drift:
+        out.append(f"workspace-project changed: {name} · {status.dirty_drift}")
+        return out
+    if status.status_drift:
+        for rel in status.status_drift:
+            out.append(
+                f"workspace-project changed: {name} · status file {rel} modified"
+            )
+        return out
+    if status.staleness:
+        out.append(f"workspace-project changed: {name} · {status.staleness}")
+        return out
     return out
 
 
@@ -497,12 +679,19 @@ def update_last_synced(
     *,
     commit: str,
     at: str,
+    dirty_hash: str | None = None,
+    dirty_count: int | None = None,
 ) -> bool:
-    """Inject `last_synced.commit` + `last_synced.at` into a project onepage.
+    """Inject `last_synced.{commit,at,dirty_hash,dirty_count}` into a project onepage.
 
     Returns True if the file was modified, False if the path is not a
     project onepage (silently skipped). Preserves frontmatter key order
     (PyYAML default sort=False) and body verbatim.
+
+    v0.5: when dirty_hash / dirty_count are provided they are written
+    alongside commit + at, so a future monitor pass can detect working-tree
+    drift via porcelain hash comparison. Callers without an upstream working
+    tree (rare; legacy v0.4 paths) can omit them and stay v0.4-compatible.
     """
     try:
         text = onepage_path.read_text(encoding="utf-8")
@@ -515,7 +704,13 @@ def update_last_synced(
         return False
 
     fm = dict(fm)  # shallow copy; we mutate
-    fm["last_synced"] = {"commit": commit, "at": at}
+    new_last_synced: dict = {"commit": commit, "at": at}
+    if dirty_hash is not None:
+        new_last_synced["dirty_hash"] = dirty_hash
+        new_last_synced["dirty_count"] = (
+            dirty_count if dirty_count is not None else 0
+        )
+    fm["last_synced"] = new_last_synced
     new_text = join_frontmatter(fm, body)
     onepage_path.write_text(new_text, encoding="utf-8")
     return True
