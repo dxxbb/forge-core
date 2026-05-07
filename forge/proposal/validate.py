@@ -223,13 +223,18 @@ def _validate_disposition_payload(
 
     required = _REQUIRED_BY_DISPO.get(dispo, set())
 
-    # Always walk propagation if present (structural sanity); only enforce
-    # presence when the disposition explicitly requires it.
-    if "propagation" in required and not owner.propagation:
+    # v0.7: `modified_files` is a valid alternative to a hand-drawn
+    # propagation tree. The CLI's `proposal validate` will run the resolver
+    # before the schema check, but pure-library callers might invoke
+    # `validate_proposal` directly without resolving first — in that case
+    # don't insist on `propagation` when `modified_files` is populated.
+    has_modified_files = bool(getattr(owner, "modified_files", None))
+    if "propagation" in required and not owner.propagation and not has_modified_files:
         issues.append(ValidationIssue(
             f"{prefix}.propagation",
             f"{dispo.value} item must declare a propagation tree",
-            "at least one branch with a node",
+            "at least one branch with a node — or list `modified_files` "
+            "and let `forge proposal validate` resolve the tree",
         ))
     if owner.propagation:
         for k, branch in enumerate(owner.propagation):

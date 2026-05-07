@@ -278,6 +278,14 @@ class SubItem:
     options: list[DecideOption] = field(default_factory=list)
     recommendation: str = ""              # e.g. "A"
 
+    # v0.7 propagation-resolver inputs (optional). When `modified_files` is
+    # populated, `forge proposal validate` will auto-derive `propagation` by
+    # reverse-looking-up `sections.upstream`. Authors may keep filling
+    # `propagation` by hand — in that case the resolver skips with a warning.
+    modified_files: list[str] = field(default_factory=list)
+    modifications: dict[str, str] = field(default_factory=dict)
+    propagation_hints: dict[str, str] = field(default_factory=dict)
+
     def to_yaml(self) -> dict:
         out: dict[str, Any] = {"id": self.id}
         if self.monitor_info:
@@ -292,6 +300,12 @@ class SubItem:
             out["rule"] = self.rule
         if self.rationale:
             out["rationale"] = self.rationale
+        if self.modified_files:
+            out["modified_files"] = list(self.modified_files)
+        if self.modifications:
+            out["modifications"] = dict(self.modifications)
+        if self.propagation_hints:
+            out["propagation_hints"] = dict(self.propagation_hints)
         if self.propagation:
             out["propagation"] = [b.to_yaml() for b in self.propagation]
         if self.risk:
@@ -333,6 +347,9 @@ class SubItem:
             reason=str(data.get("reason", "") or ""),
             options=[DecideOption.from_yaml(o) for o in (data.get("options") or [])],
             recommendation=str(data.get("recommendation", "") or ""),
+            modified_files=[str(p) for p in (data.get("modified_files") or [])],
+            modifications=_load_str_dict(data.get("modifications")),
+            propagation_hints=_load_str_dict(data.get("propagation_hints")),
         )
 
 
@@ -359,6 +376,11 @@ class Item:
     recommendation: str = ""
     sub_items: list[SubItem] = field(default_factory=list)
 
+    # v0.7 — see SubItem for semantics.
+    modified_files: list[str] = field(default_factory=list)
+    modifications: dict[str, str] = field(default_factory=dict)
+    propagation_hints: dict[str, str] = field(default_factory=dict)
+
     def to_yaml(self) -> dict:
         out: dict[str, Any] = {"id": self.id}
         if self.monitor_info:
@@ -373,6 +395,12 @@ class Item:
             out["rule"] = self.rule
         if self.rationale:
             out["rationale"] = self.rationale
+        if self.modified_files:
+            out["modified_files"] = list(self.modified_files)
+        if self.modifications:
+            out["modifications"] = dict(self.modifications)
+        if self.propagation_hints:
+            out["propagation_hints"] = dict(self.propagation_hints)
         if self.propagation:
             out["propagation"] = [b.to_yaml() for b in self.propagation]
         if self.risk:
@@ -417,6 +445,9 @@ class Item:
             options=[DecideOption.from_yaml(o) for o in (data.get("options") or [])],
             recommendation=str(data.get("recommendation", "") or ""),
             sub_items=[SubItem.from_yaml(s) for s in (data.get("sub_items") or [])],
+            modified_files=[str(p) for p in (data.get("modified_files") or [])],
+            modifications=_load_str_dict(data.get("modifications")),
+            propagation_hints=_load_str_dict(data.get("propagation_hints")),
         )
 
 
@@ -472,6 +503,21 @@ _KNOWN_TOP_KEYS = {
     "kind", "type", "status", "created_at", "revised_at",
     "inbox_sources", "capture_sources", "items", "summary",
 }
+
+
+def _load_str_dict(raw: Any) -> dict[str, str]:
+    """Coerce an optional YAML mapping into ``dict[str, str]``.
+
+    None / empty → empty dict. Non-mapping values raise ValueError so the
+    schema layer surfaces malformed YAML instead of silently dropping data.
+    """
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError(
+            f"expected a mapping, got {type(raw).__name__}"
+        )
+    return {str(k): str(v) for k, v in raw.items()}
 
 
 def _split_frontmatter(text: str) -> tuple[str, str]:

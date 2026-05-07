@@ -2,6 +2,41 @@
 
 记录 `forge-core` 的所有显著变动。
 
+## 0.7.0 (propagation resolver) — 2026-05-07
+
+修一个 v0.6 设计漏洞: PR proposal 的 propagation 树是 agent 手画的, 但传播规则其实是机制性的 (KB topic / asset → 反查 sections.upstream → section → runtime; sections 文件直接 → runtime; KB index/log/raw clipping → terminal)。手画浪费 + 易出错。v0.7 让 agent 只列 `modified_files`, forge resolver 根据 sections.upstream 反查自动推导 propagation。schema 兼容: 旧 PR 仍可手填 propagation, 不影响。
+
+### Added
+
+- **`forge.proposal.resolver` 新模块**: `load_workspace_index(workspace)` 读 `context build/sections/*.md` 的 `upstream:` 列表 + `context build/config/*.md` 的 `target` / `sections:` 列表,建反查索引;`classify_path(path, index, hint)` 判分类(`section_upstream` / `section` / `config` / `terminal` / `light`);`resolve_owner(item, index)` 把 `item.modified_files` 推导成 `item.propagation` 树;`resolve_proposal(proposal, index)` 走整个 PR(含 MIXED 的 sub_items),返回 `ResolveReport`。
+- **schema 扩展(Item / SubItem)**: 新增三个 optional 字段 `modified_files: list[str]`、`modifications: dict[str, str]`(path → 改动摘要)、`propagation_hints: dict[str, str]`(path → `terminal` / `light` / `full`)。Round-trip preserve;`extra` 不变。
+- **`forge proposal validate` 集成**: 默认在 reformat 之后、validate 之前跑 resolver——只对 "有 `modified_files` 但 propagation 空" 的 item 生效;有 `propagation` 的 item 跳过 + warn(用户手画优先);无 `modified_files` 的 item 与 v0.6 行为一致。新加 `--no-resolve` flag 强制跳过。
+- **validate 接受 `modified_files` 替代品**: APPLY item 不必再要求 propagation, 只要 `modified_files` 非空即合法(库层兼容: 库调用方先 validate 后 resolve 也能工作)。
+
+### Resolver 算法
+
+1. 加载 sections frontmatter(`name` / `upstream`),configs frontmatter(`target` / `sections`)。
+2. 对每个 `modified_file` path: 检查 `propagation_hints` → `terminal` 单节点终止 / `light` 终止 + label `light update`。
+3. 默认: 反查 sections.upstream 命中(目录 prefix 或精确匹配)→ asset → section → runtime per matching config;不命中 → terminal + warn `not in any section.upstream`。
+4. 文件本身在 sections_dir → 直接 section → runtime(无 asset 父节点);在 configs_dir → config terminal。
+5. **Grouping**: 多个 modified file 同 section → 一个容器 branch(label `N assets → <section>`),每文件一个子 asset 分支,共享一个 section / runtime 子树(deduped)。多个 file 不同 section → 独立 branches。
+6. 自动给 section / runtime 内部节点填合成 modification 文本(`auto-recompiled (section.upstream changed)` / `auto-recompiled by \`forge build\` (target: ...)`)以满足 `_validate_node` 的 "non-terminal APPLY 必须有 modification" 约束。
+
+### Tests
+
+- 新增 `tests/test_v070_propagation_resolver.py`(20 cases): KB topic 单文件、asset → preference、多文件 grouping、KB index/log 默认 + 显式 hint、raw clipping、`hint=terminal` / `hint=light`、sections 文件直 → runtime、不命中 → terminal + warn、空 modified_files → fallback v0.6、已有 propagation → resolver skip、TSMC e2e(5 文件,3 KB topic + 2 index/log)、不同 section 独立 branches、config 文件分类、modifications 传到 leaf、schema round-trip 保留 v0.7 字段、`resolve_proposal` 走 sub_items、validate 接受 `modified_files` 替代品、CLI `forge proposal validate` 写回 propagation。
+- **总数 445 → 465 通过**(3 skipped 不变)。
+
+### Compatibility
+
+- v0.2 / v0.3 / v0.4 / v0.5 / v0.6 PR(手填 propagation)不受影响。
+- 新 PR 可用 `modified_files` 风格,也可仍用手填 propagation。
+- v0.6 / v0.5 / v0.4 已 ship 的 PR propagation tree 不重写。
+
+### Skill / docs
+
+- **pyproject.toml** version `0.6.0` → `0.7.0`(minor bump,新功能 + schema 扩展);`forge/__init__.py` 同步。
+
 ## 0.6.0 (web-clipping synthesize) — 2026-05-07
 
 补齐原 dxyOS 设计但实现没做的能力:`capture/web clipping/` 下的 raw evidence 不再静默 sit 着——agent 可以把 clipping synthesize 进 KB topic 页, user review **KB topic 怎么变**(不审 clipping 原文),走标准 inbox → PR → review → approve 流程,approve 后 clipping frontmatter 加 `synthesized_at` + `synthesized_into` 标记完成。生命周期 `captured → indexed → cited/synthesized → archived/expired` 的中段补齐;clipping 文件本身永不被删除。

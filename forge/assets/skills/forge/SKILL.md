@@ -1,6 +1,6 @@
 ---
 name: forge
-version: 0.6.0
+version: 0.7.0
 description: "Initialize and operate a personalOS workspace with forge. Use when the user says they want to create/setup/build a forge or personalOS workspace, manage agent context, import existing CLAUDE.md/AGENTS.md/memory, review context changes, or approve/reject context updates. This skill is personalOS-layout-first and must not use legacy `forge new` / `sp` onboarding."
 metadata:
   requires:
@@ -462,6 +462,44 @@ tree); set `recommendation` to the preferred option id.
 
 `COVERED` items need `covered_by` (where the content already lives).
 `NA` items need `reason` (e.g. "auto-memory index, not asset content").
+
+#### v0.7 alternative: `modified_files` (let forge derive propagation)
+
+Hand-drawing `propagation:` is tedious and error-prone — the rules are
+mechanical (KB topic / asset → reverse-lookup `sections.upstream` → section
+→ runtime; sections file → runtime; KB index/log/raw clipping → terminal).
+v0.7 lets you list the files you touched and have forge build the tree for
+you:
+
+```yaml
+items:
+  - id: '1'
+    monitor_info: ...
+    extracted: ...
+    disposition: APPLY
+    rationale: ...
+    modified_files:
+      - public knowledge base/topic/tech/ai/compute/ai-compute.md  # main: asset → section → runtime
+      - public knowledge base/topic/index.md                        # terminal hint
+      - public knowledge base/topic/log.md                          # terminal hint
+    modifications:
+      'public knowledge base/topic/tech/ai/compute/ai-compute.md': |
+        新建文件, frontmatter + summary + 子主题
+      'public knowledge base/topic/index.md': 'tech/ai/ 段加 ai/compute/ sub-section'
+      'public knowledge base/topic/log.md': '+ ai-compute.md created'
+    propagation_hints:
+      'public knowledge base/topic/index.md': terminal
+      'public knowledge base/topic/log.md': terminal
+    # propagation: (omitted — `forge proposal validate` will fill it)
+```
+
+`forge proposal validate` will reverse-look up `context build/sections/*.md`
+upstreams + `context build/config/*.md` targets and write a populated
+`propagation:` tree into the same file. Hints: `terminal` (single node, no
+downstream), `light` (terminal + label), default `full` = auto.
+
+Already filled `propagation` always wins — the resolver skips with a
+warning. Pass `--no-resolve` to disable v0.7 entirely.
 
 ### 3. Validate
 

@@ -1148,8 +1148,13 @@ def proposal_new(root: str | None, inbox_arg: str | None, title: str) -> None:
     is_flag=True,
     help="Skip auto-reformat (frontmatter → block-scalar) before validating.",
 )
+@click.option(
+    "--no-resolve",
+    is_flag=True,
+    help="Skip auto-resolution of `modified_files` → propagation (v0.7).",
+)
 def proposal_validate(
-    pr_ref: str, root: str | None, no_render: bool, no_reformat: bool
+    pr_ref: str, root: str | None, no_render: bool, no_reformat: bool, no_resolve: bool
 ) -> None:
     """Validate a proposal's schema frontmatter.
 
@@ -1160,6 +1165,12 @@ def proposal_validate(
 
     By default validate auto-reformats the frontmatter so multi-line strings
     use YAML block-scalar (`|`) form (v0.3.2+). Pass `--no-reformat` to skip.
+
+    v0.7: when an item lists `modified_files` and has no `propagation` block,
+    validate auto-resolves the propagation tree by reverse-looking-up
+    `sections.upstream` (mechanical rule: KB topic / asset → section → runtime).
+    Pass `--no-resolve` to keep the schema as-authored.
+
     On success, validate also auto-syncs the §0.5 view into the proposal body
     between the BEGIN/END markers (same as `forge pr render`). Pass
     `--no-render` to skip that step.
@@ -1188,6 +1199,48 @@ def proposal_validate(
                 )
         except Exception as e:    # noqa: BLE001 — info only; validate still runs
             click.echo(f"     (auto-reformat skipped: {e})")
+
+    if not no_resolve:
+        try:
+            from forge.proposal.resolver import (
+                load_workspace_index,
+                resolve_proposal,
+            )
+            from forge.proposal.schema import (
+                load_proposal_file,
+                dump_proposal,
+            )
+
+            proposal = load_proposal_file(proposal_path)
+            # Only walk if at least one Item/SubItem opted in via
+            # `modified_files`. Skips the load+dump round-trip otherwise to
+            # avoid unrelated formatting churn.
+            has_mf = any(
+                bool(it.modified_files) or any(s.modified_files for s in it.sub_items)
+                for it in proposal.items
+            )
+            if has_mf:
+                index = load_workspace_index(workspace)
+                report = resolve_proposal(proposal, index)
+                if report.resolved:
+                    proposal_path.write_text(
+                        dump_proposal(proposal), encoding="utf-8",
+                    )
+                    rel = proposal_path.relative_to(workspace).as_posix()
+                    click.echo(
+                        f"     resolved propagation for {report.resolved} "
+                        f"item(s) from modified_files: {rel}"
+                    )
+                if report.skipped_existing:
+                    click.echo(
+                        f"     {report.skipped_existing} item(s) already had "
+                        f"propagation; resolver skipped (use --no-resolve "
+                        f"to suppress this scan)"
+                    )
+                for w in report.warnings:
+                    click.echo(f"     warn: {w}")
+        except Exception as e:    # noqa: BLE001 — info only; validate still runs
+            click.echo(f"     (auto-resolve skipped: {e})")
 
     issues = validate_file(proposal_path)
     if not issues:
