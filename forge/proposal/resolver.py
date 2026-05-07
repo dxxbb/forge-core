@@ -603,10 +603,16 @@ def resolve_owner(
             children_branches.append(PropagationBranch(
                 branch=f"{group_label}{j+1}", node=asset_node,
             ))
-        # Container node groups the assets under one labelled branch.
+        # Container node groups the assets under one labelled branch. We
+        # synthesize a modification line on the container so the validator's
+        # "non-terminal APPLY needs modification" rule is satisfied — the
+        # individual file modifications stay on their respective asset
+        # children.
+        file_list = ", ".join(Path(f).name for f, _ in files)
         container = PropagationNode(
             path="",
             label=f"{len(files)} assets → {sec.name}",
+            modification=f"批量改动: {file_list}",
             children=children_branches,
         )
         grouped_branches.append(PropagationBranch(
