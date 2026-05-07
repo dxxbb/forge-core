@@ -177,14 +177,24 @@ def sync_targets(state: GateState) -> list[tuple[str, Path]]:
 # ---------- internal ----------
 
 def _output_path_for_adapter(state: GateState, adapter_name: str) -> Path:
-    """Find the compiled output file for the given adapter name."""
+    """Find the compiled output file for the given adapter name.
+
+    Layout-aware: the v0428 (personalOS) layout writes runtime artifacts under
+    ``context build/runtime/<adapter-name>/<filename>`` (nested by target). The
+    legacy SP layout writes them flat under ``output/<filename>``. Mirrors the
+    branching in ``gate.actions._rebuild_outputs``.
+    """
+    layout = state.layout
     configs = load_all_configs(state.root)
     for cname, cfg in configs.items():
         if cfg.target == adapter_name:
             adapter = get_adapter(adapter_name)
-            return state.output_dir / adapter.filename(cfg)
+            filename = adapter.filename(cfg)
+            if layout.runtime_nested_by_target:
+                return state.output_dir / adapter.name / filename
+            return state.output_dir / filename
     raise TargetError(
-        f"no config in sp/config/ has `target: {adapter_name}`. "
+        f"no config in {layout.source_label}config/ has `target: {adapter_name}`. "
         f"Add a config first or pick a different adapter."
     )
 

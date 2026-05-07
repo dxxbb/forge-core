@@ -2,6 +2,32 @@
 
 记录 `forge-core` 的所有显著变动。
 
+## 0.4.1 (target install on personalOS layout) — 2026-05-07
+
+修一个跟 v0.2.3 的 ingest legacy-path bug 同性质的 v0.4.0 遗留:`forge target install <adapter> --to <path>` 在 personalOS / v0428 layout(`context build/config/*.md` + `context build/runtime/<adapter>/<filename>`)下报"no compiled output for adapter ..."(部分老 install 报"no config in sp/config/ has `target: <adapter>`"),原因是 `forge.gate.sync._output_path_for_adapter` 把 runtime artifact 解析成 `state.output_dir / <filename>`(legacy SP 的 flat 形态),没有像 `gate.actions._rebuild_outputs` 那样按 `layout.runtime_nested_by_target` 走 `state.output_dir / <adapter-name> / <filename>` 的嵌套路径。
+
+### Fixed
+
+- **`forge.gate.sync._output_path_for_adapter` layout-aware 解析**: 读 `state.layout` 后,若 `runtime_nested_by_target=True`(v0428 / personalOS layout)走嵌套形态 `state.output_dir / adapter.name / filename`;否则(legacy SP layout)沿用 `state.output_dir / filename`。逻辑跟 `gate.actions._rebuild_outputs` 写出端严格对称,`forge target install / list / remove`、`forge approve` 自动 sync 在两种 layout 下都拿到同一 path。
+- **找不到匹配 config 时的错误信息使用当前 layout 的 source label**: 之前固定 hard-code `sp/config/`,在 v0428 layout 下误导用户去找一个不存在的目录。改为读 `state.layout.source_label`,personalOS 下出 `no config in context build/config/ has target: <adapter>`。
+
+### Tests
+
+- 新增 `tests/test_v041_target_install_personal_os.py`(8 cases):
+  - **install resolves nested runtime**:claude-code / agents-md 在 v0428 layout 下都能定位到 `context build/runtime/<adapter>/<filename>`,symlink / copy 模式都验。
+  - **post-install auto-refresh**:section 改完跑 `forge approve`,symlink target / copy file 都拿到新 render。
+  - **target list**:两个 binding 都正确返回外部路径。
+  - **legacy SP 回归保护**:legacy `forge new` workspace 下 install 仍走 `output/<filename>` flat 路径。
+  - **error message uses layout label**:v0428 下未知 adapter 的报错文本含 `context build/config/`,不含 `sp/config/`。
+- 调整 `tests/test_target_sync.py::test_install_target_unknown_adapter`:正则从字面 `no config in sp/config/` 放宽到 `no config in .*config/`,兼容两种 layout(legacy 仍命中 `sp/`,新 layout 命中 `context build/`)。
+- **总数 373 → 381 通过**(3 skipped 不变)。
+
+### Skill / install
+
+- `forge self-install` 同步 v0.4.1(`forge/assets/skills/forge/SKILL.md` `version: 0.4.1`)。
+- 不动 v0.4.0 workspace-project sync 链路、不动 schema、不引入 dep。
+- e2e fixture(non-personalOS,tmp_path)验证:`install_target` → 创真 symlink → 改 section → `gate.approve` → 外部 symlink 内容更新;主 agent ~/personalOS 不动(避免与 dogfood race)。
+
 ## 0.4.0 (workspace-project sync) — 2026-05-07
 
 新增 `kind: project` onepage 上游同步链路:用户在 `workspace/project/<name>/onepage.md` 声明外部工作目录(`upstream.local_dir` + 可选 `git_remote` / `status_sources`)后,forge 即可在本地 git HEAD 与 `last_synced.commit` 不一致时报变化、把 `git log/diff/status` + status_sources head 抓为 capture inbox 项,并在 PR approve 时把当前 HEAD 写回 `last_synced`。本版只做"觉察 + 抓状态 + 写回",不自动总结、不远端 fetch、不复杂 diff。

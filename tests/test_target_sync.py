@@ -69,7 +69,7 @@ def test_install_target_unknown_adapter(tmp_path: Path) -> None:
     ws = _make_workspace(tmp_path)
     external = tmp_path / "external.md"
 
-    with pytest.raises(TargetError, match="no config in sp/config/"):
+    with pytest.raises(TargetError, match=r"no config in .*config/"):
         install_target(ws, "made-up-target", external)
 
 
