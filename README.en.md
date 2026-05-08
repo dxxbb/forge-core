@@ -2,13 +2,21 @@
 
 > CLI name: `forge`. PyPI package: `context-forge` (the name `forge-core` is taken on PyPI).
 
+Models are commoditizing. Every few months a new release closes the capability gap. The "which model" differentiator is shrinking; **the context you bring to AI** is growing — your workflow, preferences, domain knowledge, judgment calls. That's the part that's actually yours.
+
+But it doesn't behave like an asset right now. Your `CLAUDE.md` has lines you don't remember adding. Switching tools means reconfiguring from scratch. When something goes wrong you can't trace what changed. The content isn't the problem — **nothing manages it**.
+
+`forge` is the minimum viable management layer: a review-gated context compiler.
+
+---
+
 ## Install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dxxbb/forge-core/main/install.sh | bash
 ```
 
-This installs the CLI and binds the forge skill into Claude Code. Run it in your terminal yourself, or paste it to your agent and let it run.
+Run it in your terminal yourself, or paste it to your agent and let it run.
 
 Then tell your agent (Claude Code / Codex / Cursor / etc.):
 
@@ -20,9 +28,32 @@ The agent scaffolds the workspace, imports your content, and runs review. You ju
 
 ## What is it
 
-**`forge`** is a review-gated context compiler: your long-term content (preferences, project state, knowledge base, skills) is the source; `CLAUDE.md` / `AGENTS.md` are compiled artifacts. There's a review gate in between — see what changed, who's affected, how big, then approve or reject.
+**`forge`** treats your long-term content as **source files**, and the `CLAUDE.md` / `AGENTS.md` your agent actually reads as **compiled outputs**:
 
-The recommended way to use forge is inside Claude Code. The agent drives the entire workflow; you make the review decisions.
+```
+long-term content (your source)  ─→  review gate  ─→  compiled outputs (the view your agent reads)
+preferences / workspace                              CLAUDE.md
+knowledge base / skill                               AGENTS.md
+                                                     .cursorrules ...
+```
+
+Source and output are explicitly separated. Source is plain markdown you can read directly; outputs are compiled — **never hand-edited**. A review gate sits in between: every source change shows you what changed, which outputs are affected, and how the agent's behavior will shift, before you approve.
+
+The recommended way to use forge is to drive everything through agent conversation: you describe the change, the agent drafts the proposal, compiles, runs the diff. You make the review decisions.
+
+---
+
+## What problem it solves
+
+Treating the same content as an **asset** rather than **scratch** requires three properties at once:
+
+- **Legible** — source is plain markdown, not vectors, embeddings, or LLM-generated black-box summaries. You can open it and read it
+- **Explainable** — every line in the compiled output traces back to a section and an approve. `forge changelog` answers "when was this added"
+- **Controllable** — changes go through a review gate before reaching runtime. AI cannot bypass you to modify your preferences or identity narrative
+
+Hand-editing `CLAUDE.md` doesn't satisfy any of these. Letting an LLM auto-organize your memory doesn't either — LLM-organized memory drifts toward the base model's average aesthetic, which means the more an LLM organizes for you, the less differentiated you become. Differentiation only comes from **you deciding what to keep and what to drop**.
+
+`forge` provides the minimum structure that makes "you decide" possible: source / gate / compiler / multi-runtime adapters.
 
 ---
 
@@ -72,38 +103,23 @@ Agent: approved. CLAUDE.md / AGENTS.md recompiled.
        Next time you launch your agent, it will answer RSC questions based on this new entry.
 ```
 
-The key difference between the two dispositions is right there in the propagation chain:
+The key difference between the two dispositions is the propagation chain:
 
 - **ARCHIVE** — chain stops at capture. The file is saved, but the CLAUDE.md your agent reads doesn't change
 - **APPLY** — chain reaches CLAUDE.md / AGENTS.md. The compiled output gains a line; the agent's behavior changes on next launch
 
-You said two words. The agent handled monitor → capture → proposal → build → commit, and showed you exactly which items affect the final compiled output and which don't.
-
----
-
-## The problem it solves
-
-You told your agent "use Python, not TypeScript" last week. Today it gives you TypeScript. You open `CLAUDE.md` — that preference line is gone.
-
-You didn't commit that file. `git blame` shows nothing. The agent's memory isn't broken — it's unmanaged.
-
-`forge` adds the missing management layer:
-
-- **Source and compiled output are separate** — you edit `context build/sections/preference.md`; CLAUDE.md and AGENTS.md are compiled, never hand-edited
-- **Changes go through a review gate** — nothing takes effect until you approve
-- **One source, multiple runtimes** — the same preferences compile to both Claude Code and Codex; switch tools without rewriting
-- **Every change has a hash and audit trail** — `forge changelog` tells you when any rule was added
+Every item makes "does this affect the final compiled output" explicit before you approve.
 
 ---
 
 ## Who should NOT use this
 
-- **Your `CLAUDE.md` is 5 lines.** Hand-edit. Done.
-- **You want AI to auto-organize your memory.** Use `claude-memory-compiler`. forge deliberately keeps humans in the loop.
-- **You have thousands of micro-facts for retrieval.** That's vector store + RAG.
-- **You want "install and forget."** forge requires review / approve on every change.
+- **Your `CLAUDE.md` is 5 lines.** Hand-edit. forge is overkill
+- **You want AI to auto-organize your memory.** That's `claude-memory-compiler` or similar. forge deliberately keeps the human in the loop
+- **You have thousands of micro-facts for retrieval.** That's vector store + RAG, not this tool
+- **You want "install and forget."** Every source change goes through review / approve. No skipping
 
-Good fit: **multiple AI tools, 30+ lines of long-term context, you care about change traceability.**
+Good fit: **you use multiple AI tools, have 30+ lines of long-term context to manage, and care whether this content is still yours in 5 years.**
 
 ---
 
@@ -118,27 +134,27 @@ public knowledge base/  ─┘
          ▼
    forge capture → system/inbox/ → system/pr/proposal.md
          │                              │
-         │         ┌────────────────────┘
-         │         ▼
+         │                              ▼
          │   agent drafts proposal:
-         │   items[] → disposition (APPLY/ARCHIVE/COVERED)
+         │   items[] → disposition (APPLY/ARCHIVE/COVERED/...)
          │          → propagation tree (which assets change)
-         │         │
-         ▼         ▼
+         │              │
+         ▼              ▼
    you review → approve / reject
          │
          ▼
-   context build/sections/ → forge build → CLAUDE.md + AGENTS.md
+   context build/sections/ → forge build → CLAUDE.md / AGENTS.md / ...
          │
          ▼
    forge target install → ~/.claude/CLAUDE.md (auto-sync)
 ```
 
-- **Capture** — raw evidence (web clippings, logs, agent memory). Store only, never modified
-- **Proposal** — each monitored change is an item; agent classifies as APPLY / ARCHIVE / COVERED / DECIDE, with a propagation tree showing the impact chain
-- **Section** — context build source files, one per concern (about user / workspace / knowledge base / preference / skill)
+- **Capture** — raw evidence (web clippings, logs, agent memory). Stored, never modified
+- **Inbox** — pending queue before the review pipeline
+- **Proposal** — each monitored change is an item; agent classifies (APPLY / ARCHIVE / COVERED / DECIDE / NA / MIXED) with a propagation tree
+- **Section** — context build source files, organized by concern (about user / workspace / knowledge base / preference / skill)
 - **Output** — compiled artifacts (CLAUDE.md / AGENTS.md). Never hand-edited; auto-regenerated on approve
-- **Target** — bind an output to an external path; auto-synced on approve
+- **Target** — bind an output to an external path (like `~/.claude/CLAUDE.md`); auto-synced on approve
 
 ---
 
@@ -147,27 +163,25 @@ public knowledge base/  ─┘
 ### Core
 
 ```
-forge new <path>                # scaffold workspace
-forge init                      # initialize approved baseline
-forge build                     # section → output compilation
-forge review                    # one-screen impact + diff
-forge approve -m "message"      # = git commit + rebuild + sync
-forge reject                    # revert to last approved
-forge changelog                 # audit log
-forge rollback [hash]           # restore any historical version
+forge new <path>          # scaffold workspace
+forge build               # section → output compilation
+forge review              # one-screen impact + diff
+forge approve -m "..."    # = git commit + rebuild + sync
+forge reject              # revert to last approved
+forge changelog           # audit log
+forge rollback [hash]     # restore any historical version
 ```
 
 ### Governance (recommended via agent conversation)
 
 ```
-forge monitor                   # scan workspace for changes
-forge capture                   # capture raw evidence
-forge proposal new              # generate schema-aware proposal
-forge proposal validate         # validate proposal
-forge pr render                 # render §0.5 view
-forge pr done                   # archive PR
-forge inbox done                # close inbox item
-forge synthesize-clipping       # web clipping → KB topic synthesis
+forge monitor             # scan workspace for changes
+forge capture             # capture raw evidence
+forge proposal new        # generate schema-aware proposal
+forge proposal validate   # validate proposal
+forge pr render           # render §0.5 view
+forge pr done             # archive PR
+forge inbox done          # close inbox item
 ```
 
 ### Target binding & tools
@@ -175,32 +189,24 @@ forge synthesize-clipping       # web clipping → KB topic synthesis
 ```
 forge target install <adapter> --to <path>
 forge target list / remove
-forge bench snapshot / compare
-forge self-install              # bind skill to agent runtime
-forge update                    # upgrade CLI
+forge bench snapshot / compare    # structural snapshot diff
+forge self-install                # bind forge skill to agent runtime
+forge update                      # upgrade CLI
 ```
 
 ---
 
 ## Adapters
 
-| Name | Output | Description |
+| Name | Output | Tier |
 |---|---|---|
-| `claude-code` | `CLAUDE.md` | Claude Code |
-| `agents-md` | `AGENTS.md` | Cross-tool standard |
-| `cursor` | `.cursorrules` | Cursor |
-| `codex-cli` | AGENTS.md variant | OpenAI Codex |
-| `rulesync-bridge` | rulesync input | Bridge to 20+ tools |
+| `claude-code` | `CLAUDE.md` | core |
+| `agents-md` | `AGENTS.md` | core |
+| `cursor` | `.cursorrules` | contrib |
+| `codex-cli` | AGENTS.md variant | contrib |
+| `rulesync-bridge` | rulesync input | contrib |
 
-Custom adapter is ~20 LoC. See [adapters-spec.md](docs/adapters-spec.md).
-
----
-
-## Current status
-
-Alpha. Still in dogfood — the author is the only real user. Schema, CLI surface, and directory layout may break between versions.
-
-A behavioral A/B eval was run at v0.1.0 (forge output vs hand-rolled CLAUDE.md, tied 2:2, 92.5% structural preservation — see [`docs/eval-report.en.md`](docs/eval-report.en.md)). **Not re-run on any later version.** Structure and pipeline have changed since; the old numbers don't represent the current build.
+Core adapters load by default; contrib adapters require an explicit `register_adapter(...)` call. A custom adapter is ~20 LoC. See [`docs/adapters-spec.md`](docs/adapters-spec.md).
 
 ---
 
@@ -223,7 +229,13 @@ Sample tasks (replace with your own):
 - grounding-rule:      "If I ask about a product's release date, what should you do first?"
 ```
 
-Full setup in [`docs/eval-report.en.md`](docs/eval-report.en.md) (the v0.1.0 run: 4 tasks / general-purpose subagents / blind judge). Swap in your own tasks and your two CLAUDE.md versions to reuse it.
+Full setup template in [`docs/eval-report.en.md`](docs/eval-report.en.md). Swap in your own tasks and your two CLAUDE.md versions to reuse it.
+
+---
+
+## Current status
+
+Alpha. Still in dogfood — the author is the only real user. Schema, CLI surface, and directory layout may break between versions. Docs and implementation may drift; when in conflict, code is the source of truth.
 
 ---
 
@@ -231,7 +243,7 @@ Full setup in [`docs/eval-report.en.md`](docs/eval-report.en.md) (the v0.1.0 run
 
 ```bash
 pip install -e '.[dev]'
-pytest -q                       # 488 tests, ~27s
+pytest -q
 ```
 
 ## License
