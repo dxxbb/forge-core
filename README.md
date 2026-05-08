@@ -4,13 +4,13 @@
 
 ## 安装
 
-在 Claude Code 里跑一行：
+终端里跑一行：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dxxbb/forge-core/main/install.sh | bash
 ```
 
-装好后跟 Claude 说：
+装好后在 Claude Code 里跟 agent 说：
 
 > "帮我搭一个 forge 工作区，把我现有的 CLAUDE.md 用 forge 管"
 
@@ -28,7 +28,7 @@ Agent 会建工作区、导入现有内容、跑 review。你只管看结果说 
 
 ## 日常长什么样
 
-你更新了工作日志，又存了一篇 AI 算力的 web clipping。跟 Claude 说"forge 一下"：
+你更新了工作日志，又存了一篇技术文章的 web clipping。跟 Claude 说"forge 一下"：
 
 ```
 你：forge 一下
@@ -36,43 +36,43 @@ Agent 会建工作区、导入现有内容、跑 review。你只管看结果说 
 Claude：monitor 检测到 2 个变化。生成 proposal：
 
   ══ ITEM 1 ══════════════════════════════════════════════════════════
-     监控:  user space/daily/memo2026Q2.md (3264 bytes, modified)
+     监控:  user space/daily/work-log.md (2048 bytes, modified)
   ══════════════════════════════════════════════════════════════════════
 
-    提取信息    - Q2 工作日志更新 (20260508)
-                - forge: make the post
-                - watermark: gaowei case 重新调研
-    处理结果    📦 ARCHIVE · memo 是滚动日志，不传播到 context build
+    提取信息    - 工作日志更新
+                - 项目 A 进入测试阶段
+                - 项目 B 调研中
+    处理结果    📦 ARCHIVE · 滚动日志，不传播到 context build
     理由        个人工作日志，capture 留存作审计 trail
 
   ══ ITEM 2 ══════════════════════════════════════════════════════════
-     监控:  capture/web clipping/台积电报告.md
+     监控:  capture/web clipping/react-server-components.md
   ══════════════════════════════════════════════════════════════════════
 
-    提取信息    - TSMC 2026 报告: AI 芯片工业结构变化
-                - 半导体超级周期 + 先进封装路线图
-                - 与 ai-policy.md 有交叉但角度不同(工业 vs 地缘)
-    处理结果    ✅ APPLY · 新建 ai-compute.md + ai-policy 交叉引用
-    理由        现有 KB 无算力工业维度，这篇填补空白
+    提取信息    - React Server Components 架构深度解析
+                - RSC vs SSR 的本质区别
+                - 与现有 react-patterns.md 互补（架构 vs 实践）
+    处理结果    ✅ APPLY · 新建 rsc.md + react-patterns 交叉引用
+    理由        现有 KB 无 RSC 架构维度，这篇填补空白
 
     传播链路
-    └─ public knowledge base/topic/tech/ai/compute/ai-compute.md
-       ├─ 修改: 新建主题页，提炼 TSMC 报告要点
+    └─ public knowledge base/topic/tech/frontend/rsc.md
+       ├─ 修改: 新建主题页，提炼文章要点
        └─ context build/sections/knowledge base.md
-          ├─ 修改: 索引追加 ai-compute 条目
+          ├─ 修改: 索引追加 rsc 条目
           └─ (终止)
 
   总分布: 📦 × 1, ✅ × 1。approve / reject?
 
 你：ok
 
-Claude：approved. memo 已归档，ai-compute.md 已创建，
+Claude：approved. 日志已归档，rsc.md 已创建，
        knowledge base section 已更新，CLAUDE.md 和 AGENTS.md 已重编译。
 ```
 
 一个 PR 里同时处理了两类变化：
 
-- **ARCHIVE** — memo 是工作日志，记录在 capture 里但不影响 agent context
+- **ARCHIVE** — 日志是工作记录，存在 capture 里但不影响 agent context
 - **APPLY** — web clipping 有新知识，提炼到知识库，propagation tree 追踪影响链一直到编译产物
 
 你只说了两个字。agent 负责 monitor → capture → proposal → build → commit 全流程。
@@ -87,7 +87,7 @@ Claude：approved. memo 已归档，ai-compute.md 已创建，
 
 `forge` 给这一层补上管理流程：
 
-- **源文件和编译产物分开** — 你改 `sp/section/preferences.md`，CLAUDE.md 和 AGENTS.md 是编译出来的，不手改
+- **源文件和编译产物分开** — 你改 `context build/sections/preference.md`，CLAUDE.md 和 AGENTS.md 是编译出来的，不手改
 - **改动过审核关口** — 不是改完就生效，是 review 后 approve 才生效
 - **一份源，多个 runtime** — 同一份 preference 同时编译到 Claude Code 和 Codex，换工具不重写
 - **每次改动有 hash 和审计日志** — 三个月后想知道"这条规则什么时候加的"，`forge changelog` 一查就有

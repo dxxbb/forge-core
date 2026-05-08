@@ -4,13 +4,13 @@
 
 ## Install
 
-Run one line in Claude Code:
+Run one line in your terminal:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dxxbb/forge-core/main/install.sh | bash
 ```
 
-Then tell Claude:
+Then tell Claude in Claude Code:
 
 > "Set up a forge workspace, import my existing CLAUDE.md"
 
@@ -28,7 +28,7 @@ The recommended way to use forge is inside Claude Code. The agent drives the ent
 
 ## What daily use looks like
 
-You updated your work journal and saved a web clipping about AI compute. Tell Claude "check forge":
+You updated your work journal and saved a tech article as a web clipping. Tell Claude "check forge":
 
 ```
 You: check forge
@@ -36,43 +36,43 @@ You: check forge
 Claude: monitor found 2 changes. Proposal:
 
   ══ ITEM 1 ══════════════════════════════════════════════════════════
-     monitor:  user space/daily/memo2026Q2.md (3264 bytes, modified)
+     monitor:  user space/daily/work-log.md (2048 bytes, modified)
   ══════════════════════════════════════════════════════════════════════
 
-    extracted   - Q2 work log update (20260508)
-                - forge: preparing the post
-                - watermark: restarting research
+    extracted   - Work log update
+                - Project A entering test phase
+                - Project B in research
     disposition 📦 ARCHIVE · rolling work log, no context build propagation
     rationale   Personal work journal — capture preserved as audit trail
 
   ══ ITEM 2 ══════════════════════════════════════════════════════════
-     monitor:  capture/web clipping/tsmc-report.md
+     monitor:  capture/web clipping/react-server-components.md
   ══════════════════════════════════════════════════════════════════════
 
-    extracted   - TSMC 2026 report: AI chip industrial structure shift
-                - Advanced packaging roadmap + semiconductor supercycle
-                - Overlaps ai-policy.md but different angle (industrial vs geopolitical)
-    disposition ✅ APPLY · create ai-compute.md + cross-link ai-policy
-    rationale   Existing KB has no compute-industrial dimension; this fills the gap
+    extracted   - Deep dive into React Server Components architecture
+                - RSC vs SSR: fundamental differences
+                - Complements existing react-patterns.md (architecture vs practice)
+    disposition ✅ APPLY · create rsc.md + cross-link react-patterns
+    rationale   Existing KB has no RSC architecture dimension; this fills the gap
 
     propagation
-    └─ public knowledge base/topic/tech/ai/compute/ai-compute.md
-       ├─ modification: create topic page, distill TSMC report
+    └─ public knowledge base/topic/tech/frontend/rsc.md
+       ├─ modification: create topic page, distill article
        └─ context build/sections/knowledge base.md
-          ├─ modification: append ai-compute entry to index
+          ├─ modification: append rsc entry to index
           └─ (terminal)
 
   Distribution: 📦 × 1, ✅ × 1. approve / reject?
 
 You: ok
 
-Claude: approved. Memo archived, ai-compute.md created,
+Claude: approved. Log archived, rsc.md created,
        knowledge base section updated, CLAUDE.md and AGENTS.md recompiled.
 ```
 
 One PR handles both changes:
 
-- **ARCHIVE** — the memo is a work journal; captured for audit trail but doesn't affect agent context
+- **ARCHIVE** — the log is a work journal; captured for audit trail but doesn't affect agent context
 - **APPLY** — the web clipping has new knowledge; distilled into the KB, propagation tree traces the impact chain all the way to compiled output
 
 You said two words. The agent handled monitor → capture → proposal → build → commit.
@@ -87,7 +87,7 @@ You didn't commit that file. `git blame` shows nothing. The agent's memory isn't
 
 `forge` adds the missing management layer:
 
-- **Source and compiled output are separate** — you edit `sp/section/preferences.md`; CLAUDE.md and AGENTS.md are compiled, never hand-edited
+- **Source and compiled output are separate** — you edit `context build/sections/preference.md`; CLAUDE.md and AGENTS.md are compiled, never hand-edited
 - **Changes go through a review gate** — nothing takes effect until you approve
 - **One source, multiple runtimes** — the same preferences compile to both Claude Code and Codex; switch tools without rewriting
 - **Every change has a hash and audit trail** — `forge changelog` tells you when any rule was added
