@@ -2,19 +2,22 @@
 
 > CLI name: `forge`. PyPI package: `context-forge` (the name `forge-core` is taken on PyPI).
 
-## Install
+## Get started
 
-Run one line in your terminal:
+Tell your agent in Claude Code:
+
+> "Install forge, set up a workspace, and import my existing CLAUDE.md"
+
+The agent installs the CLI, scaffolds the workspace, imports your content, and runs review. You just say ok or reject.
+
+<details>
+<summary>Manual install</summary>
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dxxbb/forge-core/main/install.sh | bash
 ```
 
-Then tell Claude in Claude Code:
-
-> "Set up a forge workspace, import my existing CLAUDE.md"
-
-The agent scaffolds the workspace, imports your content, and runs review. You just say ok or reject.
+</details>
 
 ---
 

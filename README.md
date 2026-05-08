@@ -2,19 +2,22 @@
 
 > CLI 名 `forge`，PyPI 包名 `context-forge`（`forge-core` 已被占用）。
 
-## 安装
+## 上手
 
-终端里跑一行：
+在 Claude Code 里跟 agent 说：
+
+> "安装 forge，帮我把现有的 CLAUDE.md 用 forge 管"
+
+Agent 会自动安装 CLI、搭建工作区、导入现有内容、跑 review。你只管看结果说 ok 或 reject。
+
+<details>
+<summary>手动安装</summary>
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dxxbb/forge-core/main/install.sh | bash
 ```
 
-装好后在 Claude Code 里跟 agent 说：
-
-> "帮我搭一个 forge 工作区，把我现有的 CLAUDE.md 用 forge 管"
-
-Agent 会建工作区、导入现有内容、跑 review。你只管看结果说 ok 或 reject。
+</details>
 
 ---
 
