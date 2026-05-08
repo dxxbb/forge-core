@@ -2,22 +2,19 @@
 
 > CLI name: `forge`. PyPI package: `context-forge` (the name `forge-core` is taken on PyPI).
 
-## Get started
-
-Tell your agent in Claude Code:
-
-> "Install forge, set up a workspace, and import my existing CLAUDE.md"
-
-The agent installs the CLI, scaffolds the workspace, imports your content, and runs review. You just say ok or reject.
-
-<details>
-<summary>Manual install</summary>
+## Install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dxxbb/forge-core/main/install.sh | bash
 ```
 
-</details>
+This installs the CLI and binds the forge skill into Claude Code. You can run it yourself, or paste it to your agent and let it run.
+
+Then tell Claude in Claude Code:
+
+> "Set up a forge workspace, import my existing CLAUDE.md"
+
+The agent scaffolds the workspace, imports your content, and runs review. You just say ok or reject.
 
 ---
 
@@ -199,7 +196,8 @@ Custom adapter is ~20 LoC. See [adapters-spec.md](docs/adapters-spec.md).
 
 ## Validation
 
-**488 tests / 0 failures**. Line recall vs hand-rolled `CLAUDE.md`: **91.5%**. Behavioral 4-task A/B eval: 2:2 split. See [`docs/eval-report.en.md`](docs/eval-report.en.md).
+- **Unit tests**: ~490 / 0 failures (`pytest -q`)
+- **v0.1.0 behavioral eval**: 4-task A/B vs hand-rolled `CLAUDE.md` tied 2:2; structural preservation 92.5%. See [`docs/eval-report.en.md`](docs/eval-report.en.md). Not re-run on later versions.
 
 ---
 

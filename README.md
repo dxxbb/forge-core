@@ -2,22 +2,19 @@
 
 > CLI 名 `forge`，PyPI 包名 `context-forge`（`forge-core` 已被占用）。
 
-## 上手
-
-在 Claude Code 里跟 agent 说：
-
-> "安装 forge，帮我把现有的 CLAUDE.md 用 forge 管"
-
-Agent 会自动安装 CLI、搭建工作区、导入现有内容、跑 review。你只管看结果说 ok 或 reject。
-
-<details>
-<summary>手动安装</summary>
+## 安装
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dxxbb/forge-core/main/install.sh | bash
 ```
 
-</details>
+这条命令装好 CLI 并把 forge skill 绑到 Claude Code。可以自己在终端跑，也可以直接粘给 agent 让它跑。
+
+装好后在 Claude Code 里跟 agent 说：
+
+> "帮我搭一个 forge 工作区，把我现有的 CLAUDE.md 用 forge 管"
+
+Agent 会建工作区、导入现有内容、跑 review。你只管看结果说 ok 或 reject。
 
 ---
 
@@ -199,7 +196,8 @@ forge update                    # 升级 CLI
 
 ## 验证
 
-**488 单测 / 0 失败**。逐行保留率 vs 手搓 `CLAUDE.md`：**91.5%**。行为层 4 task A/B 评估 2:2 打平，方法见 [`docs/eval-report.md`](docs/eval-report.md)。
+- **单测**：~490 项 / 0 失败（`pytest -q`）
+- **v0.1.0 行为层 eval**：4 task A/B 与手搓 `CLAUDE.md` 2:2 打平，结构保留率 92.5%。详见 [`docs/eval-report.md`](docs/eval-report.md)。后续版本未重跑此 eval。
 
 ---
 
