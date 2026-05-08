@@ -2,295 +2,223 @@
 
 > CLI 名 `forge`，PyPI 包名 `context-forge`（`forge-core` 已被占用）。
 
-**`forge`** 是一个审核关口：改完长期内容（section），看一眼编译产物（CLAUDE.md / AGENTS.md）会变什么，通过了再推给 agent。不做 memory、不做同步、不做 prompt 编译。
+**`forge`** 是一个 review-gated context compiler：你的长期内容（偏好、项目状态、知识库、技能）是源文件，agent 真正读到的 `CLAUDE.md` / `AGENTS.md` 是编译产物。中间有一道审核关口——改了什么、影响谁、多大，看清楚再 approve。
 
-```
-┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-│  sp/section/ │──▶│ sp/config/    │──▶│ output/       │
-│ （源文件，   │    │ （配方：      │    │ CLAUDE.md    │
-│  你改）      │    │  挑哪几段、   │    │ AGENTS.md    │
-│              │    │  投给谁）     │    │ （不手改）   │
-└──────────────┘    └──────────────┘    └──────────────┘
-                           │                    │
-                           ▼                    ▼ (forge target install)
-                    ┌──────────────┐     ┌──────────────────┐
-                    │ forge diff    │     │ ~/.claude/        │
-                    │ forge approve │     │  CLAUDE.md        │
-                    │ forge reject  │     │ （活产物，approve │
-                    └──────────────┘     │  自动同步）        │
-                                         └──────────────────┘
-```
-
----
-
-## 一次真实的改动长什么样
-
-你发现 Claude 总爱往代码里加一堆注释。打开 `sp/section/preferences.md`，加两行：
-
-```markdown
-- 默认不写注释。只在 why 不明显时加一行，不解释 what。
-- 不要在注释里引用当前任务、issue 号或调用方，这些属于 PR 描述。
-```
-
-然后跟 Claude 说"过一下"：
-
-```
-你：过一下
-
-Claude：doctor 检查通过。preferences.md 有改动，跑一下 review：
-
-══ forge review · proposed change (not yet approved) ══
-
-┌─ Source ─────────────────────────────────────────────
-│ Origin:  hand edit (no recorded ingest/event)
-│ Touched: 1 section
-└──────────────────────────────────────────────────────
-
-┌─ What changed ───────────────────────────────────────
-│ • preferences.md: +2 bullet rules (注释策略)
-│     847B → 963B  (+116B, +2/-0 lines)
-└──────────────────────────────────────────────────────
-
-┌─ Affects ────────────────────────────────────────────
-│ Outputs that will rebuild on approve:
-│   • output/CLAUDE.md  (+116B)  ← Claude Code (every session)
-│   • output/AGENTS.md  (+116B)  ← Codex / any AGENTS.md tool
-│
-│ External targets (auto-sync on approve):
-│   • ~/.claude/CLAUDE.md  [symlink]
-└──────────────────────────────────────────────────────
-
-┌─ Bench ──────────────────────────────────────────────
-│ preferences            +116B  (847 → 963)
-│ about-me                  0B  (unchanged)
-│ workspace                 0B  (unchanged)
-│ knowledge-base            0B  (unchanged)
-│ skills                    0B  (unchanged)
-└──────────────────────────────────────────────────────
-
-一份源文件改两行，Claude Code 和 Codex 的上下文同时更新。
-approve / reject?
-
-你：ok
-
-Claude：
-approved hash=c4a91b at 2026-05-08T20:31:00+08:00
-  wrote output/CLAUDE.md
-  wrote output/AGENTS.md
-  synced → ~/.claude/CLAUDE.md
-
-下次 Claude Code 新 session 就会读到这两条注释规则了。
-```
-
-整个过程跟 Claude 对话完成——agent 跑 `forge doctor` + `forge review` + `forge approve`，你只做决定。
-
-这里面有三件事是手改 `CLAUDE.md` 做不到的：
-
-1. **你看到了完整影响再决定**——不是改完就生效，是 review 后 approve 才生效
-2. **一份源文件同时编译到 CLAUDE.md 和 AGENTS.md**——换 Codex 不用重写
-3. **每次改动有 hash 和审计日志**——三个月后想知道"这条注释规则什么时候加的"，`forge changelog` 一查就有
+推荐的使用方式是在 Claude Code 里跟 agent 对话，agent 驱动整个流程，你做审核决策。
 
 ---
 
 ## 上手
 
-```bash
-pipx install git+https://github.com/dxxbb/forge-core.git
-forge self-install               # 把 forge skill 绑到 Claude Code
-```
+在 Claude Code 里说：
 
-打开 Claude Code，说一句话：
+> "安装 forge，帮我搭一个工作区"
 
-> "帮我搭一个 forge 工作区，把我现有的 ~/.claude/CLAUDE.md 用 forge 管"
-
-Claude 会带你走完全流程（建工作区 → 导入现有 CLAUDE.md → 自动分类到 5 个 section → review → approve → 绑定到 `~/.claude/CLAUDE.md`）。**全程对话，不敲 CLI**。
-
-之后日常就是：改 section → 跟 Claude 说"过一下"→ ok / reject。上面那个 demo 就是日常的样子。
+Agent 会自动安装 CLI、建工作区、导入你现有的 `CLAUDE.md`、分类到 section、跑 review。你只管看结果说 ok 或 reject。
 
 <details>
-<summary>不用 Claude Code？纯 CLI 也行</summary>
+<summary>手动安装</summary>
 
 ```bash
-forge new ~/forge-context && cd ~/forge-context
-forge init
-forge ingest --from ~/.claude/CLAUDE.md     # 没 API key 加 --no-llm
-forge review
-forge approve -m "import existing CLAUDE.md"
-forge target install claude-code --to ~/.claude/CLAUDE.md --mode symlink
+pipx install git+https://github.com/dxxbb/forge-core.git
+forge self-install
 ```
-
-日常：`$EDITOR sp/section/preferences.md` → `forge review` → `forge approve -m "..."`
 
 </details>
 
 ---
 
-## 一个具体场景
+## 日常长什么样
 
-上周你告诉 agent "用 Python，不要 TypeScript"。今天你问同样的问题，它给你 TypeScript。打开 `CLAUDE.md`，preference 那段少了一行——就是"不要 TypeScript"那句。
+你在社交媒体上看到一篇关于 AI 算力的文章，存了一份 web clipping。过两天你跟 Claude 说"forge 一下"，它扫描到这个 clipping，跟已有知识库比对，生成一个 proposal：
 
-你没 commit 过这个文件，git blame 查不到是谁改的。agent 不是没 memory，是它的 memory 没人管。
+```
+你：forge 一下
 
-你管代码用 git，改、diff、review、commit，必要时 rollback。管 agent 配置用什么？多数人是手改，改完希望没出事。
+Claude：monitor 检测到 1 个新 web clipping。我来做个分拣。
 
-`forge` 给这一层补上那套流程。不替代 git，补 git 覆盖不到的那半段：从长期内容编译成 agent 真正读的上下文，这中间的 review 和回滚。
+  这篇文章的核心论点（TSMC 2026 路线图 + AI 不是热点是结构变化）
+  跟现有 KB 里的 ai-policy.md 有关联但不重复，建议新建一个
+  ai-compute.md 主题页。proposal 如下：
+
+  ══ ITEM 1 ══════════════════════════════════════════════════════════
+     监控:  capture/web clipping/台积电报告.md
+  ══════════════════════════════════════════════════════════════════════
+
+    提取信息    - TSMC 2026 报告: AI 芯片工业结构变化
+                - 半导体超级周期 + 先进封装路线图
+                - 与 ai-policy.md 有交叉但角度不同(工业 vs 地缘)
+    处理结果    ✅ APPLY · 新建 ai-compute.md + ai-policy 交叉引用
+    理由        现有 KB 无算力工业维度,这篇填补空白
+
+    传播链路
+    └─ b: public knowledge base/topic/tech/ai/compute/ai-compute.md
+       ├─ 修改: 新建主题页,提炼 TSMC 报告要点
+       └─ b1: context build/sections/knowledge base.md
+          ├─ 修改: 索引追加 ai-compute 条目
+          └─ (终止)
+
+  approve / reject?
+
+你：ok
+
+Claude：approved. ai-compute.md 已创建，knowledge base section 已更新，
+       CLAUDE.md 和 AGENTS.md 已重新编译。
+```
+
+这个例子里发生了几件事：
+
+1. **agent 主动发现变化** — `forge monitor` 扫到新 clipping，不需要你记得去处理
+2. **跟已有资产比对** — 不是无脑塞进去，是判断 APPLY / COVERED / ARCHIVE
+3. **propagation tree 追踪影响链** — clipping → 知识库 asset → context build section → 编译产物，每一步都可审
+4. **你只做一个决定** — ok 或 reject。agent 负责 capture、proposal、build、commit 全流程
+
+另一种常见场景更轻量——你更新了工作日志，forge 检测到但判断它不影响 context build：
+
+```
+你：过一下
+
+Claude：monitor 检测到 memo2026Q2.md 有改动。
+
+  ══ ITEM 1 ══════════════════════════════════════════════════════════
+     监控:  user space/daily/memo2026Q2.md (3264 bytes, modified)
+  ══════════════════════════════════════════════════════════════════════
+
+    提取信息    - Q2 工作日志更新 (20260508)
+                - forge: make the post
+                - watermark: gaowei case 重新调研
+    处理结果    📦 ARCHIVE · memo 是滚动日志，不传播到 context build
+    理由        个人工作日志，capture 留存作审计 trail
+
+  approve / reject?
+
+你：ok
+
+Claude：approved. capture 存档完成，context build 无变化。
+```
+
+**ARCHIVE 不是删除** — raw evidence 永久留在 `capture/` 里，只是判断它不需要传播到 agent context。
 
 ---
 
-## "`make` + `git` 不就行？"
+## 它解决什么问题
 
-差不多。如果你已经自己搭过了，继续用没问题。
+上周你告诉 agent "用 Python，不要 TypeScript"。今天你问同样的问题，它给你 TypeScript。打开 `CLAUDE.md`，preference 那段少了一行。
 
-我相比手搓多的几件事：
+你没 commit 过这个文件，git blame 查不到是谁改的。agent 不是没 memory，是它的 memory 没人管。
 
-1. `forge diff` 一次给你语义 diff——源文件变了什么，**以及**每个编译目标（CLAUDE.md / AGENTS.md / …）会变成什么。`git diff` 只看文本，每个目标你都要自己重跑 build 再看一次。
-2. `sp/` 整棵源文件树有个完整性哈希。`forge status` 立即看出漂移。
-3. 自带一个结构 bench（下面讲它能干嘛不能干嘛）。
-4. 整套约定别人也能看懂。打开 `sp/section/` + `sp/config/` + `CHANGELOG.md` 就懂。手搓脚本只有作者自己看得懂。
+`forge` 给这一层补上管理流程：
 
-然后要说清楚几件我**没做**的事：
-
-- 编译过程刻意很笨，不比你手写的 `make` 规则聪明。
-- v0.1 的 bench 只做结构对比——字节、行数、每段 section 大小。不告诉你 "agent 变聪明了吗"。那要真跑 agent，是 v0.3。现在就想要 LLM 打分，请用 `promptfoo`，我不替代它们。
-- 不监听会话、不自动抓、不替你做决定。section 你自己改。
-
-规模上：`forge` 是 0 星 alpha；DSPy 是 33.6k 星的成熟项目。我不是在和 DSPy 比，我们根本不在同一件事上。我想正面对比的是 `rulesync` 和 `claude-memory-compiler`——它们是真实对手，我补的就是它们那一步"改了就推"和"LLM 直接写"之间缺的审核。
+- **源文件和编译产物分开** — 你改 `sp/section/preferences.md`，CLAUDE.md 和 AGENTS.md 是编译出来的，不手改
+- **改动过审核关口** — 不是改完就生效，是 review 后 approve 才生效
+- **一份源，多个 runtime** — 同一份 preference 同时编译到 Claude Code 和 Codex，换工具不重写
+- **每次改动有 hash 和审计日志** — 三个月后想知道"这条规则什么时候加的"，`forge changelog` 一查就有
 
 ---
 
 ## 谁不应该用这个
 
 - **你的 `CLAUDE.md` 只有几行**：手改就够了。
-- **你想要 AI 自己帮你整理 memory**：那你要的是 `claude-memory-compiler` 之类，不是 forge。
+- **你想要 AI 自己帮你整理 memory**：那你要的是 `claude-memory-compiler` 之类。forge 刻意让人做决定。
 - **你有上千条微事实要 retrieval**：那是 vector store + RAG 的活。
-- **你只用一个 AI 工具、对锁定不担心**：forge 的跨 runtime 优势对你价值有限。
-- **你追求"装完不管"的体验**：forge 要你每次改 source 都过 `forge review / approve`。
+- **你追求"装完不管"的体验**：forge 要你每次改 source 都过 review / approve。
 
-适合的人：**在用多个 AI 工具、手里有 30-300 行的长期 context 想系统管、关心"5 年后这份东西还在我手里"这件事**。
+适合的人：**在用多个 AI 工具、手里有 30+ 行的长期 context 想系统管、关心"这些内容的变更有迹可查"这件事**。
 
 ---
 
-## 五个概念
+## 核心概念
 
-- **Section**（源文件）——一个 markdown 文件一个主题。YAML frontmatter + 正文。
-- **Config**（配方）——"给谁、挑哪几段、什么顺序"。不装内容。
-- **Output**（产物）——某个工具真读的那份文件（`output/CLAUDE.md` 等），不手改。
-- **Gate**——approve = `git commit`，reject = `git restore`，rollback 任意 hash，audit = `git log`。
-- **Target**（绑定）——把某个 output 推到外部路径（如 `~/.claude/CLAUDE.md`），approve 自动同步。
+```
+capture/web clipping/   ─┐
+user space/daily/        ├─→ forge monitor 检测变化
+workspace/project/       │
+public knowledge base/  ─┘
+         │
+         ▼
+   forge capture → system/inbox/ → system/pr/proposal.md
+         │                              │
+         │         ┌────────────────────┘
+         │         ▼
+         │   agent 生成 proposal:
+         │   items[] → disposition (APPLY/ARCHIVE/COVERED)
+         │          → propagation tree (哪些 asset 要改)
+         │         │
+         ▼         ▼
+   你 review → approve / reject
+         │
+         ▼
+   context build/sections/ → forge build → CLAUDE.md + AGENTS.md
+         │
+         ▼
+   forge target install → ~/.claude/CLAUDE.md (auto-sync)
+```
 
-完整设计：[`docs/design.md`](docs/design.md)。
+- **Capture** — 原始证据（web clipping、日志、agent memory），只存不改
+- **Proposal** — 每个监控到的变化是一个 item，agent 分类为 APPLY / ARCHIVE / COVERED / DECIDE，附 propagation tree 说明影响链
+- **Section** — context build 的源文件，一个文件一个主题（about user / workspace / knowledge base / preference / skill）
+- **Output** — 编译产物（CLAUDE.md / AGENTS.md），不手改，approve 后自动重生成
+- **Target** — 把 output 绑到外部路径，approve 自动同步
 
 ---
 
 ## CLI 命令
 
-### 核心命令（任何 forge 工作区）
+### 核心命令
 
 ```
 forge new <path>                # 建工作区
 forge init                      # 初始化 approved 基线
-forge status                    # 上次通过的哈希 + 是否漂移
-forge doctor                    # schema / provenance / 适配器体检
-forge build                     # sp/ → output/（不走审核，给 CI 用）
-
-forge review                    # 推荐入口：一屏看 Origin/What changed/
-                                #   Affects/Bench + 完整 diff
-forge review --summary-only     # 只看 panels，跳过 raw diff
-forge review --tui              # 键盘驱动 TUI（需真终端）
-forge diff                      # 老入口（= git diff HEAD -- sp/）
-
-forge approve -m "说明"         # = git commit + 重编译 + 同步 target
-forge reject                    # = git restore HEAD -- sp/ output/
-forge changelog                 # 从 git log 渲染审计
-forge rollback [hash]           # 回到某次 approved
-
-forge ingest --from <file>      # 导入现有 context，自动分类到 section
+forge build                     # section → output 编译
+forge review                    # 一屏看影响 + diff
+forge approve -m "说明"         # = git commit + 重编译 + 同步
+forge reject                    # 回退到上次 approved
+forge changelog                 # 审计日志
+forge rollback [hash]           # 回到任意历史版本
 ```
 
-### 目标绑定
+### Governance（推荐在 agent 对话中使用）
 
 ```
-forge target install <adapter> --to <path>      # e.g. claude-code --to ~/.claude/CLAUDE.md
-forge target install <adapter> --to <path> --mode symlink
-forge target list
-forge target remove <adapter>
-```
-
-### 结构 bench
-
-```
-forge bench snapshot <名字>
-forge bench list
-forge bench compare <a> <b>
-```
-
-### Agent skill 管理
-
-```
-forge self-install              # 绑 forge skill 到检测到的 agent runtime
-forge self-install --dry-run    # 看会做什么
-forge update                    # 升级 CLI + refresh skill
-```
-
-### personalOS 扩展命令
-
-以下命令需要 personalOS 工作区布局（`capture/` / `system/inbox/` / `system/pr/` 等），普通 forge 工作区不需要：
-
-```
-forge monitor                   # 扫描 personalOS 工作区的全局状态变化
-forge capture                   # 抓取原始证据到 capture/
-forge proposal new              # 从 inbox 生成 schema-aware proposal
-forge proposal validate         # 校验 proposal 完整性
+forge monitor                   # 扫描工作区全局状态变化
+forge capture                   # 抓取原始证据
+forge proposal new              # 生成 schema-aware proposal
+forge proposal validate         # 校验 proposal
 forge pr render                 # 渲染 §0.5 视图
-forge pr done                   # 关闭 PR，归档到 approve log
+forge pr done                   # 归档 PR
 forge inbox done                # 关闭 inbox 条目
 forge synthesize-clipping       # web clipping → KB topic 合成
-forge migrate-onepage           # 升级 onepage schema
+```
+
+### 目标绑定 & 工具
+
+```
+forge target install <adapter> --to <path>
+forge target list / remove
+forge bench snapshot / compare
+forge self-install              # 绑 forge skill 到 agent runtime
+forge update                    # 升级 CLI
 ```
 
 ---
 
 ## 适配器
 
-内置两个 core adapter + 三个 contrib adapter：
-
-| 位置 | 名字 | 产物 |
+| 名字 | 产物 | 说明 |
 |---|---|---|
-| `forge/targets/` | `claude-code` | `CLAUDE.md` |
-| `forge/targets/` | `agents-md` | `AGENTS.md`（跨工具标准） |
-| `forge/contrib/` | `cursor` | `.cursorrules` |
-| `forge/contrib/` | `codex-cli` | Codex CLI 变体的 AGENTS.md |
-| `forge/contrib/` | `rulesync-bridge` | 给 rulesync 的输入 |
+| `claude-code` | `CLAUDE.md` | Claude Code |
+| `agents-md` | `AGENTS.md` | 跨工具标准 |
+| `cursor` | `.cursorrules` | Cursor |
+| `codex-cli` | AGENTS.md variant | OpenAI Codex |
+| `rulesync-bridge` | rulesync input | 转接 20+ 工具 |
 
-写自己的 adapter 大约 20 行，见 [adapters-spec.md](docs/adapters-spec.md)。
-
----
-
-## 示例
-
-- [`examples/basic/`](examples/basic) —— 最小工作区
-- [`examples/dxyos-validation/`](examples/dxyos-validation) —— 真实 personal-OS 端到端验证
-- [`docs/personalos-v0428.md`](docs/personalos-v0428.md) —— personalOS v0428 layout
+写自己的 adapter 约 20 行，见 [adapters-spec.md](docs/adapters-spec.md)。
 
 ---
 
 ## 验证
 
-**488 单测 / 0 失败**（v0.1.0 时 88）。逐行保留率 vs 手搓 `CLAUDE.md` 维持 **91.5%**。
-
-行为层跑了一次 4 task A/B，2:2 打平。方法和原始判决在 [`docs/eval-report.md`](docs/eval-report.md)。
-
----
-
-## Roadmap
-
-| 版本 | 主题 | 主要内容 |
-|---|---|---|
-| **v0.1** | 五大 pillar 最小闭环 | Canonical Source / Context Compiler / Gate / 结构 bench / Eval 框架 / 5 adapter |
-| **v0.2** | git 是底层 | approve = `git commit`，reject = `git restore`，rollback 任意 hash |
-| **v0.3–v0.7（当前）** | Governance + personalOS | schema-aware proposal / workspace-project sync / configurable classify / content scanner / PR archive |
-| **v0.8** | LLM 行为评估 | ≥20 task、multi-seed、counter-balance、CI 集成 |
-| **v0.9** | Adapter 扩展 | Mem0 / Letta / Zep 可选 sidecar、更多 runtime |
+**488 单测 / 0 失败**。逐行保留率 vs 手搓 `CLAUDE.md`：**91.5%**。行为层 4 task A/B 评估 2:2 打平，方法见 [`docs/eval-report.md`](docs/eval-report.md)。
 
 ---
 
@@ -300,8 +228,6 @@ forge migrate-onepage           # 升级 onepage schema
 pip install -e '.[dev]'
 pytest -q                       # 488 tests, ~27s
 ```
-
----
 
 ## License
 

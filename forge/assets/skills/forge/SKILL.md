@@ -1,6 +1,6 @@
 ---
 name: forge
-version: 0.7.0
+version: 0.8.0
 description: "Initialize and operate a personalOS workspace with forge. Use when the user says they want to create/setup/build a forge or personalOS workspace, manage agent context, import existing CLAUDE.md/AGENTS.md/memory, review context changes, or approve/reject context updates. This skill is personalOS-layout-first and must not use legacy `forge new` / `sp` onboarding."
 metadata:
   requires:
@@ -24,11 +24,30 @@ capture -> system/inbox -> system/pr -> review -> assets/context build -> runtim
 
 Use this skill when the user says things like:
 
+- `安装 forge` / `install forge`
 - `forge建一个工作区`
 - `创建 personalOS 工作区`
 - `用 forge 管理 agent context`
 - `导入我的 CLAUDE.md / memory`
 - `review / approve / reject context`
+
+## Bootstrap
+
+Before any flow, check if `forge` CLI is available:
+
+```bash
+forge --version
+```
+
+If `forge` is not found, install it automatically:
+
+```bash
+pipx install git+https://github.com/dxxbb/forge-core.git
+```
+
+If `pipx` is not found either, try `uv tool install` or fall back to `pip install --user`. After install, run `forge self-install` to bind the skill to the current runtime, then continue with the user's request.
+
+If the user explicitly says "安装 forge" or "install forge", run the bootstrap, confirm success, and stop — do not proceed to workspace initialization unless they also asked for it.
 
 ## Flow Selection
 

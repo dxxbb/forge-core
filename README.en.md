@@ -2,265 +2,215 @@
 
 > CLI name: `forge`. PyPI package: `context-forge` (the name `forge-core` is taken on PyPI).
 
-**`forge`** is a review gate between your long-term personal content and the context files agents actually read (`CLAUDE.md`, `AGENTS.md`, …). Edit source, see what the compiled output would change, approve or reject. No memory, no sync, no prompt compilation.
+**`forge`** is a review-gated context compiler: your long-term content (preferences, project state, knowledge base, skills) is the source; `CLAUDE.md` / `AGENTS.md` are compiled artifacts. There's a review gate in between — see what changed, who's affected, how big, then approve or reject.
 
-```
-┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-│  sp/section/ │──▶│ sp/config/    │──▶│ output/       │
-│ (you edit    │    │ (recipe:      │    │ CLAUDE.md    │
-│  markdown)   │    │  which        │    │ AGENTS.md    │
-│              │    │  sections,    │    │ (never       │
-│              │    │  for which    │    │  hand-edited)│
-│              │    │  runtime)     │    │              │
-└──────────────┘    └──────────────┘    └──────────────┘
-                           │                    │
-                           ▼                    ▼ (forge target install)
-                    ┌──────────────┐     ┌──────────────────┐
-                    │ forge diff    │     │ ~/.claude/        │
-                    │ forge approve │     │  CLAUDE.md        │
-                    │ forge reject  │     │  (live artifact,  │
-                    └──────────────┘     │   auto-synced)    │
-                                         └──────────────────┘
-```
-
----
-
-## What a real change looks like
-
-Claude keeps adding verbose comments to your code. You open `sp/section/preferences.md` and add two lines:
-
-```markdown
-- Default to no comments. Only add one when the WHY is non-obvious, never explain WHAT.
-- Don't reference the current task, issue numbers, or callers in comments — those belong in the PR description.
-```
-
-Then tell Claude "review this":
-
-```
-You: review my changes
-
-Claude: doctor passed. preferences.md changed, running review:
-
-══ forge review · proposed change (not yet approved) ══
-
-┌─ Source ─────────────────────────────────────────────
-│ Origin:  hand edit (no recorded ingest/event)
-│ Touched: 1 section
-└──────────────────────────────────────────────────────
-
-┌─ What changed ───────────────────────────────────────
-│ • preferences.md: +2 bullet rules (comment policy)
-│     847B → 963B  (+116B, +2/-0 lines)
-└──────────────────────────────────────────────────────
-
-┌─ Affects ────────────────────────────────────────────
-│ Outputs that will rebuild on approve:
-│   • output/CLAUDE.md  (+116B)  ← Claude Code (every session)
-│   • output/AGENTS.md  (+116B)  ← Codex / any AGENTS.md tool
-│
-│ External targets (auto-sync on approve):
-│   • ~/.claude/CLAUDE.md  [symlink]
-└──────────────────────────────────────────────────────
-
-┌─ Bench ──────────────────────────────────────────────
-│ preferences            +116B  (847 → 963)
-│ about-me                  0B  (unchanged)
-│ workspace                 0B  (unchanged)
-│ knowledge-base            0B  (unchanged)
-│ skills                    0B  (unchanged)
-└──────────────────────────────────────────────────────
-
-Two lines in one source file, both Claude Code and Codex contexts
-update at once. approve / reject?
-
-You: ok
-
-Claude:
-approved hash=c4a91b at 2026-05-08T20:31:00+08:00
-  wrote output/CLAUDE.md
-  wrote output/AGENTS.md
-  synced → ~/.claude/CLAUDE.md
-
-Next Claude Code session will pick up the new comment rules.
-```
-
-The whole flow is a conversation — Claude runs `forge doctor` + `forge review` + `forge approve`, you just make the call.
-
-Three things you can't do by hand-editing `CLAUDE.md`:
-
-1. **You see the full impact before it ships** — changes don't take effect until you approve
-2. **One source compiles to both CLAUDE.md and AGENTS.md** — switch to Codex without rewriting
-3. **Every change has a hash and audit trail** — `forge changelog` tells you when any rule was added, three months later
+The recommended way to use forge is inside Claude Code. The agent drives the entire workflow; you make the review decisions.
 
 ---
 
 ## Get started
 
-```bash
-pipx install git+https://github.com/dxxbb/forge-core.git
-forge self-install               # bind forge skill into Claude Code
-```
+In Claude Code, say:
 
-Open Claude Code, say:
+> "Install forge and set up a workspace for me"
 
-> "Set up forge for me, import my existing CLAUDE.md"
-
-Claude walks you through the full flow (scaffold → import existing CLAUDE.md → auto-classify into 5 sections → review → approve → bind to `~/.claude/CLAUDE.md`). **No CLI needed.**
-
-After that, daily workflow is: edit a section → tell Claude "review this" → ok / reject. The demo above is what daily use looks like.
+The agent will install the CLI, scaffold the workspace, import your existing `CLAUDE.md`, classify it into sections, and run review. You just say ok or reject.
 
 <details>
-<summary>Don't use Claude Code? Pure CLI works too</summary>
+<summary>Manual install</summary>
 
 ```bash
-forge new ~/forge-context && cd ~/forge-context
-forge init
-forge ingest --from ~/.claude/CLAUDE.md     # no API key? use --no-llm
-forge review
-forge approve -m "import existing CLAUDE.md"
-forge target install claude-code --to ~/.claude/CLAUDE.md --mode symlink
+pipx install git+https://github.com/dxxbb/forge-core.git
+forge self-install
 ```
-
-Daily: `$EDITOR sp/section/preferences.md` → `forge review` → `forge approve -m "..."`
 
 </details>
 
 ---
 
-## The problem
+## What daily use looks like
+
+You saved a web clipping about AI compute. A couple days later you tell Claude "check forge" — it scans the workspace, finds the unprocessed clipping, compares it against your existing knowledge base, and drafts a proposal:
+
+```
+You: check forge
+
+Claude: monitor found 1 new web clipping. Let me triage it.
+
+  The article's thesis (TSMC 2026 roadmap + AI as structural shift,
+  not hype) relates to ai-policy.md but takes a different angle.
+  Recommend creating a new ai-compute.md topic page. Proposal:
+
+  ══ ITEM 1 ══════════════════════════════════════════════════════════
+     monitor:  capture/web clipping/tsmc-report.md
+  ══════════════════════════════════════════════════════════════════════
+
+    extracted   - TSMC 2026 report: AI chip industrial structure shift
+                - Advanced packaging roadmap + semiconductor supercycle
+                - Overlaps ai-policy.md but different angle (industrial vs geopolitical)
+    disposition ✅ APPLY · create ai-compute.md + cross-link ai-policy
+    rationale   Existing KB has no compute-industrial dimension; this fills the gap
+
+    propagation
+    └─ b: public knowledge base/topic/tech/ai/compute/ai-compute.md
+       ├─ modification: create topic page, distill TSMC report
+       └─ b1: context build/sections/knowledge base.md
+          ├─ modification: append ai-compute entry to index
+          └─ (terminal)
+
+  approve / reject?
+
+You: ok
+
+Claude: approved. ai-compute.md created, knowledge base section updated,
+       CLAUDE.md and AGENTS.md recompiled.
+```
+
+What happened here:
+
+1. **Agent discovered the change** — `forge monitor` found the new clipping; you didn't have to remember
+2. **Compared against existing assets** — didn't blindly insert; classified as APPLY / COVERED / ARCHIVE
+3. **Propagation tree traced the impact chain** — clipping → KB asset → context build section → compiled output, every step auditable
+4. **You made one decision** — ok or reject. The agent handled capture, proposal, build, and commit
+
+A lighter scenario — you updated your work journal, forge detects it but determines it doesn't affect agent context:
+
+```
+You: review this
+
+Claude: monitor detected memo2026Q2.md changed.
+
+  ══ ITEM 1 ══════════════════════════════════════════════════════════
+     monitor:  user space/daily/memo2026Q2.md (3264 bytes, modified)
+  ══════════════════════════════════════════════════════════════════════
+
+    extracted   - Q2 work log update (20260508)
+                - forge: preparing the post
+                - watermark: restarting research
+    disposition 📦 ARCHIVE · rolling work log, no context build propagation
+    rationale   Personal work journal — capture preserved as audit trail
+
+  approve / reject?
+
+You: ok
+
+Claude: approved. Capture archived, no context build changes.
+```
+
+**ARCHIVE doesn't mean delete** — raw evidence stays in `capture/` permanently. It just means this content doesn't need to propagate to agent context.
+
+---
+
+## The problem it solves
 
 You told your agent "use Python, not TypeScript" last week. Today it gives you TypeScript. You open `CLAUDE.md` — that preference line is gone.
 
 You didn't commit that file. `git blame` shows nothing. The agent's memory isn't broken — it's unmanaged.
 
-You manage code with git: edit, diff, review, commit, rollback. What manages your agent config? Most people hand-edit and hope nothing broke.
+`forge` adds the missing management layer:
 
-`forge` adds that missing workflow. Not replacing git — filling the gap between long-term content and the compiled context agents actually read.
-
----
-
-## "Can't I do this with `make` + `git`?"
-
-Roughly, yes. If you've already wired that up, keep using it.
-
-What forge adds:
-
-1. `forge diff` shows both source diff AND compiled output preview for every target. `git diff` only shows text.
-2. `sp/` tree has an integrity hash. `forge status` instantly shows drift.
-3. Built-in structural bench.
-4. Sharable convention — `sp/section/` + `sp/config/` is self-documenting.
-
-What forge does NOT do:
-
-- Compilation is deliberately dumb — no smarter than your `make` rules.
-- v0.1 bench is structural only (bytes, lines, section sizes). LLM behavioral eval is v0.8.
-- No session watching, no auto-capture, no decisions for you.
+- **Source and compiled output are separate** — you edit `sp/section/preferences.md`; CLAUDE.md and AGENTS.md are compiled, never hand-edited
+- **Changes go through a review gate** — nothing takes effect until you approve
+- **One source, multiple runtimes** — the same preferences compile to both Claude Code and Codex; switch tools without rewriting
+- **Every change has a hash and audit trail** — `forge changelog` tells you when any rule was added
 
 ---
 
 ## Who should NOT use this
 
 - **Your `CLAUDE.md` is 5 lines.** Hand-edit. Done.
-- **You want AI to auto-organize your memory.** Use `claude-memory-compiler`.
+- **You want AI to auto-organize your memory.** Use `claude-memory-compiler`. forge deliberately keeps humans in the loop.
 - **You have thousands of micro-facts for retrieval.** That's vector store + RAG.
-- **You use one AI tool and don't worry about lock-in.** forge's cross-runtime value is limited.
-- **You want "install and forget."** forge requires `forge review / approve` on every change.
+- **You want "install and forget."** forge requires review / approve on every change.
 
-Good fit: **multiple AI tools, 30–300 lines of long-term context, you care about "is this still mine in 5 years."**
+Good fit: **multiple AI tools, 30+ lines of long-term context, you care about change traceability.**
 
 ---
 
-## Five concepts
+## Core concepts
 
-- **Section** — one markdown file, one concern. YAML frontmatter + body.
-- **Config** — recipe: for target X, include these sections in this order.
-- **Output** — compiled file (`CLAUDE.md`, etc.). Never hand-edited. Deterministic.
-- **Gate** — approve = `git commit`, reject = `git restore`, rollback any hash, audit = `git log`.
-- **Target** — bind an output to an external path (e.g. `~/.claude/CLAUDE.md`), auto-synced on approve.
+```
+capture/web clipping/   ─┐
+user space/daily/        ├─→ forge monitor detects changes
+workspace/project/       │
+public knowledge base/  ─┘
+         │
+         ▼
+   forge capture → system/inbox/ → system/pr/proposal.md
+         │                              │
+         │         ┌────────────────────┘
+         │         ▼
+         │   agent drafts proposal:
+         │   items[] → disposition (APPLY/ARCHIVE/COVERED)
+         │          → propagation tree (which assets change)
+         │         │
+         ▼         ▼
+   you review → approve / reject
+         │
+         ▼
+   context build/sections/ → forge build → CLAUDE.md + AGENTS.md
+         │
+         ▼
+   forge target install → ~/.claude/CLAUDE.md (auto-sync)
+```
 
-Full spec: [`docs/design.md`](docs/design.en.md).
+- **Capture** — raw evidence (web clippings, logs, agent memory). Store only, never modified
+- **Proposal** — each monitored change is an item; agent classifies as APPLY / ARCHIVE / COVERED / DECIDE, with a propagation tree showing the impact chain
+- **Section** — context build source files, one per concern (about user / workspace / knowledge base / preference / skill)
+- **Output** — compiled artifacts (CLAUDE.md / AGENTS.md). Never hand-edited; auto-regenerated on approve
+- **Target** — bind an output to an external path; auto-synced on approve
 
 ---
 
 ## CLI commands
 
-### Core (any forge workspace)
+### Core
 
 ```
 forge new <path>                # scaffold workspace
 forge init                      # initialize approved baseline
-forge status                    # approved hash + drift state
-forge doctor                    # schema / provenance / adapter health check
-forge build                     # sp/ → output/ (no gate, for CI)
-
-forge review                    # recommended: Origin + What changed +
-                                #   Affects + Bench + full diff
-forge review --summary-only     # panels only, skip raw diff
-forge review --tui              # keyboard-driven TUI (real terminal)
-forge diff                      # legacy entry (= git diff HEAD -- sp/)
-
-forge approve -m "message"      # = git commit + rebuild + sync targets
-forge reject                    # = git restore HEAD -- sp/ output/
-forge changelog                 # audit log from git log
-forge rollback [hash]           # restore to historical approved state
-
-forge ingest --from <file>      # import existing context, auto-classify
+forge build                     # section → output compilation
+forge review                    # one-screen impact + diff
+forge approve -m "message"      # = git commit + rebuild + sync
+forge reject                    # revert to last approved
+forge changelog                 # audit log
+forge rollback [hash]           # restore any historical version
 ```
 
-### Target binding
+### Governance (recommended via agent conversation)
+
+```
+forge monitor                   # scan workspace for changes
+forge capture                   # capture raw evidence
+forge proposal new              # generate schema-aware proposal
+forge proposal validate         # validate proposal
+forge pr render                 # render §0.5 view
+forge pr done                   # archive PR
+forge inbox done                # close inbox item
+forge synthesize-clipping       # web clipping → KB topic synthesis
+```
+
+### Target binding & tools
 
 ```
 forge target install <adapter> --to <path>
-forge target install <adapter> --to <path> --mode symlink
-forge target list
-forge target remove <adapter>
-```
-
-### Structural bench
-
-```
-forge bench snapshot <name>
-forge bench list
-forge bench compare <a> <b>
-```
-
-### Agent skill management
-
-```
-forge self-install              # bind forge skill to detected agent runtime
-forge self-install --dry-run
-forge update                    # upgrade CLI + refresh skill
-```
-
-### personalOS extension commands
-
-These commands require a personalOS workspace layout (`capture/` / `system/inbox/` / `system/pr/` etc.). Not needed for regular forge workspaces:
-
-```
-forge monitor                   # scan personalOS workspace for global state changes
-forge capture                   # capture raw evidence into capture/
-forge proposal new              # generate schema-aware proposal from inbox
-forge proposal validate         # validate proposal completeness
-forge pr render                 # render §0.5 monitor-item view
-forge pr done                   # close PR, archive to approve log
-forge inbox done                # close inbox item
-forge synthesize-clipping       # web clipping → KB topic synthesis
-forge migrate-onepage           # upgrade onepage schema
+forge target list / remove
+forge bench snapshot / compare
+forge self-install              # bind skill to agent runtime
+forge update                    # upgrade CLI
 ```
 
 ---
 
 ## Adapters
 
-Two core + three contrib adapters built in:
-
-| Location | Name | Output |
+| Name | Output | Description |
 |---|---|---|
-| `forge/targets/` | `claude-code` | `CLAUDE.md` |
-| `forge/targets/` | `agents-md` | `AGENTS.md` (cross-tool standard) |
-| `forge/contrib/` | `cursor` | `.cursorrules` |
-| `forge/contrib/` | `codex-cli` | Codex CLI variant of AGENTS.md |
-| `forge/contrib/` | `rulesync-bridge` | Input for rulesync |
+| `claude-code` | `CLAUDE.md` | Claude Code |
+| `agents-md` | `AGENTS.md` | Cross-tool standard |
+| `cursor` | `.cursorrules` | Cursor |
+| `codex-cli` | AGENTS.md variant | OpenAI Codex |
+| `rulesync-bridge` | rulesync input | Bridge to 20+ tools |
 
 Custom adapter is ~20 LoC. See [adapters-spec.md](docs/adapters-spec.md).
 
@@ -268,16 +218,7 @@ Custom adapter is ~20 LoC. See [adapters-spec.md](docs/adapters-spec.md).
 
 ## Validation
 
-**488 tests / 0 failures** (was 88 at v0.1.0). Line recall vs hand-rolled `CLAUDE.md`: **91.5%**.
-
-Behavioral: 4-task A/B with blind LLM judges, **2:2 split** — no regression. See [`docs/eval-report.en.md`](docs/eval-report.en.md).
-
----
-
-## Examples
-
-- [`examples/basic/`](examples/basic) — minimal workspace
-- [`examples/dxyos-validation/`](examples/dxyos-validation) — end-to-end against a real personal-OS vault
+**488 tests / 0 failures**. Line recall vs hand-rolled `CLAUDE.md`: **91.5%**. Behavioral 4-task A/B eval: 2:2 split. See [`docs/eval-report.en.md`](docs/eval-report.en.md).
 
 ---
 
@@ -287,8 +228,6 @@ Behavioral: 4-task A/B with blind LLM judges, **2:2 split** — no regression. S
 pip install -e '.[dev]'
 pytest -q                       # 488 tests, ~27s
 ```
-
----
 
 ## License
 
