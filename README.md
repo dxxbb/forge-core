@@ -10,9 +10,9 @@ curl -fsSL https://raw.githubusercontent.com/dxxbb/forge-core/main/install.sh | 
 
 这条命令装好 CLI 并把 forge skill 绑到 Claude Code。可以自己在终端跑，也可以直接粘给 agent 让它跑。
 
-装好后在 Claude Code 里跟 agent 说：
+装好之后跟你的 agent（Claude Code / Codex / Cursor 等）说一句类似的话：
 
-> "帮我搭一个 forge 工作区，把我现有的 CLAUDE.md 用 forge 管"
+> "用 forge 帮我建工作区，把现有的 CLAUDE.md / AGENTS.md 接管起来"
 
 Agent 会建工作区、导入现有内容、跑 review。你只管看结果说 ok 或 reject。
 
@@ -194,10 +194,11 @@ forge update                    # 升级 CLI
 
 ---
 
-## 验证
+## 当前状态
 
-- **单测**：~490 项 / 0 失败（`pytest -q`）
-- **v0.1.0 行为层 eval**：4 task A/B 与手搓 `CLAUDE.md` 2:2 打平，结构保留率 92.5%。详见 [`docs/eval-report.md`](docs/eval-report.md)。后续版本未重跑此 eval。
+Alpha。仍在 dogfood 阶段，作者自己用。schema、CLI 接口、目录结构都可能不向前兼容。
+
+v0.1.0 时跑过一次行为层 A/B eval（forge 编译产物 vs 手搓 CLAUDE.md，2:2 打平，结构保留率 92.5%，见 [`docs/eval-report.md`](docs/eval-report.md)）。**之后每个版本没重跑过**——结构和 pipeline 都变了，旧数据不能代表现在。如果你打算认真用，自己跑一遍 eval 才有意义。
 
 ---
 

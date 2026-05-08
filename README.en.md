@@ -8,11 +8,11 @@
 curl -fsSL https://raw.githubusercontent.com/dxxbb/forge-core/main/install.sh | bash
 ```
 
-This installs the CLI and binds the forge skill into Claude Code. You can run it yourself, or paste it to your agent and let it run.
+This installs the CLI and binds the forge skill into Claude Code. Run it in your terminal yourself, or paste it to your agent and let it run.
 
-Then tell Claude in Claude Code:
+Then tell your agent (Claude Code / Codex / Cursor / etc.):
 
-> "Set up a forge workspace, import my existing CLAUDE.md"
+> "Use forge to set up a workspace and take over my existing CLAUDE.md / AGENTS.md"
 
 The agent scaffolds the workspace, imports your content, and runs review. You just say ok or reject.
 
@@ -194,10 +194,11 @@ Custom adapter is ~20 LoC. See [adapters-spec.md](docs/adapters-spec.md).
 
 ---
 
-## Validation
+## Current status
 
-- **Unit tests**: ~490 / 0 failures (`pytest -q`)
-- **v0.1.0 behavioral eval**: 4-task A/B vs hand-rolled `CLAUDE.md` tied 2:2; structural preservation 92.5%. See [`docs/eval-report.en.md`](docs/eval-report.en.md). Not re-run on later versions.
+Alpha. Still in dogfood — the author is the only real user. Schema, CLI surface, and directory layout may break between versions.
+
+A behavioral A/B eval was run at v0.1.0 (forge output vs hand-rolled CLAUDE.md, tied 2:2, 92.5% structural preservation — see [`docs/eval-report.en.md`](docs/eval-report.en.md)). **Not re-run on any later version.** Structure and pipeline have changed since; the old numbers don't represent the current build. If you're seriously evaluating forge, run the eval yourself.
 
 ---
 
