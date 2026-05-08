@@ -27,85 +27,44 @@
 
 ## What a real change looks like
 
-You add one rule to `preferences.md`: "always open a PR before pushing shared config."
-
-```bash
-$ echo "- Always open a PR before pushing shared config." >> sp/section/preferences.md
-```
-
-Run `forge review` — one screen tells you everything:
+You edit `preferences.md` — add one rule: "always open a PR before pushing shared config." Then tell Claude "review this":
 
 ```
-$ forge review --summary-only
+You: review my changes
 
-══ forge review · proposed change (not yet approved) ══
+Claude: preferences.md has one new rule. Impact:
 
-┌─ Origin ────────────────────────────────────────────
-│ hand edit → sp/section/preferences.md
-└─────────────────────────────────────────────────────
+  ┌─ What changed ──────────────────────────────────────
+  │ • preferences.md: +1 bullet rule
+  │     572B → 620B  (+48B, +1 line)
+  └─────────────────────────────────────────────────────
 
-┌─ What changed ──────────────────────────────────────
-│ • preferences.md: +1 bullet rule
-│     572B → 620B  (+48B, +1 line)
-└─────────────────────────────────────────────────────
+  ┌─ Affects ───────────────────────────────────────────
+  │ • output/CLAUDE.md   (+48B)  ← Claude Code
+  │ • output/AGENTS.md   (+48B)  ← Codex / any AGENTS.md tool
+  │ • ~/.claude/CLAUDE.md        ← auto-synced
+  └─────────────────────────────────────────────────────
 
-┌─ Affects ───────────────────────────────────────────
-│ Outputs that will rebuild on approve:
-│   • output/CLAUDE.md   (+48B)  ← Claude Code
-│   • output/AGENTS.md   (+48B)  ← Codex / any AGENTS.md tool
-│
-│ External targets (auto-sync on approve):
-│   • ~/.claude/CLAUDE.md  [symlink]
-└─────────────────────────────────────────────────────
+  Other 4 sections unaffected. Approve / reject?
 
-┌─ Bench ─────────────────────────────────────────────
-│ preferences         + 48B  (572 → 620)
-│ about-me                0B  (unchanged)
-│ workspace               0B  (unchanged)
-│ knowledge-base          0B  (unchanged)
-│ skills                  0B  (unchanged)
-└─────────────────────────────────────────────────────
+You: ok
+
+Claude: approved hash=7e3f1a — CLAUDE.md and AGENTS.md updated,
+       synced to ~/.claude/CLAUDE.md.
 ```
 
-Three things, one screen:
+No CLI needed. Claude runs `forge doctor` + `forge review` + `forge approve` behind the scenes. You just say ok or reject.
 
-1. **What changed** — one line added to preferences.md
-2. **Who's affected** — both CLAUDE.md and AGENTS.md rebuild; Claude Code and Codex update simultaneously
-3. **How big** — only preferences grew by 48B; everything else untouched
+What happened: **one source edit → two runtimes updated → audit trail → rollback anytime.**
 
-Looks good. Ship it:
-
-```bash
-$ forge approve -m "require PR for shared config"
-approved hash=7e3f1a at 2026-05-08T20:15:00+08:00
-  wrote output/CLAUDE.md
-  wrote output/AGENTS.md
-  synced → ~/.claude/CLAUDE.md
-```
-
-**One source edit → two runtimes updated → audit trail → rollback anytime.** That's what forge does.
+Don't use Claude Code? `forge review` + `forge approve` are the CLI equivalents. But the recommended path is: agent drives, you review.
 
 ---
 
-## Install
+## Get started
 
 ```bash
-# From GitHub (recommended)
 pipx install git+https://github.com/dxxbb/forge-core.git
-# or: uv tool install git+https://github.com/dxxbb/forge-core.git
-
-forge --version
-```
-
-> Will simplify to `pipx install context-forge` once published to PyPI. Upgrade: `forge update`.
-
----
-
-## 2-minute quickstart
-
-### Option A: Claude Code drives it (recommended)
-
-```bash
 forge self-install               # bind forge skill into Claude Code
 ```
 
@@ -113,37 +72,25 @@ Open Claude Code, say:
 
 > "Set up forge for me, import my existing CLAUDE.md"
 
-Claude walks you through 8 steps (scaffold → import → review → approve → bind to `~/.claude/CLAUDE.md`). **No CLI needed.**
+Claude walks you through the full flow (scaffold → import existing CLAUDE.md → auto-classify into 5 sections → review → approve → bind to `~/.claude/CLAUDE.md`). **No CLI needed.**
 
-### Option B: pure CLI
+After that, daily workflow is: edit a section → tell Claude "review this" → ok / reject. The demo above is what daily use looks like.
+
+<details>
+<summary>Don't use Claude Code? Pure CLI works too</summary>
 
 ```bash
-forge new ~/forge-context
-cd ~/forge-context
-
-ls sp/section/                              # 5 template sections + _preface
-ls sp/config/                               # claude-code.md + agents-md.md
-
-forge init                                  # current sp/ becomes approved baseline
-
-forge ingest --from ~/.claude/CLAUDE.md     # auto-classify into 5 sections
-                                            # no API key? use --no-llm
-
-forge review                                # one-screen: Origin + What changed +
-                                            #   Affects + Bench + full diff
-
+forge new ~/forge-context && cd ~/forge-context
+forge init
+forge ingest --from ~/.claude/CLAUDE.md     # no API key? use --no-llm
+forge review
 forge approve -m "import existing CLAUDE.md"
-
 forge target install claude-code --to ~/.claude/CLAUDE.md --mode symlink
 ```
 
-Daily workflow:
+Daily: `$EDITOR sp/section/preferences.md` → `forge review` → `forge approve -m "..."`
 
-```bash
-$EDITOR sp/section/preferences.md
-forge review
-forge approve -m "no auto git push"         # auto-syncs to ~/.claude/CLAUDE.md
-```
+</details>
 
 ---
 
