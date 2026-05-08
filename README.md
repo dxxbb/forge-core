@@ -28,22 +28,21 @@ Agent 会建工作区、导入现有内容、跑 review。你只管看结果说 
 
 ## 日常长什么样
 
-你更新了工作日志，又存了一篇技术文章的 web clipping。跟 Claude 说"forge 一下"：
+你更新了工作日志，又存了一篇技术文章的 web clipping。跟 agent 说"forge 一下"：
 
 ```
 你：forge 一下
 
-Claude：monitor 检测到 2 个变化。生成 proposal：
+Agent：monitor 检测到 2 个变化。生成 proposal：
 
   ══ ITEM 1 ══════════════════════════════════════════════════════════
      监控:  user space/daily/work-log.md (2048 bytes, modified)
   ══════════════════════════════════════════════════════════════════════
 
-    提取信息    - 工作日志更新
-                - 项目 A 进入测试阶段
-                - 项目 B 调研中
-    处理结果    📦 ARCHIVE · 滚动日志，不传播到 context build
-    理由        个人工作日志，capture 留存作审计 trail
+    提取信息    - 工作日志更新（项目 A 测试阶段 / 项目 B 调研中）
+    处理结果    📦 ARCHIVE
+    理由        日志只是 trail，agent 不需要读到
+    传播链路    (空 — 链路在 capture 截止，CLAUDE.md 不动)
 
   ══ ITEM 2 ══════════════════════════════════════════════════════════
      监控:  capture/web clipping/react-server-components.md
@@ -52,30 +51,33 @@ Claude：monitor 检测到 2 个变化。生成 proposal：
     提取信息    - React Server Components 架构深度解析
                 - RSC vs SSR 的本质区别
                 - 与现有 react-patterns.md 互补（架构 vs 实践）
-    处理结果    ✅ APPLY · 新建 rsc.md + react-patterns 交叉引用
-    理由        现有 KB 无 RSC 架构维度，这篇填补空白
+    处理结果    ✅ APPLY · 新建 rsc.md + 索引追加
+    理由        现有 KB 没有 RSC 架构维度
 
     传播链路
-    └─ public knowledge base/topic/tech/frontend/rsc.md
-       ├─ 修改: 新建主题页，提炼文章要点
-       └─ context build/sections/knowledge base.md
-          ├─ 修改: 索引追加 rsc 条目
-          └─ (终止)
+    └─ public knowledge base/topic/tech/frontend/rsc.md     [新建]
+       └─ context build/sections/knowledge base.md          [索引 +1 行]
+          ├─ CLAUDE.md                                       [重编译]
+          └─ AGENTS.md                                       [重编译]
 
   总分布: 📦 × 1, ✅ × 1。approve / reject?
 
 你：ok
 
-Claude：approved. 日志已归档，rsc.md 已创建，
-       knowledge base section 已更新，CLAUDE.md 和 AGENTS.md 已重编译。
+Agent：approved. CLAUDE.md / AGENTS.md 已重编译。
+       knowledge base 段新增一行：
+
+         + - tech/frontend/rsc.md — RSC 架构深度解析（与 react-patterns 互补）
+
+       下次启动 agent，就会基于这条新条目回答 RSC 相关问题。
 ```
 
-一个 PR 里同时处理了两类变化：
+两类变化的关键区别就在传播链：
 
-- **ARCHIVE** — 日志是工作记录，存在 capture 里但不影响 agent context
-- **APPLY** — web clipping 有新知识，提炼到知识库，propagation tree 追踪影响链一直到编译产物
+- **ARCHIVE** — 链路在 capture 截止。文件存了，但 agent 读到的 CLAUDE.md 不变
+- **APPLY** — 链路一路传到 CLAUDE.md / AGENTS.md。编译产物多了一行，agent 下次启动行为会变
 
-你只说了两个字。agent 负责 monitor → capture → proposal → build → commit 全流程。
+你只说了两个字。agent 负责 monitor → capture → proposal → build → commit 全流程，并且每个 item 都把"会不会影响最终编译产物"明确画给你看。
 
 ---
 

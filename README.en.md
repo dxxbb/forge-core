@@ -28,22 +28,21 @@ The recommended way to use forge is inside Claude Code. The agent drives the ent
 
 ## What daily use looks like
 
-You updated your work journal and saved a tech article as a web clipping. Tell Claude "check forge":
+You updated your work journal and saved a tech article as a web clipping. Tell your agent "check forge":
 
 ```
 You: check forge
 
-Claude: monitor found 2 changes. Proposal:
+Agent: monitor found 2 changes. Proposal:
 
   ══ ITEM 1 ══════════════════════════════════════════════════════════
      monitor:  user space/daily/work-log.md (2048 bytes, modified)
   ══════════════════════════════════════════════════════════════════════
 
-    extracted   - Work log update
-                - Project A entering test phase
-                - Project B in research
-    disposition 📦 ARCHIVE · rolling work log, no context build propagation
-    rationale   Personal work journal — capture preserved as audit trail
+    extracted   - Work log update (Project A in test, Project B in research)
+    disposition 📦 ARCHIVE
+    rationale   Just a trail — the agent doesn't need to read it
+    propagation (empty — chain stops at capture; CLAUDE.md untouched)
 
   ══ ITEM 2 ══════════════════════════════════════════════════════════
      monitor:  capture/web clipping/react-server-components.md
@@ -52,30 +51,33 @@ Claude: monitor found 2 changes. Proposal:
     extracted   - Deep dive into React Server Components architecture
                 - RSC vs SSR: fundamental differences
                 - Complements existing react-patterns.md (architecture vs practice)
-    disposition ✅ APPLY · create rsc.md + cross-link react-patterns
-    rationale   Existing KB has no RSC architecture dimension; this fills the gap
+    disposition ✅ APPLY · create rsc.md + index entry
+    rationale   Existing KB has no RSC architecture dimension
 
     propagation
-    └─ public knowledge base/topic/tech/frontend/rsc.md
-       ├─ modification: create topic page, distill article
-       └─ context build/sections/knowledge base.md
-          ├─ modification: append rsc entry to index
-          └─ (terminal)
+    └─ public knowledge base/topic/tech/frontend/rsc.md     [create]
+       └─ context build/sections/knowledge base.md          [index +1 line]
+          ├─ CLAUDE.md                                       [recompile]
+          └─ AGENTS.md                                       [recompile]
 
   Distribution: 📦 × 1, ✅ × 1. approve / reject?
 
 You: ok
 
-Claude: approved. Log archived, rsc.md created,
-       knowledge base section updated, CLAUDE.md and AGENTS.md recompiled.
+Agent: approved. CLAUDE.md / AGENTS.md recompiled.
+       knowledge base section gains one line:
+
+         + - tech/frontend/rsc.md — RSC architecture deep-dive (complements react-patterns)
+
+       Next time you launch your agent, it will answer RSC questions based on this new entry.
 ```
 
-One PR handles both changes:
+The key difference between the two dispositions is right there in the propagation chain:
 
-- **ARCHIVE** — the log is a work journal; captured for audit trail but doesn't affect agent context
-- **APPLY** — the web clipping has new knowledge; distilled into the KB, propagation tree traces the impact chain all the way to compiled output
+- **ARCHIVE** — chain stops at capture. The file is saved, but the CLAUDE.md your agent reads doesn't change
+- **APPLY** — chain reaches CLAUDE.md / AGENTS.md. The compiled output gains a line; the agent's behavior changes on next launch
 
-You said two words. The agent handled monitor → capture → proposal → build → commit.
+You said two words. The agent handled monitor → capture → proposal → build → commit, and showed you exactly which items affect the final compiled output and which don't.
 
 ---
 
