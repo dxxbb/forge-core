@@ -25,6 +25,68 @@
 
 ---
 
+## What a real change looks like
+
+You add one rule to `preferences.md`: "always open a PR before pushing shared config."
+
+```bash
+$ echo "- Always open a PR before pushing shared config." >> sp/section/preferences.md
+```
+
+Run `forge review` — one screen tells you everything:
+
+```
+$ forge review --summary-only
+
+══ forge review · proposed change (not yet approved) ══
+
+┌─ Origin ────────────────────────────────────────────
+│ hand edit → sp/section/preferences.md
+└─────────────────────────────────────────────────────
+
+┌─ What changed ──────────────────────────────────────
+│ • preferences.md: +1 bullet rule
+│     572B → 620B  (+48B, +1 line)
+└─────────────────────────────────────────────────────
+
+┌─ Affects ───────────────────────────────────────────
+│ Outputs that will rebuild on approve:
+│   • output/CLAUDE.md   (+48B)  ← Claude Code
+│   • output/AGENTS.md   (+48B)  ← Codex / any AGENTS.md tool
+│
+│ External targets (auto-sync on approve):
+│   • ~/.claude/CLAUDE.md  [symlink]
+└─────────────────────────────────────────────────────
+
+┌─ Bench ─────────────────────────────────────────────
+│ preferences         + 48B  (572 → 620)
+│ about-me                0B  (unchanged)
+│ workspace               0B  (unchanged)
+│ knowledge-base          0B  (unchanged)
+│ skills                  0B  (unchanged)
+└─────────────────────────────────────────────────────
+```
+
+Three things, one screen:
+
+1. **What changed** — one line added to preferences.md
+2. **Who's affected** — both CLAUDE.md and AGENTS.md rebuild; Claude Code and Codex update simultaneously
+3. **How big** — only preferences grew by 48B; everything else untouched
+
+Looks good. Ship it:
+
+```bash
+$ forge approve -m "require PR for shared config"
+approved hash=7e3f1a at 2026-05-08T20:15:00+08:00
+  wrote output/CLAUDE.md
+  wrote output/AGENTS.md
+  synced → ~/.claude/CLAUDE.md
+```
+
+**One source edit → two runtimes updated → audit trail → rollback anytime.** That's what forge does.
+
+---
+
 ## Install
 
 ```bash

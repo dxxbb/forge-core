@@ -23,6 +23,68 @@
 
 ---
 
+## 一次真实的改动长什么样
+
+你在 `preferences.md` 里加了一条规则："改共享配置必须先开 PR"。
+
+```bash
+$ echo "- 改共享配置必须先开 PR，不要直接 push。" >> sp/section/preferences.md
+```
+
+跑 `forge review`，一屏看完：
+
+```
+$ forge review --summary-only
+
+══ forge review · proposed change (not yet approved) ══
+
+┌─ Origin ────────────────────────────────────────────
+│ hand edit → sp/section/preferences.md
+└─────────────────────────────────────────────────────
+
+┌─ What changed ──────────────────────────────────────
+│ • preferences.md: +1 bullet rule
+│     572B → 612B  (+40B, +1 line)
+└─────────────────────────────────────────────────────
+
+┌─ Affects ───────────────────────────────────────────
+│ Outputs that will rebuild on approve:
+│   • output/CLAUDE.md   (+40B)  ← Claude Code
+│   • output/AGENTS.md   (+40B)  ← Codex / 任何 AGENTS.md 工具
+│
+│ External targets (auto-sync on approve):
+│   • ~/.claude/CLAUDE.md  [symlink]
+└─────────────────────────────────────────────────────
+
+┌─ Bench ─────────────────────────────────────────────
+│ preferences         +  40B  (572 → 612)
+│ about-me                 0B  (unchanged)
+│ workspace                0B  (unchanged)
+│ knowledge-base           0B  (unchanged)
+│ skills                   0B  (unchanged)
+└─────────────────────────────────────────────────────
+```
+
+三个关键信息一屏读完：
+
+1. **改了什么** — preferences.md 多了一行
+2. **谁受影响** — CLAUDE.md 和 AGENTS.md 都会变，Claude Code 和 Codex 同时更新
+3. **影响多大** — 只有 preferences 涨了 40B，其他 section 没动
+
+确认没问题：
+
+```bash
+$ forge approve -m "共享配置必须先 PR"
+approved hash=7e3f1a at 2026-05-08T20:15:00+08:00
+  wrote output/CLAUDE.md
+  wrote output/AGENTS.md
+  synced → ~/.claude/CLAUDE.md
+```
+
+**一份源文件改动 → 两个 runtime 同时更新 → 带审计日志 → 随时可 rollback。** 这就是 forge 做的事。
+
+---
+
 ## 安装
 
 ```bash
