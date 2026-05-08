@@ -2,13 +2,7 @@
 
 > CLI name: `forge`. PyPI package: `context-forge` (the name `forge-core` is taken on PyPI).
 
-**`forge`** is a review-gated context compiler: your long-term content (preferences, project state, knowledge base, skills) is the source; `CLAUDE.md` / `AGENTS.md` are compiled artifacts. There's a review gate in between — see what changed, who's affected, how big, then approve or reject.
-
-The recommended way to use forge is inside Claude Code. The agent drives the entire workflow; you make the review decisions.
-
----
-
-## Get started
+## Install
 
 Run one line in Claude Code:
 
@@ -16,11 +10,19 @@ Run one line in Claude Code:
 curl -fsSL https://raw.githubusercontent.com/dxxbb/forge-core/main/install.sh | bash
 ```
 
-This installs the CLI and binds the forge skill into Claude Code. Then tell Claude:
+Then tell Claude:
 
 > "Set up a forge workspace, import my existing CLAUDE.md"
 
 The agent scaffolds the workspace, imports your content, and runs review. You just say ok or reject.
+
+---
+
+## What is it
+
+**`forge`** is a review-gated context compiler: your long-term content (preferences, project state, knowledge base, skills) is the source; `CLAUDE.md` / `AGENTS.md` are compiled artifacts. There's a review gate in between — see what changed, who's affected, how big, then approve or reject.
+
+The recommended way to use forge is inside Claude Code. The agent drives the entire workflow; you make the review decisions.
 
 ---
 

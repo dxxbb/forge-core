@@ -2,13 +2,7 @@
 
 > CLI 名 `forge`，PyPI 包名 `context-forge`（`forge-core` 已被占用）。
 
-**`forge`** 是一个 review-gated context compiler：你的长期内容（偏好、项目状态、知识库、技能）是源文件，agent 真正读到的 `CLAUDE.md` / `AGENTS.md` 是编译产物。中间有一道审核关口——改了什么、影响谁、多大，看清楚再 approve。
-
-推荐的使用方式是在 Claude Code 里跟 agent 对话，agent 驱动整个流程，你做审核决策。
-
----
-
-## 上手
+## 安装
 
 在 Claude Code 里跑一行：
 
@@ -16,11 +10,19 @@
 curl -fsSL https://raw.githubusercontent.com/dxxbb/forge-core/main/install.sh | bash
 ```
 
-这会装好 CLI 并把 forge skill 绑到 Claude Code。之后跟 Claude 说：
+装好后跟 Claude 说：
 
 > "帮我搭一个 forge 工作区，把我现有的 CLAUDE.md 用 forge 管"
 
 Agent 会建工作区、导入现有内容、跑 review。你只管看结果说 ok 或 reject。
+
+---
+
+## 是什么
+
+**`forge`** 是一个 review-gated context compiler：你的长期内容（偏好、项目状态、知识库、技能）是源文件，agent 真正读到的 `CLAUDE.md` / `AGENTS.md` 是编译产物。中间有一道审核关口——改了什么、影响谁、多大，看清楚再 approve。
+
+推荐的使用方式是在 Claude Code 里跟 agent 对话，agent 驱动整个流程，你做审核决策。
 
 ---
 
