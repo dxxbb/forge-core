@@ -10,75 +10,28 @@ The recommended way to use forge is inside Claude Code. The agent drives the ent
 
 ## Get started
 
-In Claude Code, say:
-
-> "Install forge and set up a workspace for me"
-
-The agent will install the CLI, scaffold the workspace, import your existing `CLAUDE.md`, classify it into sections, and run review. You just say ok or reject.
-
-<details>
-<summary>Manual install</summary>
+Run one line in Claude Code:
 
 ```bash
-pipx install git+https://github.com/dxxbb/forge-core.git
-forge self-install
+curl -fsSL https://raw.githubusercontent.com/dxxbb/forge-core/main/install.sh | bash
 ```
 
-</details>
+This installs the CLI and binds the forge skill into Claude Code. Then tell Claude:
+
+> "Set up a forge workspace, import my existing CLAUDE.md"
+
+The agent scaffolds the workspace, imports your content, and runs review. You just say ok or reject.
 
 ---
 
 ## What daily use looks like
 
-You saved a web clipping about AI compute. A couple days later you tell Claude "check forge" — it scans the workspace, finds the unprocessed clipping, compares it against your existing knowledge base, and drafts a proposal:
+You updated your work journal and saved a web clipping about AI compute. Tell Claude "check forge":
 
 ```
 You: check forge
 
-Claude: monitor found 1 new web clipping. Let me triage it.
-
-  The article's thesis (TSMC 2026 roadmap + AI as structural shift,
-  not hype) relates to ai-policy.md but takes a different angle.
-  Recommend creating a new ai-compute.md topic page. Proposal:
-
-  ══ ITEM 1 ══════════════════════════════════════════════════════════
-     monitor:  capture/web clipping/tsmc-report.md
-  ══════════════════════════════════════════════════════════════════════
-
-    extracted   - TSMC 2026 report: AI chip industrial structure shift
-                - Advanced packaging roadmap + semiconductor supercycle
-                - Overlaps ai-policy.md but different angle (industrial vs geopolitical)
-    disposition ✅ APPLY · create ai-compute.md + cross-link ai-policy
-    rationale   Existing KB has no compute-industrial dimension; this fills the gap
-
-    propagation
-    └─ b: public knowledge base/topic/tech/ai/compute/ai-compute.md
-       ├─ modification: create topic page, distill TSMC report
-       └─ b1: context build/sections/knowledge base.md
-          ├─ modification: append ai-compute entry to index
-          └─ (terminal)
-
-  approve / reject?
-
-You: ok
-
-Claude: approved. ai-compute.md created, knowledge base section updated,
-       CLAUDE.md and AGENTS.md recompiled.
-```
-
-What happened here:
-
-1. **Agent discovered the change** — `forge monitor` found the new clipping; you didn't have to remember
-2. **Compared against existing assets** — didn't blindly insert; classified as APPLY / COVERED / ARCHIVE
-3. **Propagation tree traced the impact chain** — clipping → KB asset → context build section → compiled output, every step auditable
-4. **You made one decision** — ok or reject. The agent handled capture, proposal, build, and commit
-
-A lighter scenario — you updated your work journal, forge detects it but determines it doesn't affect agent context:
-
-```
-You: review this
-
-Claude: monitor detected memo2026Q2.md changed.
+Claude: monitor found 2 changes. Proposal:
 
   ══ ITEM 1 ══════════════════════════════════════════════════════════
      monitor:  user space/daily/memo2026Q2.md (3264 bytes, modified)
@@ -90,14 +43,37 @@ Claude: monitor detected memo2026Q2.md changed.
     disposition 📦 ARCHIVE · rolling work log, no context build propagation
     rationale   Personal work journal — capture preserved as audit trail
 
-  approve / reject?
+  ══ ITEM 2 ══════════════════════════════════════════════════════════
+     monitor:  capture/web clipping/tsmc-report.md
+  ══════════════════════════════════════════════════════════════════════
+
+    extracted   - TSMC 2026 report: AI chip industrial structure shift
+                - Advanced packaging roadmap + semiconductor supercycle
+                - Overlaps ai-policy.md but different angle (industrial vs geopolitical)
+    disposition ✅ APPLY · create ai-compute.md + cross-link ai-policy
+    rationale   Existing KB has no compute-industrial dimension; this fills the gap
+
+    propagation
+    └─ public knowledge base/topic/tech/ai/compute/ai-compute.md
+       ├─ modification: create topic page, distill TSMC report
+       └─ context build/sections/knowledge base.md
+          ├─ modification: append ai-compute entry to index
+          └─ (terminal)
+
+  Distribution: 📦 × 1, ✅ × 1. approve / reject?
 
 You: ok
 
-Claude: approved. Capture archived, no context build changes.
+Claude: approved. Memo archived, ai-compute.md created,
+       knowledge base section updated, CLAUDE.md and AGENTS.md recompiled.
 ```
 
-**ARCHIVE doesn't mean delete** — raw evidence stays in `capture/` permanently. It just means this content doesn't need to propagate to agent context.
+One PR handles both changes:
+
+- **ARCHIVE** — the memo is a work journal; captured for audit trail but doesn't affect agent context
+- **APPLY** — the web clipping has new knowledge; distilled into the KB, propagation tree traces the impact chain all the way to compiled output
+
+You said two words. The agent handled monitor → capture → proposal → build → commit.
 
 ---
 

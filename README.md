@@ -10,75 +10,28 @@
 
 ## 上手
 
-在 Claude Code 里说：
-
-> "安装 forge，帮我搭一个工作区"
-
-Agent 会自动安装 CLI、建工作区、导入你现有的 `CLAUDE.md`、分类到 section、跑 review。你只管看结果说 ok 或 reject。
-
-<details>
-<summary>手动安装</summary>
+在 Claude Code 里跑一行：
 
 ```bash
-pipx install git+https://github.com/dxxbb/forge-core.git
-forge self-install
+curl -fsSL https://raw.githubusercontent.com/dxxbb/forge-core/main/install.sh | bash
 ```
 
-</details>
+这会装好 CLI 并把 forge skill 绑到 Claude Code。之后跟 Claude 说：
+
+> "帮我搭一个 forge 工作区，把我现有的 CLAUDE.md 用 forge 管"
+
+Agent 会建工作区、导入现有内容、跑 review。你只管看结果说 ok 或 reject。
 
 ---
 
 ## 日常长什么样
 
-你在社交媒体上看到一篇关于 AI 算力的文章，存了一份 web clipping。过两天你跟 Claude 说"forge 一下"，它扫描到这个 clipping，跟已有知识库比对，生成一个 proposal：
+你更新了工作日志，又存了一篇 AI 算力的 web clipping。跟 Claude 说"forge 一下"：
 
 ```
 你：forge 一下
 
-Claude：monitor 检测到 1 个新 web clipping。我来做个分拣。
-
-  这篇文章的核心论点（TSMC 2026 路线图 + AI 不是热点是结构变化）
-  跟现有 KB 里的 ai-policy.md 有关联但不重复，建议新建一个
-  ai-compute.md 主题页。proposal 如下：
-
-  ══ ITEM 1 ══════════════════════════════════════════════════════════
-     监控:  capture/web clipping/台积电报告.md
-  ══════════════════════════════════════════════════════════════════════
-
-    提取信息    - TSMC 2026 报告: AI 芯片工业结构变化
-                - 半导体超级周期 + 先进封装路线图
-                - 与 ai-policy.md 有交叉但角度不同(工业 vs 地缘)
-    处理结果    ✅ APPLY · 新建 ai-compute.md + ai-policy 交叉引用
-    理由        现有 KB 无算力工业维度,这篇填补空白
-
-    传播链路
-    └─ b: public knowledge base/topic/tech/ai/compute/ai-compute.md
-       ├─ 修改: 新建主题页,提炼 TSMC 报告要点
-       └─ b1: context build/sections/knowledge base.md
-          ├─ 修改: 索引追加 ai-compute 条目
-          └─ (终止)
-
-  approve / reject?
-
-你：ok
-
-Claude：approved. ai-compute.md 已创建，knowledge base section 已更新，
-       CLAUDE.md 和 AGENTS.md 已重新编译。
-```
-
-这个例子里发生了几件事：
-
-1. **agent 主动发现变化** — `forge monitor` 扫到新 clipping，不需要你记得去处理
-2. **跟已有资产比对** — 不是无脑塞进去，是判断 APPLY / COVERED / ARCHIVE
-3. **propagation tree 追踪影响链** — clipping → 知识库 asset → context build section → 编译产物，每一步都可审
-4. **你只做一个决定** — ok 或 reject。agent 负责 capture、proposal、build、commit 全流程
-
-另一种常见场景更轻量——你更新了工作日志，forge 检测到但判断它不影响 context build：
-
-```
-你：过一下
-
-Claude：monitor 检测到 memo2026Q2.md 有改动。
+Claude：monitor 检测到 2 个变化。生成 proposal：
 
   ══ ITEM 1 ══════════════════════════════════════════════════════════
      监控:  user space/daily/memo2026Q2.md (3264 bytes, modified)
@@ -90,14 +43,37 @@ Claude：monitor 检测到 memo2026Q2.md 有改动。
     处理结果    📦 ARCHIVE · memo 是滚动日志，不传播到 context build
     理由        个人工作日志，capture 留存作审计 trail
 
-  approve / reject?
+  ══ ITEM 2 ══════════════════════════════════════════════════════════
+     监控:  capture/web clipping/台积电报告.md
+  ══════════════════════════════════════════════════════════════════════
+
+    提取信息    - TSMC 2026 报告: AI 芯片工业结构变化
+                - 半导体超级周期 + 先进封装路线图
+                - 与 ai-policy.md 有交叉但角度不同(工业 vs 地缘)
+    处理结果    ✅ APPLY · 新建 ai-compute.md + ai-policy 交叉引用
+    理由        现有 KB 无算力工业维度，这篇填补空白
+
+    传播链路
+    └─ public knowledge base/topic/tech/ai/compute/ai-compute.md
+       ├─ 修改: 新建主题页，提炼 TSMC 报告要点
+       └─ context build/sections/knowledge base.md
+          ├─ 修改: 索引追加 ai-compute 条目
+          └─ (终止)
+
+  总分布: 📦 × 1, ✅ × 1。approve / reject?
 
 你：ok
 
-Claude：approved. capture 存档完成，context build 无变化。
+Claude：approved. memo 已归档，ai-compute.md 已创建，
+       knowledge base section 已更新，CLAUDE.md 和 AGENTS.md 已重编译。
 ```
 
-**ARCHIVE 不是删除** — raw evidence 永久留在 `capture/` 里，只是判断它不需要传播到 agent context。
+一个 PR 里同时处理了两类变化：
+
+- **ARCHIVE** — memo 是工作日志，记录在 capture 里但不影响 agent context
+- **APPLY** — web clipping 有新知识，提炼到知识库，propagation tree 追踪影响链一直到编译产物
+
+你只说了两个字。agent 负责 monitor → capture → proposal → build → commit 全流程。
 
 ---
 
