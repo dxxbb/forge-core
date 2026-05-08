@@ -27,37 +27,70 @@
 
 ## What a real change looks like
 
-You edit `preferences.md` — add one rule: "always open a PR before pushing shared config." Then tell Claude "review this":
+Claude keeps adding verbose comments to your code. You open `sp/section/preferences.md` and add two lines:
+
+```markdown
+- Default to no comments. Only add one when the WHY is non-obvious, never explain WHAT.
+- Don't reference the current task, issue numbers, or callers in comments — those belong in the PR description.
+```
+
+Then tell Claude "review this":
 
 ```
 You: review my changes
 
-Claude: preferences.md has one new rule. Impact:
+Claude: doctor passed. preferences.md changed, running review:
 
-  ┌─ What changed ──────────────────────────────────────
-  │ • preferences.md: +1 bullet rule
-  │     572B → 620B  (+48B, +1 line)
-  └─────────────────────────────────────────────────────
+══ forge review · proposed change (not yet approved) ══
 
-  ┌─ Affects ───────────────────────────────────────────
-  │ • output/CLAUDE.md   (+48B)  ← Claude Code
-  │ • output/AGENTS.md   (+48B)  ← Codex / any AGENTS.md tool
-  │ • ~/.claude/CLAUDE.md        ← auto-synced
-  └─────────────────────────────────────────────────────
+┌─ Source ─────────────────────────────────────────────
+│ Origin:  hand edit (no recorded ingest/event)
+│ Touched: 1 section
+└──────────────────────────────────────────────────────
 
-  Other 4 sections unaffected. Approve / reject?
+┌─ What changed ───────────────────────────────────────
+│ • preferences.md: +2 bullet rules (comment policy)
+│     847B → 963B  (+116B, +2/-0 lines)
+└──────────────────────────────────────────────────────
+
+┌─ Affects ────────────────────────────────────────────
+│ Outputs that will rebuild on approve:
+│   • output/CLAUDE.md  (+116B)  ← Claude Code (every session)
+│   • output/AGENTS.md  (+116B)  ← Codex / any AGENTS.md tool
+│
+│ External targets (auto-sync on approve):
+│   • ~/.claude/CLAUDE.md  [symlink]
+└──────────────────────────────────────────────────────
+
+┌─ Bench ──────────────────────────────────────────────
+│ preferences            +116B  (847 → 963)
+│ about-me                  0B  (unchanged)
+│ workspace                 0B  (unchanged)
+│ knowledge-base            0B  (unchanged)
+│ skills                    0B  (unchanged)
+└──────────────────────────────────────────────────────
+
+Two lines in one source file, both Claude Code and Codex contexts
+update at once. approve / reject?
 
 You: ok
 
-Claude: approved hash=7e3f1a — CLAUDE.md and AGENTS.md updated,
-       synced to ~/.claude/CLAUDE.md.
+Claude:
+approved hash=c4a91b at 2026-05-08T20:31:00+08:00
+  wrote output/CLAUDE.md
+  wrote output/AGENTS.md
+  synced → ~/.claude/CLAUDE.md
+
+Next Claude Code session will pick up the new comment rules.
 ```
 
-No CLI needed. Claude runs `forge doctor` + `forge review` + `forge approve` behind the scenes. You just say ok or reject.
+The whole flow is a conversation — Claude runs `forge doctor` + `forge review` + `forge approve`, you just make the call.
 
-What happened: **one source edit → two runtimes updated → audit trail → rollback anytime.**
+Three things you can't do by hand-editing `CLAUDE.md`:
 
-Don't use Claude Code? `forge review` + `forge approve` are the CLI equivalents. But the recommended path is: agent drives, you review.
+1. **You see the full impact before it ships** — changes don't take effect until you approve
+2. **One source compiles to both CLAUDE.md and AGENTS.md** — switch to Codex without rewriting
+3. **Every change has a hash and audit trail** — `forge changelog` tells you when any rule was added, three months later
 
 ---
 

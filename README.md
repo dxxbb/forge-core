@@ -25,37 +25,70 @@
 
 ## 一次真实的改动长什么样
 
-你在编辑器里改了 `preferences.md`，加了一条："改共享配置必须先开 PR"。然后跟 Claude 说"过一下"：
+你发现 Claude 总爱往代码里加一堆注释。打开 `sp/section/preferences.md`，加两行：
+
+```markdown
+- 默认不写注释。只在 why 不明显时加一行，不解释 what。
+- 不要在注释里引用当前任务、issue 号或调用方，这些属于 PR 描述。
+```
+
+然后跟 Claude 说"过一下"：
 
 ```
 你：过一下
 
-Claude：preferences.md 多了一行规则。影响：
+Claude：doctor 检查通过。preferences.md 有改动，跑一下 review：
 
-  ┌─ What changed ──────────────────────────────────────
-  │ • preferences.md: +1 bullet rule
-  │     572B → 612B  (+40B, +1 line)
-  └─────────────────────────────────────────────────────
+══ forge review · proposed change (not yet approved) ══
 
-  ┌─ Affects ───────────────────────────────────────────
-  │ • output/CLAUDE.md   (+40B)  ← Claude Code
-  │ • output/AGENTS.md   (+40B)  ← Codex / 任何 AGENTS.md 工具
-  │ • ~/.claude/CLAUDE.md        ← 自动同步
-  └─────────────────────────────────────────────────────
+┌─ Source ─────────────────────────────────────────────
+│ Origin:  hand edit (no recorded ingest/event)
+│ Touched: 1 section
+└──────────────────────────────────────────────────────
 
-  其他 4 个 section 不受影响。approve / reject？
+┌─ What changed ───────────────────────────────────────
+│ • preferences.md: +2 bullet rules (注释策略)
+│     847B → 963B  (+116B, +2/-0 lines)
+└──────────────────────────────────────────────────────
+
+┌─ Affects ────────────────────────────────────────────
+│ Outputs that will rebuild on approve:
+│   • output/CLAUDE.md  (+116B)  ← Claude Code (every session)
+│   • output/AGENTS.md  (+116B)  ← Codex / any AGENTS.md tool
+│
+│ External targets (auto-sync on approve):
+│   • ~/.claude/CLAUDE.md  [symlink]
+└──────────────────────────────────────────────────────
+
+┌─ Bench ──────────────────────────────────────────────
+│ preferences            +116B  (847 → 963)
+│ about-me                  0B  (unchanged)
+│ workspace                 0B  (unchanged)
+│ knowledge-base            0B  (unchanged)
+│ skills                    0B  (unchanged)
+└──────────────────────────────────────────────────────
+
+一份源文件改两行，Claude Code 和 Codex 的上下文同时更新。
+approve / reject?
 
 你：ok
 
-Claude：approved hash=7e3f1a — CLAUDE.md 和 AGENTS.md 已更新，
-       已同步到 ~/.claude/CLAUDE.md。
+Claude：
+approved hash=c4a91b at 2026-05-08T20:31:00+08:00
+  wrote output/CLAUDE.md
+  wrote output/AGENTS.md
+  synced → ~/.claude/CLAUDE.md
+
+下次 Claude Code 新 session 就会读到这两条注释规则了。
 ```
 
-整个过程不敲 CLI，跟 Claude 对话完成。agent 自动跑 `forge doctor` + `forge review` + `forge approve`，你只管说 ok 或 reject。
+整个过程跟 Claude 对话完成——agent 跑 `forge doctor` + `forge review` + `forge approve`，你只做决定。
 
-背后发生的事：**一份源文件改动 → 两个 runtime 同时更新 → 带审计日志 → 随时可 rollback。**
+这里面有三件事是手改 `CLAUDE.md` 做不到的：
 
-不想用 Claude Code 也行——`forge review` + `forge approve` 这两条 CLI 等价。但推荐的方式是让 agent 驱动，你做审核。
+1. **你看到了完整影响再决定**——不是改完就生效，是 review 后 approve 才生效
+2. **一份源文件同时编译到 CLAUDE.md 和 AGENTS.md**——换 Codex 不用重写
+3. **每次改动有 hash 和审计日志**——三个月后想知道"这条注释规则什么时候加的"，`forge changelog` 一查就有
 
 ---
 
