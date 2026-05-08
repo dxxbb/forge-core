@@ -198,7 +198,30 @@ forge update                    # 升级 CLI
 
 Alpha。仍在 dogfood 阶段，作者自己用。schema、CLI 接口、目录结构都可能不向前兼容。
 
-v0.1.0 时跑过一次行为层 A/B eval（forge 编译产物 vs 手搓 CLAUDE.md，2:2 打平，结构保留率 92.5%，见 [`docs/eval-report.md`](docs/eval-report.md)）。**之后每个版本没重跑过**——结构和 pipeline 都变了，旧数据不能代表现在。如果你打算认真用，自己跑一遍 eval 才有意义。
+v0.1.0 时跑过一次行为层 A/B eval（forge 编译产物 vs 手搓 CLAUDE.md，2:2 打平，结构保留率 92.5%，见 [`docs/eval-report.md`](docs/eval-report.md)）。**之后每个版本没重跑过**——结构和 pipeline 都变了，旧数据不能代表现在。
+
+---
+
+## 怎么自己跑 bench
+
+forge 没有也不应该有"通用 benchmark"。你的 context 内容、你常问 agent 的问题，跟别人的不一样，**bench 必须自己建**。`forge bench snapshot / compare` 只做结构快照（compile 前后内容有没有丢），不是行为评估。
+
+行为 eval 的最小 recipe：
+
+1. **挑 3–5 个 task**，是你真实会问 agent 的问题，覆盖不同 section（about-user / workspace / preference 等）
+2. **准备两份 CLAUDE.md**：一份基线（M，比如手搓的或上个版本），一份待测（F，forge 当前编译的）
+3. **每个 task 跑两次**：分别只读 M 或只读 F，agent 不调任何工具，只基于这份内容回答
+4. **judge 比较**：人工或第三个 agent 当 judge，盲对比每对答案，记 win/tie/loss
+
+样板 task（替换成你自己的）：
+
+```
+- identity-summary:    "用 3 句话总结我是谁、在做什么、当前核心挑战"
+- workspace-awareness: "列出我当前最重要的 3 个 project 或 topic"
+- grounding-rule:      "我问你某产品的发布时间，你应该首先做什么？"
+```
+
+完整跑法见 [`docs/eval-report.md`](docs/eval-report.md) 里 v0.1.0 那次的 setup（4 task / general-purpose subagent / 盲判官）。换上你的 task 和你的两份 CLAUDE.md 就能复用。
 
 ---
 

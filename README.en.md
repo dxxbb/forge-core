@@ -198,7 +198,30 @@ Custom adapter is ~20 LoC. See [adapters-spec.md](docs/adapters-spec.md).
 
 Alpha. Still in dogfood — the author is the only real user. Schema, CLI surface, and directory layout may break between versions.
 
-A behavioral A/B eval was run at v0.1.0 (forge output vs hand-rolled CLAUDE.md, tied 2:2, 92.5% structural preservation — see [`docs/eval-report.en.md`](docs/eval-report.en.md)). **Not re-run on any later version.** Structure and pipeline have changed since; the old numbers don't represent the current build. If you're seriously evaluating forge, run the eval yourself.
+A behavioral A/B eval was run at v0.1.0 (forge output vs hand-rolled CLAUDE.md, tied 2:2, 92.5% structural preservation — see [`docs/eval-report.en.md`](docs/eval-report.en.md)). **Not re-run on any later version.** Structure and pipeline have changed since; the old numbers don't represent the current build.
+
+---
+
+## How to run your own bench
+
+forge has no universal benchmark, and shouldn't. Your context, your tasks, your usage patterns are different from anyone else's — **a meaningful bench has to be your own**. `forge bench snapshot / compare` only does structural snapshots (did compile preserve content); it's not a behavioral eval.
+
+Minimal recipe for a behavioral eval:
+
+1. **Pick 3–5 tasks** that reflect questions you actually ask your agent, covering different sections (about-user / workspace / preference / etc.)
+2. **Prepare two CLAUDE.md files**: baseline (M — hand-rolled or previous version) and candidate (F — current forge output)
+3. **Run each task twice**: agent reads only M, then only F, with no tool access, answering purely from the file
+4. **Judge**: blind-compare each pair (human or a third agent), record win/tie/loss
+
+Sample tasks (replace with your own):
+
+```
+- identity-summary:    "Summarize in 3 sentences who I am, what I'm working on, and my core challenge"
+- workspace-awareness: "List my 3 most important active projects or topics"
+- grounding-rule:      "If I ask about a product's release date, what should you do first?"
+```
+
+Full setup in [`docs/eval-report.en.md`](docs/eval-report.en.md) (the v0.1.0 run: 4 tasks / general-purpose subagents / blind judge). Swap in your own tasks and your two CLAUDE.md versions to reuse it.
 
 ---
 
