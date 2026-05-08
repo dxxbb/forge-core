@@ -21,11 +21,15 @@ from forge.governance.events import EventType, ProposedChange, default_classify
 from forge.governance.inbox import Inbox, Todo
 from forge.governance.watcher import scan_git
 from forge.governance.rollback import rollback
+from forge.governance.classify import load_classify_fn, load_config, ClassifyConfig
 
 __all__ = [
     "EventType",
     "ProposedChange",
     "default_classify",
+    "load_classify_fn",
+    "load_config",
+    "ClassifyConfig",
     "Inbox",
     "Todo",
     "scan_git",

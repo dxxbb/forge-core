@@ -447,12 +447,13 @@ def test_pr_done_approve_logs_and_removes(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert not pr_dir.exists()
 
-    log_dir = ws / "system" / "approve log"
-    log_files = list(log_dir.glob("*.md"))
-    assert len(log_files) == 1
-    body = log_files[0].read_text("utf-8")
-    assert "approve" in body and pr_id in body
-    assert "type=context-import" in body
+    # PR moved to approve log as directory (unified archive)
+    archive = ws / "system" / "approve log" / pr_id
+    assert archive.is_dir()
+    proposal = archive / "proposal.md"
+    assert proposal.exists()
+    body = proposal.read_text("utf-8")
+    assert "decision: approve" in body
     assert "looks good" in body
 
 
@@ -468,13 +469,14 @@ def test_pr_done_reject_logs_and_removes(tmp_path: Path) -> None:
     )
     assert result.exit_code == 0, result.output
     assert not pr_dir.exists()
-    log_files = list((ws / "system" / "reject log").glob("*.md"))
-    assert len(log_files) == 1
-    assert "reject" in log_files[0].read_text("utf-8")
+    archive = ws / "system" / "reject log" / pr_id
+    assert archive.is_dir()
+    body = (archive / "proposal.md").read_text("utf-8")
+    assert "decision: reject" in body
     assert not (ws / "system" / "approve log").exists()
 
 
-def test_pr_done_appends_to_existing_daily_log(tmp_path: Path) -> None:
+def test_pr_done_two_prs_each_get_own_archive(tmp_path: Path) -> None:
     runner = CliRunner()
     ws = tmp_path / "personal"
     _make_personalos(ws)
@@ -484,10 +486,9 @@ def test_pr_done_appends_to_existing_daily_log(tmp_path: Path) -> None:
     runner.invoke(main, ["pr", "done", "--root", str(ws), "20260429-100000-context-import"])
     runner.invoke(main, ["pr", "done", "--root", str(ws), "20260429-110000-context-import"])
 
-    log_files = list((ws / "system" / "approve log").glob("*.md"))
-    assert len(log_files) == 1
-    body = log_files[0].read_text("utf-8")
-    assert body.count("approve") == 2
+    log_dir = ws / "system" / "approve log"
+    assert (log_dir / "20260429-100000-context-import" / "proposal.md").exists()
+    assert (log_dir / "20260429-110000-context-import" / "proposal.md").exists()
 
 
 def test_pr_done_accepts_relative_dir_or_proposal_path(tmp_path: Path) -> None:

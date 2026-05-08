@@ -20,7 +20,13 @@ class EventType(str, Enum):
     project_update = "project_update"   # workspace project 变更
     skill_change = "skill_change"       # skill 目录变更
 
-    # 无法分类
+    # v0.2: configurable dispatch 新增
+    content_change = "content_change"           # user space / workspace 内容变更
+    preference_change = "preference_change"     # assist config 变更
+    context_source_change = "context_source_change"  # context build sections 变更
+
+    # 分派控制
+    ignored = "ignored"                 # classify 规则明确忽略
     unclassified = "unclassified"
 
 

@@ -786,19 +786,7 @@ def pr_done(pr_ref: str, reject: bool, message: str, root: str | None) -> None:
             kind = m.group(1)
 
     decision = "reject" if reject else "approve"
-    log_dir = workspace / "system" / ("reject log" if reject else "approve log")
-    log_dir.mkdir(parents=True, exist_ok=True)
-    today = datetime.now().strftime("%Y-%m-%d")
-    log_file = log_dir / f"{today}.md"
     now = datetime.now().astimezone().isoformat(timespec="seconds")
-    bits = [now, decision, f"pr/{pr_dir.name}"]
-    if kind:
-        bits.append(f"(type={kind})")
-    if message:
-        bits.append(f"— {message}")
-    line = "- " + " ".join(bits) + "\n"
-    with log_file.open("a", encoding="utf-8") as f:
-        f.write(line)
 
     # v0.4: on approve, scan currently-modified project onepages and inject
     # last_synced (commit + at). The user's next git commit picks them up
@@ -811,14 +799,24 @@ def pr_done(pr_ref: str, reject: bool, message: str, root: str | None) -> None:
         # v0.6: if this PR is a `web-clipping-synthesize`, stamp the source
         # clipping(s) frontmatter with `synthesized_at` + `synthesized_into`
         # (= KB topic paths the proposal touched). Reads proposal.md before
-        # the rmtree below.
+        # the move below.
         if kind == "web-clipping-synthesize":
             synthesized_clippings = _mark_clippings_synthesized_for_pr(
                 workspace, proposal, now
             )
 
-    shutil.rmtree(pr_dir)
-    click.echo(f"done: {decision} pr/{pr_dir.name} → system/{log_dir.name}/{log_file.name}")
+    # Stamp approval metadata into proposal frontmatter before archiving.
+    if proposal.exists():
+        _stamp_proposal_decision(proposal, decision, now, message)
+
+    # Move PR directory into approve/reject log (unified archive).
+    log_dir = workspace / "system" / ("reject log" if reject else "approve log")
+    archive_dest = log_dir / pr_dir.name
+    archive_dest.parent.mkdir(parents=True, exist_ok=True)
+    if archive_dest.exists():
+        shutil.rmtree(archive_dest)
+    shutil.move(str(pr_dir), str(archive_dest))
+    click.echo(f"done: {decision} pr/{pr_dir.name} → {log_dir.name}/{pr_dir.name}/")
     for op_path in synced_onepages:
         try:
             rel = op_path.relative_to(workspace).as_posix()
@@ -834,6 +832,31 @@ def pr_done(pr_ref: str, reject: bool, message: str, root: str | None) -> None:
             click.echo(f"  synthesized: {rel} -> {', '.join(into)}")
         else:
             click.echo(f"  synthesized: {rel} (no KB topic propagation found)")
+
+
+def _stamp_proposal_decision(
+    proposal: Path, decision: str, at: str, message: str
+) -> None:
+    """Inject decision metadata into proposal frontmatter."""
+    text = proposal.read_text("utf-8")
+    if not text.startswith("---"):
+        return
+    end = text.find("\n---", 3)
+    if end < 0:
+        return
+    insert = f"\ndecision: {decision}\ndecision_at: '{at}'"
+    if message:
+        insert += f"\ndecision_note: '{message}'"
+    new_text = text[:end] + insert + text[end:]
+    # Also update status field if present.
+    new_text = re.sub(
+        r"^status:\s*pending",
+        f"status: {decision}d",
+        new_text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    proposal.write_text(new_text, "utf-8")
 
 
 def _mark_clippings_synthesized_for_pr(
@@ -1807,6 +1830,7 @@ def monitor(root: str | None) -> None:
     import_updates = _import_updates(workspace)
     project_updates, project_warns = _workspace_project_updates(workspace)
     clipping_issues, clipping_actions = _web_clipping_pending(workspace)
+    content_issues, content_actions = _internal_content_changes(workspace)
     legacy_onepage_count = _legacy_onepage_count(workspace)
 
     if pending_pr:
@@ -1825,6 +1849,10 @@ def monitor(root: str | None) -> None:
     if project_updates:
         issues.append(f"workspace-project updates: {len(project_updates)}")
         for item in project_updates[:5]:
+            actions.append(item)
+    if content_issues:
+        issues.extend(content_issues)
+        for item in content_actions:
             actions.append(item)
     if clipping_issues:
         issues.extend(clipping_issues)
@@ -2041,6 +2069,18 @@ def _pending_proposals(workspace: Path) -> list[Path]:
     # A proposal existing == still pending. Closed proposals are removed by
     # `forge pr done`; system/{approve,reject} log/ keeps the audit trail.
     return sorted(pr_dir.glob("*/proposal.md"))
+
+
+def _internal_content_changes(workspace: Path) -> tuple[list[str], list[str]]:
+    """Return (issue_lines, action_lines) for uncommitted internal content changes."""
+    try:
+        from forge.governance.content_scanner import format_monitor_lines
+    except Exception:
+        return [], []
+    try:
+        return format_monitor_lines(workspace)
+    except Exception:
+        return [], []
 
 
 def _context_drift(workspace: Path) -> bool:
