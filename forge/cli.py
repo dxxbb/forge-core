@@ -1522,6 +1522,19 @@ def capture_cmd(
     click.echo(f"created inbox item: {inbox_path.relative_to(workspace).as_posix()}")
     click.echo("next: process inbox -> proposal -> review")
 
+    # Claude auto-memory mark-seen: when --from points at a memory file under
+    # ~/.claude/projects/*/memory/, record its hash so monitor doesn't keep
+    # surfacing this version. Failure is silent — capture must succeed
+    # regardless of state-file write outcomes.
+    if source:
+        try:
+            from forge.governance.claude_memory import is_memory_file, mark_path_seen
+
+            if is_memory_file(source_path):
+                mark_path_seen(workspace, source_path)
+        except Exception:
+            pass
+
 
 def _safe_capture_name(value: str) -> str:
     value = value.strip().lower()
@@ -1831,6 +1844,7 @@ def monitor(root: str | None) -> None:
     project_updates, project_warns = _workspace_project_updates(workspace)
     clipping_issues, clipping_actions = _web_clipping_pending(workspace)
     content_issues, content_actions = _internal_content_changes(workspace)
+    agent_memory_issues, agent_memory_actions = _agent_memory_updates(workspace)
     legacy_onepage_count = _legacy_onepage_count(workspace)
 
     if pending_pr:
@@ -1853,6 +1867,10 @@ def monitor(root: str | None) -> None:
     if content_issues:
         issues.extend(content_issues)
         for item in content_actions:
+            actions.append(item)
+    if agent_memory_issues:
+        issues.extend(agent_memory_issues)
+        for item in agent_memory_actions:
             actions.append(item)
     if clipping_issues:
         issues.extend(clipping_issues)
@@ -2075,6 +2093,23 @@ def _internal_content_changes(workspace: Path) -> tuple[list[str], list[str]]:
     """Return (issue_lines, action_lines) for uncommitted internal content changes."""
     try:
         from forge.governance.content_scanner import format_monitor_lines
+    except Exception:
+        return [], []
+    try:
+        return format_monitor_lines(workspace)
+    except Exception:
+        return [], []
+
+
+def _agent_memory_updates(workspace: Path) -> tuple[list[str], list[str]]:
+    """Return (issue_lines, action_lines) for Claude auto-memory drift.
+
+    First call against a workspace establishes the baseline; subsequent
+    calls report new/modified memory files. Lazy-import keeps legacy
+    fixtures (no `~/.claude/`) and offline test environments working.
+    """
+    try:
+        from forge.governance.claude_memory import format_monitor_lines
     except Exception:
         return [], []
     try:
@@ -2538,66 +2573,32 @@ def _ingest_detect() -> None:
 
 
 def _scan_claude_memory() -> list[tuple[str, int, int]]:
-    """Return [(project_slug, file_count, total_bytes), ...] sorted by file_count desc."""
-    base = Path.home() / ".claude" / "projects"
-    if not base.exists():
-        return []
-    out: list[tuple[str, int, int]] = []
-    for project_dir in base.iterdir():
-        if not project_dir.is_dir():
-            continue
-        memory_dir = project_dir / "memory"
-        if not memory_dir.is_dir():
-            continue
-        files = list(memory_dir.glob("*.md"))
-        if not files:
-            continue
-        total_bytes = sum(f.stat().st_size for f in files if f.is_file())
-        out.append((project_dir.name, len(files), total_bytes))
-    out.sort(key=lambda t: -t[1])
-    return out
+    """Compat shim — delegates to forge.governance.claude_memory.scan_all_projects.
+
+    The canonical implementation lives in the governance module so that the
+    monitor / capture / detect paths share one source of truth (e.g.
+    MEMORY.md exclusion).
+    """
+    from forge.governance.claude_memory import scan_all_projects
+
+    return scan_all_projects()
 
 
 def _count_claude_transcripts() -> int:
-    base = Path.home() / ".claude" / "projects"
-    if not base.exists():
-        return 0
-    return sum(1 for _ in base.glob("*/*.jsonl"))
+    """Compat shim — delegates to forge.governance.claude_memory.count_transcripts."""
+    from forge.governance.claude_memory import count_transcripts
+
+    return count_transcripts()
 
 
 def _read_claude_memory(project_filter: str | None) -> tuple[str, Path | None, int]:
-    """Read all Claude Code auto-memory markdown files into one text blob.
+    """Compat shim — delegates to forge.governance.claude_memory.read_all_projects.
 
-    Returns (concatenated_text, representative_source_path, file_count).
-    Each file is prefixed with a `--- from: <project>/<file> ---` header so
-    the LLM classifier knows provenance.
+    See `forge.governance.claude_memory.read_all_projects` for full semantics.
     """
-    base = Path.home() / ".claude" / "projects"
-    if not base.exists():
-        return "", None, 0
-    parts: list[str] = []
-    count = 0
-    repr_path: Path | None = None
-    for project_dir in sorted(base.iterdir()):
-        if not project_dir.is_dir():
-            continue
-        if project_filter and project_dir.name != project_filter:
-            continue
-        memory_dir = project_dir / "memory"
-        if not memory_dir.is_dir():
-            continue
-        for f in sorted(memory_dir.glob("*.md")):
-            try:
-                content = f.read_text(encoding="utf-8")
-            except OSError:
-                continue
-            if not content.strip():
-                continue
-            parts.append(f"--- from: {project_dir.name}/{f.name} ---\n{content}\n")
-            count += 1
-            if repr_path is None:
-                repr_path = f
-    return "\n".join(parts), repr_path, count
+    from forge.governance.claude_memory import read_all_projects
+
+    return read_all_projects(project_filter)
 
 
 # ---------- skill install ----------

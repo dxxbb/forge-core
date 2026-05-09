@@ -2,6 +2,53 @@
 
 记录 `forge-core` 的所有显著变动。
 
+## 0.9.0 (agent-memory monitor) — 2026-05-09
+
+修复一个**衰退**: v0.2 (commit 95d9240, 2026-04-26) 把 Claude Code auto-memory (`~/.claude/projects/<slug>/memory/*.md`) 加成一等 onboarding 源, SKILL.md Step 4 显式列为三大 source family 之一; v0.4.0+ monitor 抽象迭代时这条没被纳入新 pattern, 沦为 "ingest-only, 不被 daily monitor 监控", 实际等于从 daily 工作流里消失。
+
+forge 的核心论点是 review-gated context compiler, 任何长期影响 agent 的源都要走 capture → inbox → PR → review。auto-memory 是这个论点上最直接的漏洞 —— Claude 自己写, 自己读, 完全 bypass governance —— 也是 forge 跟 Mem0/Letta 区分开的命脉。本版补回。
+
+### Added
+
+- **`forge/governance/claude_memory.py` 新模块**: 镜像 `web_clipping.py` / `workspace_project.py` 的 governance pattern。导出 `format_monitor_lines(workspace) -> (issues, actions)` 与 monitor 集成; 内部 `discover_memory_files(slug)` / `compute_diff(...)` / `mark_seen(...)` / `mark_path_seen(...)`; compat shims `scan_all_projects` / `read_all_projects` / `count_transcripts` 给 `forge ingest --detect` / `forge capture --from-claude-memory` 复用。
+- **状态文件 `.forge/agent_memory_state.json`**: 跟 `manifest.json` 同位 (workspace-local, gitignored), schema_version 1, 记每个 memory 文件的 `{hash, size, seen_at}`。Side-channel 而非 in-source frontmatter, 因为 memory 文件被 Claude 自动 rewrite, 写 frontmatter 会被覆盖。
+- **`forge monitor` 集成**: `cli.py` 加 `_agent_memory_updates(workspace)` thin wrapper (lazy-import 兜底, 跟其它 governance 模块同 pattern), slot 进 `cmd_monitor`。报 `agent-memory updates: N (new K, modified M)` + per-file `agent-memory NEW/MODIFIED: <slug>/<filename> · forge capture --from "<abs>"`, cap 5 per category。
+- **baseline-on-activation**: 第一次跑 monitor (state file 不存在) 把当前所有 memory 文件 hash snapshot 进 state, 报 info 一行 `agent-memory: initialized baseline (N files tracked)`, **不入 inbox**。已有 memory 不追溯重审; 仅 baseline 后的新增/修改进 inbox。
+- **capture-time mark-seen**: `forge capture --from <path>` 调用时, 若 `path` 在 `~/.claude/projects/*/memory/` 下, hook 自动更新 state file 的 hash。capture 即"我看见这个版本了, 不要再提"; 后续 inbox/PR 是下游决定。
+- **`MEMORY.md` 索引文件排除**: well-known convention, monitor 永远 skip, baseline / diff / scan 也都 skip。否则每加/删一条 memory 都触发 MEMORY.md 变化, 噪音淹没真信号。
+- **scope: 仅当前 workspace 对应的 Claude project slug**: `workspace_to_slug(workspace)` 反推 (绝对路径 `/` → `-`, e.g. `/Users/<user>/personalOS` → `-Users-<user>-personalOS`); 其它 Claude project slug 默认不监控。跨 slug 配置留给 v0.9.x。
+
+### Refactor
+
+- **`cli.py` 三个 helper 拆出**: `_scan_claude_memory` / `_read_claude_memory` / `_count_claude_transcripts` 改成 thin compat shims, 内部 delegate 到 `forge.governance.claude_memory`。`forge ingest --detect` / `forge capture --from-claude-memory` / `forge ingest --from-claude-memory` 三个入口语义不变, 唯一行为变化: 现在统一排除 `MEMORY.md` (与 monitor 一致, 之前 detect 会把索引算进文件数)。
+
+### Tests
+
+- 新增 `tests/test_v090_agent_memory_monitor.py` (23 cases): slug 反推、`MEMORY.md` 排除、baseline-on-first-activation、no Claude dir 静默、unchanged 静默、新文件触发 action、modified 触发 action、deleted 静默并清 state、`MEMORY.md` 变化永不报、`is_memory_file` / `slug_for_memory_path` / `mark_path_seen` 单元、`forge capture --from <memory>` e2e mark-seen、状态文件位置 + JSON schema、跨 slug 隔离 (其它 slug 新文件不触发本 workspace monitor)、`scan_all_projects` 排除 MEMORY.md、`forge monitor` CLI 集成 e2e。
+- **总数 465 → 510 通过** (3 skipped 不变, 1 deselected — 见下)。
+
+### Fixes
+
+- **顺手修 v0.8.0 残留**: `forge/__init__.py` 之前还停在 `0.7.0` (v0.8.0 release 时 pyproject + SKILL.md 升了, `__init__.py` 漏了)。本版 bump 到 0.9.0 时一并修。`tests/test_v031_dogfood.py::test_skill_md_carries_current_version` 之前在 main HEAD 一直 fail, 现在过。
+
+### Compatibility
+
+- `forge ingest --detect` 的输出格式不变, 但 `MEMORY.md` 不再计入文件数 (历史显示 28 个的工作区现在显示 27 个之类)。
+- `forge capture --from-claude-memory` 行为完全不变 (整批 concat); `forge capture --from <memory file>` 现在新增 mark-seen side-effect。
+- 其它一切 v0.2 / v0.3 / v0.4 / v0.5 / v0.6 / v0.7 PR + governance 行为不受影响。
+- 新增的 `.forge/agent_memory_state.json` 仅当 monitor 跑过且 workspace 有 Claude memory 才创建, 跟其它 `.forge/` 文件一样 gitignored。
+
+### Skill / docs
+
+- **pyproject.toml** version `0.8.0` → `0.9.0`; `forge/__init__.py` 同步; `forge/assets/skills/forge/SKILL.md` frontmatter version 同步。
+- README governance pillar 段加 "agent-state" 子项 (Claude auto-memory; transcripts 留给 v0.4 distill 后续)。
+
+## 0.8.0 (configurable classify + content scanner + PR archive) — 2026-05-08
+
+(retrospective entry — v0.8.0 shipped via commits a709981 + 26b71c9 but没有 CHANGELOG entry, 且 `forge/__init__.py` 漏 bump 至 0.7.0 → v0.9.0 一并修。)
+
+详见 git log: `a709981` feat(monitor) + `26b71c9` docs(README restructure)。核心: configurable classify config (`.forge/governance/classify.yaml`) + `forge/governance/content_scanner.py` 报内部内容变更 + PR 归档行为整理。
+
 ## 0.7.0 (propagation resolver) — 2026-05-07
 
 修一个 v0.6 设计漏洞: PR proposal 的 propagation 树是 agent 手画的, 但传播规则其实是机制性的 (KB topic / asset → 反查 sections.upstream → section → runtime; sections 文件直接 → runtime; KB index/log/raw clipping → terminal)。手画浪费 + 易出错。v0.7 让 agent 只列 `modified_files`, forge resolver 根据 sections.upstream 反查自动推导 propagation。schema 兼容: 旧 PR 仍可手填 propagation, 不影响。
