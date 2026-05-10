@@ -2164,16 +2164,15 @@ def _import_updates(workspace: Path) -> list[str]:
         elif previous.get("source_digest") and previous.get("source_digest") != digest:
             updates.append(f"{display} (changed, {label})")
 
-    memory_text, _repr_path, file_count = _read_claude_memory(None)
-    if memory_text.strip():
-        key = "claude-code-memory:all projects"
-        digest = _digest_text(memory_text)
-        previous = records.get(key)
-        if previous is None:
-            updates.append(f"Claude Code memory (new, {file_count} files)")
-        elif previous.get("source_digest") and previous.get("source_digest") != digest:
-            updates.append(f"Claude Code memory (changed, {file_count} files)")
-
+    # Claude auto-memory drift is owned by `_agent_memory_updates` (v0.9.0
+    # `forge.governance.claude_memory.format_monitor_lines`) — per-file hash
+    # tracking with `.forge/agent_memory_state.json` baseline. The legacy
+    # whole-corpus digest path (v0.2 era) is removed here in v0.9.1 because
+    # the two paths report on the same source with different mechanisms +
+    # different scopes (legacy: cross-project all-files concat; v0.9.0:
+    # per-file under current workspace's matched slug), causing duplicate
+    # signal in `forge monitor` output. Ownership: agent-memory now belongs
+    # exclusively to the v0.9.0 watcher.
     return updates
 
 

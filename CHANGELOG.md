@@ -2,6 +2,28 @@
 
 记录 `forge-core` 的所有显著变动。
 
+## 0.9.1 (remove _import_updates memory overlap) — 2026-05-10
+
+修一个 v0.9.0 没顺手清理掉的设计 leftover: 老 v0.2 era `_import_updates` 路径仍然用 whole-corpus digest 跟踪 Claude auto-memory drift, 跟 v0.9.0 新的 per-file `.forge/agent_memory_state.json` baseline + diff 机制重叠, 同一源用两套机制以两种 scope (legacy: 跨 project 所有文件 concat; v0.9.0: 仅当前 workspace 对应 slug, per-file) 报, monitor 输出出现 duplicate signal: 用户看到 `import source updates: 1, Claude Code memory (changed, 23 files)` 同时 `agent-memory: initialized baseline (1 file tracked)`, 信号噪音高。
+
+v0.9.1 把 `_import_updates` 里的 Claude memory 块删掉, agent-memory 监控权完整移交给 v0.9.0 watcher。`_import_updates` 仍然负责其它 import 候选(静态文件 CLAUDE.md / AGENTS.md / .cursorrules), 这部分行为不变。
+
+### Fixed
+
+- **`_import_updates` 不再追踪 Claude auto-memory**: cli.py 里的 memory whole-corpus digest 比较代码移除 (forge ingest --detect 和 forge capture --from-claude-memory 仍然使用 `_read_claude_memory`, 但这两个是 explicit user-triggered 流程, 不是 monitor 的自动报告路径, 不与 v0.9.0 冲突)。
+- **monitor 输出去重**: 一个 workspace 当前 slug 下 memory 文件 drift 现在只走 v0.9.0 watcher 的 `agent-memory updates: N (new K, modified M)` 行, 不再叠加 legacy `import source updates: 1, Claude Code memory (changed, N files)`。
+
+### Compatibility
+
+- `forge ingest --detect` 行为不变。
+- `forge capture --from-claude-memory` 行为不变。
+- `_import_updates` 对静态文件 CLAUDE.md / AGENTS.md / .cursorrules / 其它 _FILE_CANDIDATES 的检测不变, 包括 v0.4.2 的 self-loop guard (target binding paths skip)。
+- v0.9.0 引入的 `.forge/agent_memory_state.json` 不变; baseline-on-activation 行为不变。
+
+### Skill / docs
+
+- pyproject.toml / `forge/__init__.py` / SKILL.md frontmatter version `0.9.0` → `0.9.1`。
+
 ## 0.9.0 (agent-memory monitor) — 2026-05-09
 
 修复一个**衰退**: v0.2 (commit 95d9240, 2026-04-26) 把 Claude Code auto-memory (`~/.claude/projects/<slug>/memory/*.md`) 加成一等 onboarding 源, SKILL.md Step 4 显式列为三大 source family 之一; v0.4.0+ monitor 抽象迭代时这条没被纳入新 pattern, 沦为 "ingest-only, 不被 daily monitor 监控", 实际等于从 daily 工作流里消失。
