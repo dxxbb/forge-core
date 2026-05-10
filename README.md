@@ -126,10 +126,11 @@ Agent：approved. CLAUDE.md / AGENTS.md 已重编译。
 ## 核心概念
 
 ```
-capture/web clipping/   ─┐
-user space/daily/        ├─→ forge monitor 检测变化
-workspace/project/       │
-public knowledge base/  ─┘
+capture/web clipping/         ─┐
+user space/daily/              │
+workspace/project/             ├─→ forge monitor 检测变化
+public knowledge base/         │
+~/.claude/projects/*/memory/  ─┘   (agent 自己写的 auto-memory)
          │
          ▼
    forge capture → system/inbox/ → system/pr/proposal.md
@@ -149,7 +150,7 @@ public knowledge base/  ─┘
    forge target install → ~/.claude/CLAUDE.md (auto-sync)
 ```
 
-- **Capture** — 原始证据（web clipping、日志、agent memory）。只存不改
+- **Capture** — 原始证据（web clipping、日志、workspace-project 上游、agent auto-memory）。只存不改。`forge monitor` 持续监控这五类源, 任何一类有 drift 都会surface 进 inbox 走 review
 - **Inbox** — 进入审核流程前的待处理队列
 - **Proposal** — 每个监控到的变化是一个 item，agent 分类（APPLY / ARCHIVE / COVERED / DECIDE / NA / MIXED），附 propagation tree
 - **Section** — context build 的源文件，按主题分（about user / workspace / knowledge base / preference / skill）
