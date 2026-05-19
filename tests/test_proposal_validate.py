@@ -98,8 +98,33 @@ def test_validate_apply_requires_propagation_with_modification():
     )
     issues = validate_proposal(p)
     msgs = [i.message for i in issues]
-    # The non-leaf node has no modification — should be flagged.
+    # The APPLY nodes have no modification — should be flagged.
     assert any("modification" in m for m in msgs)
+
+
+def test_validate_apply_terminal_node_requires_modification():
+    p = Proposal(
+        created_at="2026-01-01T00:00:00+00:00",
+        items=[
+            Item(
+                id="1",
+                monitor_info="x",
+                extracted="y",
+                disposition=Disposition.APPLY,
+                rationale="r",
+                propagation=[
+                    PropagationBranch(
+                        branch="a",
+                        node=PropagationNode(path="onepage.md", terminal=True),
+                    ),
+                ],
+            ),
+        ],
+    )
+
+    issues = validate_proposal(p)
+
+    assert any(i.path.endswith(".modification") for i in issues)
 
 
 def test_validate_covered_requires_covered_by():

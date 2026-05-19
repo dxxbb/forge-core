@@ -142,6 +142,9 @@ def run(root: Path) -> DoctorReport:
     for line in _project_onepage_lines(root):
         report.info.append(line)
 
+    for line in _skill_projection_lines(root):
+        report.warnings.append(line)
+
     return report
 
 
@@ -223,6 +226,18 @@ def _proposal_schema_lines(root: Path) -> list[str]:
                 f"run `forge proposal validate {p.parent.name}` for detail"
             )
     return out
+
+
+def _skill_projection_lines(root: Path) -> list[str]:
+    """Warn when index-declared governed skills are not projected to runtime."""
+    try:
+        from forge.governance.skill_projection import format_doctor_lines
+    except Exception:
+        return []
+    try:
+        return format_doctor_lines(root)
+    except Exception:
+        return []
 
 
 def _asset_coverage(root: Path, sections: dict) -> list[str]:

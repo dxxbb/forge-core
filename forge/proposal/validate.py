@@ -328,12 +328,11 @@ def _validate_node(
             f"{prefix}", "node has neither path nor label",
             "give the file path or describe what this node represents",
         ))
-    is_terminal = node.terminal or not node.children
-    if require_modification and not node.modification and not is_terminal:
+    if require_modification and not node.modification:
         issues.append(ValidationIssue(
             f"{prefix}.modification",
-            "non-terminal APPLY node must specify modification",
-            "describe what changes here (line count / what's added)",
+            "APPLY propagation node must specify modification",
+            "describe what changes at this propagation node",
         ))
     for k, child in enumerate(node.children):
         _validate_branch(

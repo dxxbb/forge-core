@@ -1844,6 +1844,7 @@ def monitor(root: str | None) -> None:
     project_updates, project_warns = _workspace_project_updates(workspace)
     clipping_issues, clipping_actions = _web_clipping_pending(workspace)
     content_issues, content_actions = _internal_content_changes(workspace)
+    skill_projection_issues, skill_projection_actions = _skill_projection_gaps(workspace)
     agent_memory_issues, agent_memory_actions = _agent_memory_updates(workspace)
     legacy_onepage_count = _legacy_onepage_count(workspace)
 
@@ -1867,6 +1868,10 @@ def monitor(root: str | None) -> None:
     if content_issues:
         issues.extend(content_issues)
         for item in content_actions:
+            actions.append(item)
+    if skill_projection_issues:
+        issues.extend(skill_projection_issues)
+        for item in skill_projection_actions:
             actions.append(item)
     if agent_memory_issues:
         issues.extend(agent_memory_issues)
@@ -2093,6 +2098,18 @@ def _internal_content_changes(workspace: Path) -> tuple[list[str], list[str]]:
     """Return (issue_lines, action_lines) for uncommitted internal content changes."""
     try:
         from forge.governance.content_scanner import format_monitor_lines
+    except Exception:
+        return [], []
+    try:
+        return format_monitor_lines(workspace)
+    except Exception:
+        return [], []
+
+
+def _skill_projection_gaps(workspace: Path) -> tuple[list[str], list[str]]:
+    """Return (issue_lines, action_lines) for governed skill projection gaps."""
+    try:
+        from forge.governance.skill_projection import format_monitor_lines
     except Exception:
         return [], []
     try:
