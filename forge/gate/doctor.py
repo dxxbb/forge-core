@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from forge.compiler.loader import load_sections, load_all_configs
+from forge.compiler.renderer import validate_section_view
 from forge.layout import detect
 from forge.targets import available_adapters
 
@@ -107,22 +108,14 @@ def run(root: Path) -> DoctorReport:
                 continue
             if section_name not in sections:
                 continue
-            mode = str(view.get("mode") or "full")
-            if mode not in {"full", "marked"}:
-                report.errors.append(
-                    f"config `{cname}` section `{section_name}` has unsupported "
-                    f"view mode `{mode}`"
+            try:
+                validate_section_view(sections[section_name], view, cname)
+            except ValueError as e:
+                message = str(e).replace(
+                    "but no matching forge:view begin/end block exists",
+                    "but markers are missing",
                 )
-            if mode == "marked":
-                marker = str(view.get("marker") or "runtime")
-                begin = f"<!-- forge:view {marker} begin -->"
-                end = f"<!-- forge:view {marker} end -->"
-                body = sections[section_name].body
-                if begin not in body or end not in body:
-                    report.errors.append(
-                        f"config `{cname}` section `{section_name}` requests "
-                        f"marked view `{marker}` but markers are missing"
-                    )
+                report.errors.append(message)
         # required_sections coverage
         req_missing = [r for r in cfg.required_sections if r not in cfg.sections]
         if req_missing:

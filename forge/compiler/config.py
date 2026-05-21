@@ -31,6 +31,8 @@
       workspace:
         mode: marked
         marker: runtime
+        max_chars: 2600
+        max_ratio: 0.35
     demote_section_headings: true
     ---
 """

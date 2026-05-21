@@ -74,6 +74,50 @@ def test_render_marked_section_view_keeps_logical_name(workspace: Path) -> None:
     assert "forge:view" not in out
 
 
+def test_render_marked_section_view_enforces_max_chars(workspace: Path) -> None:
+    (workspace / "sp" / "section" / "alpha.md").write_text(
+        "---\nname: alpha\n---\n"
+        "Full alpha with enough source material\n\n"
+        "<!-- forge:view runtime begin -->\n"
+        "This compact view is still too long for the configured budget.\n"
+        "<!-- forge:view runtime end -->\n",
+        encoding="utf-8",
+    )
+    secs = load_sections(workspace)
+    cfg = load_config(workspace, "main")
+    cfg.section_views = {
+        "alpha": {"mode": "marked", "marker": "runtime", "max_chars": 20}
+    }
+
+    with pytest.raises(ValueError) as exc:
+        render(secs, cfg)
+
+    assert "max_chars" in str(exc.value)
+    assert "alpha" in str(exc.value)
+
+
+def test_render_marked_section_view_enforces_max_ratio(workspace: Path) -> None:
+    (workspace / "sp" / "section" / "alpha.md").write_text(
+        "---\nname: alpha\n---\n"
+        + ("Full source sentence. " * 5)
+        + "\n<!-- forge:view runtime begin -->\n"
+        + ("Almost copied sentence. " * 4)
+        + "\n<!-- forge:view runtime end -->\n",
+        encoding="utf-8",
+    )
+    secs = load_sections(workspace)
+    cfg = load_config(workspace, "main")
+    cfg.section_views = {
+        "alpha": {"mode": "marked", "marker": "runtime", "max_ratio": 0.25}
+    }
+
+    with pytest.raises(ValueError) as exc:
+        render(sections=secs, config=cfg)
+
+    assert "max_ratio" in str(exc.value)
+    assert "alpha" in str(exc.value)
+
+
 def test_render_missing_marked_section_view_raises(workspace: Path) -> None:
     secs = load_sections(workspace)
     cfg = load_config(workspace, "main")

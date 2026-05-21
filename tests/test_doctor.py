@@ -42,6 +42,28 @@ def test_doctor_accepts_marked_section_view(workspace: Path) -> None:
     assert r.ok
 
 
+def test_doctor_flags_marked_section_view_budget_overrun(workspace: Path) -> None:
+    (workspace / "sp" / "section" / "alpha.md").write_text(
+        "---\nname: alpha\n---\n"
+        "Full alpha source body with more detail than runtime should need.\n\n"
+        "<!-- forge:view runtime begin -->\n"
+        "This runtime block is too long.\n"
+        "<!-- forge:view runtime end -->\n",
+        encoding="utf-8",
+    )
+    (workspace / "sp" / "config" / "main.md").write_text(
+        "---\nname: main\ntarget: claude-code\nsections: [alpha, beta]\n"
+        "section_views:\n  alpha:\n    mode: marked\n    marker: runtime\n"
+        "    max_chars: 10\n---\n",
+        encoding="utf-8",
+    )
+
+    r = doctor(workspace)
+
+    assert not r.ok
+    assert any("max_chars" in e and "alpha" in e for e in r.errors)
+
+
 def test_doctor_flags_missing_marked_section_view(workspace: Path) -> None:
     (workspace / "sp" / "config" / "main.md").write_text(
         "---\nname: main\ntarget: claude-code\nsections: [alpha, beta]\n"
