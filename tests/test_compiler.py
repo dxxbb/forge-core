@@ -53,6 +53,36 @@ def test_render_missing_section_raises(workspace: Path) -> None:
         render(secs, cfg)
 
 
+def test_render_marked_section_view_keeps_logical_name(workspace: Path) -> None:
+    (workspace / "sp" / "section" / "alpha.md").write_text(
+        "---\nname: alpha\n---\n"
+        "Full alpha\n\n"
+        "<!-- forge:view runtime begin -->\n"
+        "Compact alpha\n"
+        "<!-- forge:view runtime end -->\n",
+        encoding="utf-8",
+    )
+    secs = load_sections(workspace)
+    cfg = load_config(workspace, "main")
+    cfg.section_views = {"alpha": {"mode": "marked", "marker": "runtime"}}
+
+    out = render(secs, cfg)
+
+    assert "## Alpha" in out
+    assert "Compact alpha" in out
+    assert "Full alpha" not in out
+    assert "forge:view" not in out
+
+
+def test_render_missing_marked_section_view_raises(workspace: Path) -> None:
+    secs = load_sections(workspace)
+    cfg = load_config(workspace, "main")
+    cfg.section_views = {"alpha": {"mode": "marked", "marker": "runtime"}}
+
+    with pytest.raises(ValueError):
+        render(secs, cfg)
+
+
 def test_render_unknown_target_raises(workspace: Path) -> None:
     secs = load_sections(workspace)
     cfg = load_config(workspace, "main")

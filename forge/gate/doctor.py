@@ -98,6 +98,31 @@ def run(root: Path) -> DoctorReport:
                 report.errors.append(
                     f"config `{cname}` references unknown section `{s}`"
                 )
+        for section_name, view in cfg.section_views.items():
+            if section_name not in cfg.sections:
+                report.errors.append(
+                    f"config `{cname}` defines view for section `{section_name}` "
+                    f"but it is not listed in sections"
+                )
+                continue
+            if section_name not in sections:
+                continue
+            mode = str(view.get("mode") or "full")
+            if mode not in {"full", "marked"}:
+                report.errors.append(
+                    f"config `{cname}` section `{section_name}` has unsupported "
+                    f"view mode `{mode}`"
+                )
+            if mode == "marked":
+                marker = str(view.get("marker") or "runtime")
+                begin = f"<!-- forge:view {marker} begin -->"
+                end = f"<!-- forge:view {marker} end -->"
+                body = sections[section_name].body
+                if begin not in body or end not in body:
+                    report.errors.append(
+                        f"config `{cname}` section `{section_name}` requests "
+                        f"marked view `{marker}` but markers are missing"
+                    )
         # required_sections coverage
         req_missing = [r for r in cfg.required_sections if r not in cfg.sections]
         if req_missing:

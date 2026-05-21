@@ -22,6 +22,65 @@ def test_doctor_flags_unknown_section_ref(workspace: Path) -> None:
     assert any("unknown section `ghost`" in e for e in r.errors)
 
 
+def test_doctor_accepts_marked_section_view(workspace: Path) -> None:
+    (workspace / "sp" / "section" / "alpha.md").write_text(
+        "---\nname: alpha\n---\n"
+        "Full alpha\n\n"
+        "<!-- forge:view runtime begin -->\n"
+        "Compact alpha\n"
+        "<!-- forge:view runtime end -->\n",
+        encoding="utf-8",
+    )
+    (workspace / "sp" / "config" / "main.md").write_text(
+        "---\nname: main\ntarget: claude-code\nsections: [alpha, beta]\n"
+        "section_views:\n  alpha:\n    mode: marked\n    marker: runtime\n---\n",
+        encoding="utf-8",
+    )
+
+    r = doctor(workspace)
+
+    assert r.ok
+
+
+def test_doctor_flags_missing_marked_section_view(workspace: Path) -> None:
+    (workspace / "sp" / "config" / "main.md").write_text(
+        "---\nname: main\ntarget: claude-code\nsections: [alpha, beta]\n"
+        "section_views:\n  alpha:\n    mode: marked\n    marker: runtime\n---\n",
+        encoding="utf-8",
+    )
+
+    r = doctor(workspace)
+
+    assert not r.ok
+    assert any("marked view `runtime`" in e and "markers are missing" in e for e in r.errors)
+
+
+def test_doctor_flags_view_for_unlisted_section(workspace: Path) -> None:
+    (workspace / "sp" / "config" / "main.md").write_text(
+        "---\nname: main\ntarget: claude-code\nsections: [alpha, beta]\n"
+        "section_views:\n  gamma:\n    mode: marked\n    marker: runtime\n---\n",
+        encoding="utf-8",
+    )
+
+    r = doctor(workspace)
+
+    assert not r.ok
+    assert any("view for section `gamma`" in e and "not listed" in e for e in r.errors)
+
+
+def test_doctor_flags_unsupported_section_view_mode(workspace: Path) -> None:
+    (workspace / "sp" / "config" / "main.md").write_text(
+        "---\nname: main\ntarget: claude-code\nsections: [alpha, beta]\n"
+        "section_views:\n  alpha:\n    mode: magic\n---\n",
+        encoding="utf-8",
+    )
+
+    r = doctor(workspace)
+
+    assert not r.ok
+    assert any("unsupported" in e and "magic" in e for e in r.errors)
+
+
 def test_doctor_required_sections_missing(workspace: Path) -> None:
     (workspace / "sp" / "config" / "main.md").write_text(
         "---\nname: main\ntarget: claude-code\nsections: [alpha]\n"

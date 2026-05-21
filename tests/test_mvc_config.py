@@ -39,6 +39,48 @@ def test_config_rejects_deprecated_postamble(tmp_path: Path) -> None:
         load_config(tmp_path, "c")
 
 
+def test_config_loads_section_views(tmp_path: Path) -> None:
+    cfg_dir = tmp_path / "sp" / "config"
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "c.md").write_text(
+        "---\nname: c\ntarget: claude-code\nsections: [workspace]\n"
+        "section_views:\n  workspace:\n    mode: marked\n    marker: runtime\n---\n",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(tmp_path, "c")
+
+    assert cfg.section_views == {"workspace": {"mode": "marked", "marker": "runtime"}}
+
+
+def test_config_loads_shorthand_section_view(tmp_path: Path) -> None:
+    cfg_dir = tmp_path / "sp" / "config"
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "c.md").write_text(
+        "---\nname: c\ntarget: claude-code\nsections: [workspace]\n"
+        "section_views:\n  workspace: full\n---\n",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(tmp_path, "c")
+
+    assert cfg.section_views == {"workspace": {"mode": "full"}}
+
+
+def test_config_rejects_non_mapping_section_views(tmp_path: Path) -> None:
+    cfg_dir = tmp_path / "sp" / "config"
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "c.md").write_text(
+        "---\nname: c\ntarget: claude-code\nsections: [workspace]\n"
+        "section_views: [workspace]\n---\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError) as exc:
+        load_config(tmp_path, "c")
+    assert "section_views" in str(exc.value)
+
+
 def test_wrapper_section_renders_without_heading(tmp_path: Path) -> None:
     """type: wrapper 的 section 原样输出 body，不 emit `## <name>` 标题。"""
     sec_dir = tmp_path / "sp" / "section"
@@ -112,6 +154,7 @@ def test_mvc_config_only_has_controller_fields() -> None:
     assert "target" in field_names
     assert "demote_section_headings" in field_names
     assert "output_frontmatter" in field_names
+    assert "section_views" in field_names
     # 不应再有的内容字段
     assert "preamble" not in field_names
     assert "postamble" not in field_names

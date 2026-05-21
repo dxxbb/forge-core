@@ -32,6 +32,7 @@ def compute_digest(sections: list[Section], config: Config) -> str:
             "required_sections": list(config.required_sections),
             "output_frontmatter": _normalize(config.output_frontmatter),
             "demote_section_headings": config.demote_section_headings,
+            "section_views": _normalize(config.section_views),
             "meta": _normalize(config.meta),
         },
         "sections": [

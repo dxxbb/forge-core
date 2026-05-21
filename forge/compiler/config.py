@@ -13,6 +13,7 @@
   required_sections         — schema 约束，`forge doctor` 会验证
   output_frontmatter        — 产物顶部 YAML frontmatter 的控制字典
   demote_section_headings   — section body 自带 heading 时的降级策略
+  section_views             — per-config extraction policy per section
 
 例：
     ---
@@ -26,6 +27,10 @@
     required_sections: [about-me]
     output_frontmatter:
       kind: derived
+    section_views:
+      workspace:
+        mode: marked
+        marker: runtime
     demote_section_headings: true
     ---
 """
@@ -51,6 +56,7 @@ class Config:
     required_sections: list[str] = field(default_factory=list)
     output_frontmatter: dict[str, Any] = field(default_factory=dict)
     demote_section_headings: bool = False
+    section_views: dict[str, dict[str, Any]] = field(default_factory=dict)
     meta: dict[str, Any] = field(default_factory=dict)
     path: Path | None = None
 
@@ -75,6 +81,19 @@ class Config:
         if not isinstance(out_fm, dict):
             raise ValueError(f"{path}: `output_frontmatter` must be a mapping")
         demote = bool(fm.pop("demote_section_headings", False))
+        section_views = fm.pop("section_views", None) or {}
+        if not isinstance(section_views, dict):
+            raise ValueError(f"{path}: `section_views` must be a mapping")
+        normalized_views: dict[str, dict[str, Any]] = {}
+        for key, value in section_views.items():
+            if isinstance(value, str):
+                normalized_views[str(key)] = {"mode": value}
+            elif isinstance(value, dict):
+                normalized_views[str(key)] = dict(value)
+            else:
+                raise ValueError(
+                    f"{path}: `section_views.{key}` must be a mapping or string"
+                )
         # 拒绝已废弃字段，避免静默丢内容
         for deprecated in ("preamble", "postamble", "body"):
             if deprecated in fm:
@@ -91,6 +110,7 @@ class Config:
             required_sections=[str(s) for s in req],
             output_frontmatter=out_fm,
             demote_section_headings=demote,
+            section_views=normalized_views,
             meta=fm,
             path=path,
         )
