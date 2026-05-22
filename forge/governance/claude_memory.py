@@ -23,6 +23,9 @@ This module wires that path. Pattern mirrors `web_clipping.py` and
   - first activation establishes a baseline (no inbox flood — the user has
     been operating without monitor coverage; existing memory is taken as the
     starting state, going forward only deltas surface)
+  - baseline is not treated as reviewed import: if a provider has no matching
+    capture/import evidence yet, monitor keeps an explicit import-pending
+    action so historical corpus can still be distilled through review.
 
 State file vs in-source frontmatter (deviation from web_clipping /
 workspace_project): Claude rewrites memory files autonomously, so any
@@ -331,6 +334,32 @@ def _source_ids_for_files(files: list[MemoryFile]) -> list[str]:
     return out
 
 
+def _captured_agent_sources(workspace: Path) -> set[str]:
+    """Return provider ids whose historical corpus has raw capture evidence.
+
+    Baseline state is only a noise-control mechanism. A source counts as
+    imported only after raw evidence exists under capture/import/.
+    """
+    capture_root = workspace / "capture" / "import"
+    if not capture_root.is_dir():
+        return set()
+
+    captured: set[str] = set()
+    for p in capture_root.glob("*/*.md"):
+        try:
+            head = p.read_text(encoding="utf-8", errors="ignore")[:2048]
+        except OSError:
+            continue
+        if (
+            "source: \"codex-memory-history:all\"" in head
+            or "source: codex-memory-history:all" in head
+        ):
+            captured.add("codex")
+        if "source: \"claude-code-memory:" in head or "source: claude-code-memory:" in head:
+            captured.add("claude")
+    return captured
+
+
 def is_memory_file(path: Path) -> bool:
     """True if `path` is a governed agent memory/history artifact.
 
@@ -627,7 +656,7 @@ def format_monitor_lines(workspace: Path) -> tuple[list[str], list[str]]:
             pruned += prune_state_for_codex(state)
         if pruned > 0:
             save_state(workspace, state)
-        return [], []
+        return _historical_import_pending_lines(workspace, state)
 
     issues: list[str] = []
     actions: list[str] = []
@@ -648,6 +677,27 @@ def format_monitor_lines(workspace: Path) -> tuple[list[str], list[str]]:
         actions.append(f'agent-memory MODIFIED: {f.display} · forge capture --from "{f.path}"')
     if len(diff.modified) > 5:
         actions.append(f"  ... and {len(diff.modified) - 5} more modified agent-memory files")
+
+    return issues, actions
+
+
+def _historical_import_pending_lines(
+    workspace: Path,
+    state: MemoryState,
+) -> tuple[list[str], list[str]]:
+    captured = _captured_agent_sources(workspace)
+    baselined = set(state.baselined_sources)
+    issues: list[str] = []
+    actions: list[str] = []
+
+    if "codex" in baselined and "codex" not in captured:
+        issues.append("agent-memory import pending: codex baseline has not been captured")
+        actions.append("agent-memory IMPORT: forge capture --from-codex-memory")
+
+    claude_baselined = any(source.startswith("claude:") for source in baselined)
+    if claude_baselined and "claude" not in captured:
+        issues.append("agent-memory import pending: Claude baseline has not been captured")
+        actions.append("agent-memory IMPORT: forge capture --from-claude-memory")
 
     return issues, actions
 

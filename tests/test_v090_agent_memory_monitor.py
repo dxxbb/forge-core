@@ -179,7 +179,7 @@ def test_format_monitor_lines_silent_when_no_claude_dir(
     assert not state_path(workspace).exists()
 
 
-def test_format_monitor_lines_silent_when_baselined_and_unchanged(
+def test_format_monitor_lines_import_pending_when_baselined_but_uncaptured(
     tmp_path: Path, fake_home: Path
 ) -> None:
     workspace = _make_personalos_root(tmp_path)
@@ -189,10 +189,10 @@ def test_format_monitor_lines_silent_when_baselined_and_unchanged(
 
     # First call: baseline
     format_monitor_lines(workspace)
-    # Second call: no drift
+    # Second call: no file drift, but baseline is not the same as reviewed import.
     issues, actions = format_monitor_lines(workspace)
-    assert issues == []
-    assert actions == []
+    assert any("import pending" in i and "Claude" in i for i in issues)
+    assert any("--from-claude-memory" in a for a in actions)
 
 
 # ---------- new / modified detection ----------
@@ -259,9 +259,9 @@ def test_deleted_memory_file_silent_and_pruned(
     f.unlink()
 
     issues, actions = format_monitor_lines(workspace)
-    # Silent: deletes don't surface as monitor actions
-    assert issues == []
-    assert actions == []
+    # Deletes don't surface as file actions; only historical import remains pending.
+    assert any("import pending" in i and "Claude" in i for i in issues)
+    assert any("--from-claude-memory" in a for a in actions)
 
     # But state was pruned
     state = load_state(workspace)
@@ -284,8 +284,8 @@ def test_memory_md_changes_never_surface(
     (mem / "MEMORY.md").write_text("- v2 index\n- another\n", encoding="utf-8")
 
     issues, actions = format_monitor_lines(workspace)
-    assert issues == []
-    assert actions == []
+    assert any("import pending" in i and "Claude" in i for i in issues)
+    assert any("--from-claude-memory" in a for a in actions)
 
 
 # ---------- mark-seen at capture ----------
@@ -453,7 +453,9 @@ def test_capture_from_codex_memory_path_marks_seen(
     state = load_state(workspace)
     assert state is not None
     assert str(f.resolve()) in state.last_seen
-    assert format_monitor_lines(workspace) == ([], [])
+    issues, actions = format_monitor_lines(workspace)
+    assert any("import pending" in i and "codex" in i for i in issues)
+    assert any("--from-codex-memory" in a for a in actions)
 
 
 def test_capture_from_codex_memory_bulk_marks_seen(
@@ -505,10 +507,11 @@ def test_capture_from_memory_path_marks_seen(
     assert state is not None
     assert str(f.resolve()) in state.last_seen
 
-    # Monitor on a workspace whose state already covers the file → silent
+    # Monitor does not re-report this file as changed, but still asks for
+    # whole-corpus historical import.
     issues, actions = format_monitor_lines(workspace)
-    assert issues == []
-    assert actions == []
+    assert any("import pending" in i and "Claude" in i for i in issues)
+    assert any("--from-claude-memory" in a for a in actions)
 
 
 # ---------- state file location and schema ----------
@@ -574,8 +577,8 @@ def test_default_scope_only_watches_current_workspace_slug(
     (mem_other / "new_other.md").write_text("new other body", encoding="utf-8")
 
     issues, actions = format_monitor_lines(workspace)
-    assert issues == []
-    assert actions == []
+    assert any("import pending" in i and "Claude" in i for i in issues)
+    assert any("--from-claude-memory" in a for a in actions)
 
 
 # ---------- compatibility: ingest --detect path still works ----------
