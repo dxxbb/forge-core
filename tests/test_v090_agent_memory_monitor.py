@@ -32,6 +32,7 @@ from forge.cli import main as cli_main
 from forge.governance.claude_memory import (
     MemoryState,
     compute_diff,
+    discover_codex_files,
     discover_memory_files,
     format_monitor_lines,
     is_memory_file,
@@ -41,6 +42,7 @@ from forge.governance.claude_memory import (
     memory_dir_for_slug,
     save_state,
     scan_all_projects,
+    scan_codex_sources,
     slug_for_memory_path,
     state_path,
     workspace_to_slug,
@@ -64,6 +66,15 @@ def _make_claude_layout(home: Path, slug: str) -> Path:
     mem_dir = home / ".claude" / "projects" / slug / "memory"
     mem_dir.mkdir(parents=True)
     return mem_dir
+
+
+def _make_codex_layout(home: Path) -> Path:
+    """Create `<home>/.codex/` with memory/history dirs and return it."""
+    codex = home / ".codex"
+    (codex / "memories" / "rollout_summaries").mkdir(parents=True)
+    (codex / "sessions").mkdir(parents=True)
+    (codex / "archived_sessions").mkdir(parents=True)
+    return codex
 
 
 @pytest.fixture
@@ -328,6 +339,143 @@ def test_mark_path_seen_silent_for_non_memory_file(
     assert not ok
     # No state file created for unrelated path
     assert not state_path(workspace).exists()
+
+
+# ---------- Codex memory/history ----------
+
+
+def test_discover_codex_files_includes_memory_and_history(fake_home: Path) -> None:
+    codex = _make_codex_layout(fake_home)
+    (codex / "AGENTS.md").write_text("forge runtime, skip\n", encoding="utf-8")
+    (codex / "memories" / "MEMORY.md").write_text("registry\n", encoding="utf-8")
+    (codex / "memories" / "rollout_summaries" / "run.md").write_text(
+        "summary\n", encoding="utf-8"
+    )
+    (codex / "history.jsonl").write_text("{}\n", encoding="utf-8")
+    (codex / "sessions" / "session.jsonl").write_text("{}\n", encoding="utf-8")
+    (codex / "archived_sessions" / "archived.jsonl").write_text("{}\n", encoding="utf-8")
+
+    out = discover_codex_files()
+    names = {f.name for f in out}
+
+    assert "AGENTS.md" not in names
+    assert "memories/MEMORY.md" in names
+    assert "memories/rollout_summaries/run.md" in names
+    assert "history.jsonl" in names
+    assert "sessions/session.jsonl" not in names
+    assert "archived_sessions/archived.jsonl" in names
+
+
+def test_format_monitor_lines_baselines_codex_when_provider_added_later(
+    tmp_path: Path, fake_home: Path
+) -> None:
+    workspace = _make_personalos_root(tmp_path)
+    slug = workspace_to_slug(workspace)
+    mem = _make_claude_layout(fake_home, slug)
+    (mem / "rule.md").write_text("claude memory", encoding="utf-8")
+
+    # Existing v0.9-style state: Claude was already monitored before Codex
+    # provider support landed, and the state file has no baselined_sources.
+    format_monitor_lines(workspace)
+    state = load_state(workspace)
+    assert state is not None
+    state.baselined_sources = []
+    save_state(workspace, state)
+
+    codex = _make_codex_layout(fake_home)
+    (codex / "memories" / "memory_summary.md").write_text(
+        "codex summary\n", encoding="utf-8"
+    )
+    (codex / "history.jsonl").write_text("{}\n", encoding="utf-8")
+
+    issues, actions = format_monitor_lines(workspace)
+
+    assert any("initialized baseline" in i and "codex" in i for i in issues)
+    assert actions == []
+    state = load_state(workspace)
+    assert state is not None
+    assert "codex" in state.baselined_sources
+    assert any("/.codex/" in key for key in state.last_seen)
+
+
+def test_new_codex_memory_after_baseline_triggers_action(
+    tmp_path: Path, fake_home: Path
+) -> None:
+    workspace = _make_personalos_root(tmp_path)
+    codex = _make_codex_layout(fake_home)
+    (codex / "memories" / "memory_summary.md").write_text(
+        "baseline summary\n", encoding="utf-8"
+    )
+
+    format_monitor_lines(workspace)
+    (codex / "memories" / "rollout_summaries" / "new.md").write_text(
+        "new rollout summary\n", encoding="utf-8"
+    )
+
+    issues, actions = format_monitor_lines(workspace)
+
+    assert any("agent-memory updates" in i and "new 1" in i for i in issues)
+    assert any("agent-memory NEW" in a and "rollout_summaries/new.md" in a for a in actions)
+
+
+def test_modified_codex_history_after_baseline_triggers_action(
+    tmp_path: Path, fake_home: Path
+) -> None:
+    workspace = _make_personalos_root(tmp_path)
+    codex = _make_codex_layout(fake_home)
+    history = codex / "history.jsonl"
+    history.write_text('{"v":1}\n', encoding="utf-8")
+
+    format_monitor_lines(workspace)
+    history.write_text('{"v":1}\n{"v":2}\n', encoding="utf-8")
+
+    issues, actions = format_monitor_lines(workspace)
+
+    assert any("modified 1" in i for i in issues)
+    assert any("agent-memory MODIFIED" in a and "history.jsonl" in a for a in actions)
+
+
+def test_capture_from_codex_memory_path_marks_seen(
+    tmp_path: Path, fake_home: Path
+) -> None:
+    workspace = _make_personalos_root(tmp_path)
+    codex = _make_codex_layout(fake_home)
+    f = codex / "memories" / "memory_summary.md"
+    f.write_text("summary v1\n", encoding="utf-8")
+
+    runner = CliRunner()
+    res = runner.invoke(
+        cli_main,
+        ["capture", "--root", str(workspace), "--from", str(f)],
+    )
+    assert res.exit_code == 0, res.output
+
+    state = load_state(workspace)
+    assert state is not None
+    assert str(f.resolve()) in state.last_seen
+    assert format_monitor_lines(workspace) == ([], [])
+
+
+def test_capture_from_codex_memory_bulk_marks_seen(
+    tmp_path: Path, fake_home: Path
+) -> None:
+    workspace = _make_personalos_root(tmp_path)
+    codex = _make_codex_layout(fake_home)
+    (codex / "memories" / "memory_summary.md").write_text("summary\n", encoding="utf-8")
+    (codex / "history.jsonl").write_text("{}\n", encoding="utf-8")
+
+    runner = CliRunner()
+    res = runner.invoke(
+        cli_main,
+        ["capture", "--root", str(workspace), "--from-codex-memory"],
+    )
+    assert res.exit_code == 0, res.output
+    assert "codex-memory-history" in res.output or "captured raw import" in res.output
+
+    state = load_state(workspace)
+    assert state is not None
+    assert len([k for k in state.last_seen if "/.codex/" in k]) == 2
+    assert format_monitor_lines(workspace) == ([], [])
 
 
 def test_capture_from_memory_path_marks_seen(

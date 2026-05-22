@@ -1367,6 +1367,11 @@ def proposal_reformat(
     help="Capture Claude Code auto-memory (~/.claude/projects/*/memory/*.md).",
 )
 @click.option(
+    "--from-codex-memory",
+    is_flag=True,
+    help="Capture Codex memory/history (~/.codex/memories + history/archived-session jsonl).",
+)
+@click.option(
     "--claude-project",
     default=None,
     help="With --from-claude-memory, restrict to one project slug.",
@@ -1384,6 +1389,7 @@ def capture_cmd(
     source: str | None,
     from_stdin: bool,
     from_claude_memory: bool,
+    from_codex_memory: bool,
     claude_project: str | None,
     workspace_project: str | None,
     root: str | None,
@@ -1395,11 +1401,18 @@ def capture_cmd(
     assets, proposals, or runtime output. The next step is human/agent triage
     from system/inbox/ into system/pr/.
     """
-    input_modes = [bool(source), from_stdin, from_claude_memory, bool(workspace_project)]
+    input_modes = [
+        bool(source),
+        from_stdin,
+        from_claude_memory,
+        from_codex_memory,
+        bool(workspace_project),
+    ]
     if sum(input_modes) != 1:
         click.echo(
             "error: pick exactly one input mode "
-            "(--from / --from-stdin / --from-claude-memory / --workspace-project)",
+            "(--from / --from-stdin / --from-claude-memory / "
+            "--from-codex-memory / --workspace-project)",
             err=True,
         )
         sys.exit(1)
@@ -1446,6 +1459,18 @@ def capture_cmd(
         source_label = f"claude-code-memory:{scope}"
         raw_name = "claude-memory.md"
         summary = f"Claude Code memory ({scope}, {file_count} files, {len(text)} chars)"
+        source_meta = {
+            "source_files": file_count,
+            "source_digest": _digest_text(text),
+        }
+    elif from_codex_memory:
+        text, _repr_path, file_count = _read_codex_memory()
+        if not text.strip():
+            click.echo("error: no Codex memory/history files found", err=True)
+            sys.exit(1)
+        source_label = "codex-memory-history:all"
+        raw_name = "codex-memory-history.md"
+        summary = f"Codex memory/history (all, {file_count} files, {len(text)} chars)"
         source_meta = {
             "source_files": file_count,
             "source_digest": _digest_text(text),
@@ -1522,18 +1547,35 @@ def capture_cmd(
     click.echo(f"created inbox item: {inbox_path.relative_to(workspace).as_posix()}")
     click.echo("next: process inbox -> proposal -> review")
 
-    # Claude auto-memory mark-seen: when --from points at a memory file under
-    # ~/.claude/projects/*/memory/, record its hash so monitor doesn't keep
-    # surfacing this version. Failure is silent — capture must succeed
+    # Agent memory/history mark-seen: when capture consumes an agent-written
+    # memory/history source, record its current hash so monitor does not keep
+    # surfacing the same version. Failure is silent — capture must succeed
     # regardless of state-file write outcomes.
-    if source:
-        try:
-            from forge.governance.claude_memory import is_memory_file, mark_path_seen
+    try:
+        from forge.governance.claude_memory import (
+            discover_codex_files,
+            discover_memory_files,
+            is_memory_file,
+            mark_path_seen,
+            mark_seen,
+            scan_all_projects,
+        )
 
-            if is_memory_file(source_path):
-                mark_path_seen(workspace, source_path)
-        except Exception:
-            pass
+        if source and is_memory_file(source_path):
+            mark_path_seen(workspace, source_path)
+        elif from_claude_memory:
+            slugs = [claude_project] if claude_project else [s for s, _, _ in scan_all_projects()]
+            files = []
+            for slug in slugs:
+                files.extend(discover_memory_files(slug))
+            if files:
+                mark_seen(workspace, files)
+        elif from_codex_memory:
+            files = discover_codex_files()
+            if files:
+                mark_seen(workspace, files)
+    except Exception:
+        pass
 
 
 def _safe_capture_name(value: str) -> str:
@@ -2119,11 +2161,12 @@ def _skill_projection_gaps(workspace: Path) -> tuple[list[str], list[str]]:
 
 
 def _agent_memory_updates(workspace: Path) -> tuple[list[str], list[str]]:
-    """Return (issue_lines, action_lines) for Claude auto-memory drift.
+    """Return (issue_lines, action_lines) for agent memory/history drift.
 
-    First call against a workspace establishes the baseline; subsequent
-    calls report new/modified memory files. Lazy-import keeps legacy
-    fixtures (no `~/.claude/`) and offline test environments working.
+    First call for each provider establishes a baseline; subsequent calls
+    report new/modified memory/history files. Lazy-import keeps legacy
+    fixtures (no `~/.claude/` / `~/.codex/`) and offline test environments
+    working.
     """
     try:
         from forge.governance.claude_memory import format_monitor_lines
@@ -2181,15 +2224,13 @@ def _import_updates(workspace: Path) -> list[str]:
         elif previous.get("source_digest") and previous.get("source_digest") != digest:
             updates.append(f"{display} (changed, {label})")
 
-    # Claude auto-memory drift is owned by `_agent_memory_updates` (v0.9.0
-    # `forge.governance.claude_memory.format_monitor_lines`) — per-file hash
+    # Agent memory/history drift is owned by `_agent_memory_updates`
+    # (`forge.governance.claude_memory.format_monitor_lines`) — per-file hash
     # tracking with `.forge/agent_memory_state.json` baseline. The legacy
-    # whole-corpus digest path (v0.2 era) is removed here in v0.9.1 because
-    # the two paths report on the same source with different mechanisms +
-    # different scopes (legacy: cross-project all-files concat; v0.9.0:
-    # per-file under current workspace's matched slug), causing duplicate
-    # signal in `forge monitor` output. Ownership: agent-memory now belongs
-    # exclusively to the v0.9.0 watcher.
+    # whole-corpus digest path (v0.2 era) was removed in v0.9.1 because it
+    # overlapped the watcher. Root-cause note: that replacement originally
+    # narrowed scope to Claude current-workspace memory only; the watcher now
+    # owns Claude memory plus Codex memory/history explicitly.
     return updates
 
 
@@ -2530,13 +2571,18 @@ def _ingest_detect() -> None:
 
     # Claude Code auto-memory: ~/.claude/projects/<slug>/memory/*.md
     claude_memory_projects = _scan_claude_memory()
+    codex_sources = _scan_codex_memory()
 
     # Claude Code transcripts (jsonl) — count only, not yet supported as ingest source
     transcripts = _count_claude_transcripts()
 
     # ---------- output ----------
 
-    n_sources = len(file_found) + (1 if claude_memory_projects else 0)
+    n_sources = (
+        len(file_found)
+        + (1 if claude_memory_projects else 0)
+        + (1 if codex_sources else 0)
+    )
 
     if n_sources == 0:
         click.echo("no importable sources found.")
@@ -2574,6 +2620,18 @@ def _ingest_detect() -> None:
         for slug, n, _ in claude_memory_projects:
             click.echo(f"       • {slug}  ({n} files)")
 
+    if codex_sources:
+        idx += 1
+        total_files = sum(n for _, n, _ in codex_sources)
+        total_bytes = sum(b for _, _, b in codex_sources)
+        kb = f"{total_bytes / 1024:.1f}KB"
+        click.echo(
+        f"  {idx}. ~/.codex/memories + history/archived-session jsonl  "
+            f"({total_files} files, {kb}, Codex memory/history)"
+        )
+        for slug, n, _ in codex_sources:
+            click.echo(f"       • {slug}  ({n} files)")
+
     if transcripts > 0:
         click.echo()
         click.echo(
@@ -2586,6 +2644,8 @@ def _ingest_detect() -> None:
     if claude_memory_projects:
         click.echo("  forge capture --from-claude-memory     # all auto-memory across projects")
         click.echo("  forge capture --from-claude-memory --claude-project <slug>   # one project")
+    if codex_sources:
+        click.echo("  forge capture --from-codex-memory      # all Codex memory/history")
 
 
 def _scan_claude_memory() -> list[tuple[str, int, int]]:
@@ -2598,6 +2658,13 @@ def _scan_claude_memory() -> list[tuple[str, int, int]]:
     from forge.governance.claude_memory import scan_all_projects
 
     return scan_all_projects()
+
+
+def _scan_codex_memory() -> list[tuple[str, int, int]]:
+    """Compat shim — delegates to forge.governance.claude_memory.scan_codex_sources."""
+    from forge.governance.claude_memory import scan_codex_sources
+
+    return scan_codex_sources()
 
 
 def _count_claude_transcripts() -> int:
@@ -2615,6 +2682,13 @@ def _read_claude_memory(project_filter: str | None) -> tuple[str, Path | None, i
     from forge.governance.claude_memory import read_all_projects
 
     return read_all_projects(project_filter)
+
+
+def _read_codex_memory() -> tuple[str, Path | None, int]:
+    """Compat shim — delegates to forge.governance.claude_memory.read_codex_sources."""
+    from forge.governance.claude_memory import read_codex_sources
+
+    return read_codex_sources()
 
 
 # ---------- skill install ----------

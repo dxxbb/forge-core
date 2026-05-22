@@ -358,7 +358,7 @@ Run:
 forge ingest --detect --root <path>
 ```
 
-This lists importable runtime context and Claude memory without reading file contents. Also check local obvious changed personalOS files with:
+This lists importable runtime context plus agent memory/history (Claude Code and Codex) without reading file contents. Also check local obvious changed personalOS files with:
 
 ```bash
 git status --short
@@ -373,6 +373,7 @@ Use concrete candidates from detection. Prefer a short recommendation instead of
 Default recommendation:
 
 - current project Claude memory, if present
+- Codex memory/history, if present (`~/.codex/memories`, rollout summaries, and history/archived-session jsonl; live sessions are intentionally skipped)
 - changed non-private personalOS notes shown by `git status`, if relevant
 - global runtime context only if the user is onboarding or explicitly asks to refresh runtime context
 
@@ -395,6 +396,7 @@ Examples:
 forge capture --root <path> --from <file>
 forge capture --root <path> --from-claude-memory
 forge capture --root <path> --from-claude-memory --claude-project <slug>
+forge capture --root <path> --from-codex-memory
 ```
 
 For pasted material:

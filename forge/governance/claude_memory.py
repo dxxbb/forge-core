@@ -1,4 +1,4 @@
-"""Claude Code auto-memory as a first-class governed source.
+"""Agent memory/history as first-class governed sources.
 
 Claude Code writes auto-memory markdown files under
 `~/.claude/projects/<slug>/memory/*.md`. These files persist across sessions
@@ -8,10 +8,16 @@ that becomes long-term agent context must go through the same
 capture → inbox → PR → review pipeline as workspace-project drift, web
 clippings, and internal content changes.
 
+Codex writes its durable memory and history under `~/.codex/`, including
+`memories/`, rollout summaries, `history.jsonl`, `session_index.jsonl`, and
+archived-session jsonl files. Those are also agent-authored long-term
+behavior/history surfaces and therefore belong in the same governed monitor.
+
 This module wires that path. Pattern mirrors `web_clipping.py` and
 `workspace_project.py`:
 
-  - discover memory files for a workspace's matched Claude project
+  - discover memory/history files for a workspace's matched Claude project
+    and global Codex installation
   - hash-diff against a sidecar state file at `.forge/agent_memory_state.json`
   - report new / modified files via `format_monitor_lines(workspace)`
   - first activation establishes a baseline (no inbox flood — the user has
@@ -24,14 +30,16 @@ state we wrote into a memory file's frontmatter would be overwritten on
 the next agent edit. We keep the state in `.forge/agent_memory_state.json`
 (workspace-local, gitignored, alongside `manifest.json`).
 
-Scope: only the Claude project slug matching the personalOS workspace path
-(slug = absolute path with `/` → `-`, e.g. `/Users/<user>/personalOS` becomes
-`-Users-<user>-personalOS`). Other Claude project slugs are not watched by
-default. Cross-slug coverage is a future option.
+Scope:
+  - Claude Code: the Claude project slug matching the personalOS workspace path
+    (slug = absolute path with `/` → `-`, e.g. `/Users/<user>/personalOS`
+    becomes `-Users-<user>-personalOS`). Other Claude project slugs are not
+    watched by default.
+  - Codex: global durable Codex memory/history under `~/.codex/`.
 
-Forge runtime outputs (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`) are NOT
-watched — they're forge-authored, not agent-written, and watching them
-would create a self-loop.
+Forge runtime outputs (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`) and Codex
+generated state databases are NOT watched — they're forge-authored or runtime
+state, and watching them would create self-loops / constant churn.
 
 Convention: `MEMORY.md` (the index file written by Claude's auto-memory
 system) is silently excluded — it's an index, not feedback content, and
@@ -57,6 +65,11 @@ def _claude_projects_root() -> Path:
     return Path.home() / ".claude" / "projects"
 
 
+def _codex_root() -> Path:
+    """Where Codex stores durable memory and local history."""
+    return Path.home() / ".codex"
+
+
 def workspace_to_slug(workspace: Path) -> str:
     """Convert an absolute personalOS workspace path to its Claude project slug.
 
@@ -77,10 +90,10 @@ def memory_dir_for_slug(slug: str) -> Path:
 
 @dataclass
 class MemoryFile:
-    """A single auto-memory file under `~/.claude/projects/<slug>/memory/`."""
+    """A single agent-authored memory/history artifact."""
 
     path: Path                 # absolute path
-    slug: str                  # project slug (e.g. -Users-alice-personalOS)
+    slug: str                  # source scope (e.g. -Users... or codex/memories)
     name: str                  # filename (basename)
     size: int                  # bytes
     sha256: str                # content hash
@@ -129,6 +142,64 @@ def discover_memory_files(slug: str) -> list[MemoryFile]:
     return out
 
 
+def discover_codex_files() -> list[MemoryFile]:
+    """List Codex-authored memory/history artifacts.
+
+    We intentionally keep this to textual durable artifacts:
+      - `~/.codex/memories/**/*.md` (including registry/summary files and
+        rollout summaries), excluding `.git/`
+      - `~/.codex/history.jsonl`, `session_index.jsonl`
+      - `~/.codex/archived_sessions/*.jsonl`
+
+    Excludes forge-authored runtime output (`AGENTS.md`) and sqlite/log/cache
+    files that churn without being reviewable memory/history content. Also
+    excludes live `~/.codex/sessions/**/*.jsonl`: those mutate during the
+    current conversation and are too noisy for review-gated monitor. Codex
+    rollout summaries under `memories/rollout_summaries/` are the stable
+    distilled history surface.
+    """
+    root = _codex_root()
+    if not root.exists():
+        return []
+
+    candidates: list[tuple[Path, str]] = []
+    memories = root / "memories"
+    if memories.is_dir():
+        for p in memories.rglob("*.md"):
+            if not p.is_file():
+                continue
+            if ".git" in p.relative_to(memories).parts:
+                continue
+            candidates.append((p, "codex/memories"))
+
+    for rel in ("history.jsonl", "session_index.jsonl"):
+        p = root / rel
+        if p.is_file():
+            candidates.append((p, "codex/history"))
+
+    archived = root / "archived_sessions"
+    if archived.is_dir():
+        for p in archived.rglob("*.jsonl"):
+            if p.is_file():
+                candidates.append((p, "codex/archived_sessions"))
+
+    out: list[MemoryFile] = []
+    for p, slug in sorted(candidates, key=lambda item: str(item[0])):
+        try:
+            size = p.stat().st_size
+        except OSError:
+            continue
+        h = _hash_file(p)
+        if not h:
+            continue
+        try:
+            name = str(p.relative_to(root))
+        except ValueError:
+            name = p.name
+        out.append(MemoryFile(path=p, slug=slug, name=name, size=size, sha256=h))
+    return out
+
+
 # ---------- state file (.forge/agent_memory_state.json) ----------
 
 
@@ -147,12 +218,16 @@ class MemoryState:
     schema_version: int = _STATE_SCHEMA_VERSION
     # Keyed by absolute path string. Value: {"hash": ..., "size": ..., "seen_at": ...}
     last_seen: dict[str, dict] = field(default_factory=dict)
+    # Source scopes already baseline-initialized. Lets new providers be added
+    # without flooding old workspaces with every historical file.
+    baselined_sources: list[str] = field(default_factory=list)
 
     def to_json(self) -> str:
         return json.dumps(
             {
                 "schema_version": self.schema_version,
                 "last_seen": self.last_seen,
+                "baselined_sources": sorted(set(self.baselined_sources)),
             },
             indent=2,
             sort_keys=True,
@@ -170,6 +245,9 @@ class MemoryState:
         last_seen_raw = data.get("last_seen") or {}
         if not isinstance(last_seen_raw, dict):
             last_seen_raw = {}
+        baselined_sources_raw = data.get("baselined_sources") or []
+        if not isinstance(baselined_sources_raw, list):
+            baselined_sources_raw = []
         # Sanitize entries
         last_seen: dict[str, dict] = {}
         for k, v in last_seen_raw.items():
@@ -183,6 +261,9 @@ class MemoryState:
         return cls(
             schema_version=int(data.get("schema_version") or _STATE_SCHEMA_VERSION),
             last_seen=last_seen,
+            baselined_sources=[
+                str(s) for s in baselined_sources_raw if isinstance(s, str)
+            ],
         )
 
 
@@ -224,6 +305,14 @@ def mark_seen(workspace: Path, files: list[MemoryFile]) -> None:
         `forge capture --from <memory file>`)
     """
     state = load_state(workspace) or MemoryState()
+    _mark_seen_in_state(state, files)
+    for source_id in _source_ids_for_files(files):
+        if source_id not in state.baselined_sources:
+            state.baselined_sources.append(source_id)
+    save_state(workspace, state)
+
+
+def _mark_seen_in_state(state: MemoryState, files: list[MemoryFile]) -> None:
     now = _now_iso()
     for f in files:
         state.last_seen[str(f.path)] = {
@@ -231,12 +320,22 @@ def mark_seen(workspace: Path, files: list[MemoryFile]) -> None:
             "size": f.size,
             "seen_at": now,
         }
-    save_state(workspace, state)
+
+
+def _source_ids_for_files(files: list[MemoryFile]) -> list[str]:
+    out: list[str] = []
+    for f in files:
+        source_id = "codex" if f.slug.startswith("codex/") else f"claude:{f.slug}"
+        if source_id not in out:
+            out.append(source_id)
+    return out
 
 
 def is_memory_file(path: Path) -> bool:
-    """True if `path` lives under `~/.claude/projects/*/memory/` and isn't
-    in the excluded names. Used by capture to decide whether to mark-seen.
+    """True if `path` is a governed agent memory/history artifact.
+
+    Recognizes Claude Code auto-memory and Codex durable memory/history files.
+    Used by capture to decide whether to mark-seen.
 
     Tolerates both absolute and resolved paths; uses parent chain.
     """
@@ -244,11 +343,17 @@ def is_memory_file(path: Path) -> bool:
         resolved = path.resolve()
     except OSError:
         return False
-    if resolved.name in _EXCLUDED_NAMES:
+    if _is_claude_memory_file(resolved):
+        return True
+    return _is_codex_file(resolved)
+
+
+def _is_claude_memory_file(path: Path) -> bool:
+    if path.name in _EXCLUDED_NAMES:
         return False
-    if resolved.suffix != ".md":
+    if path.suffix != ".md":
         return False
-    parent = resolved.parent
+    parent = path.parent
     if parent.name != "memory":
         return False
     grandparent = parent.parent
@@ -261,6 +366,24 @@ def is_memory_file(path: Path) -> bool:
         return False
 
 
+def _is_codex_file(path: Path) -> bool:
+    root = _codex_root()
+    try:
+        rel = path.relative_to(root.resolve())
+    except (OSError, ValueError):
+        return False
+    parts = rel.parts
+    if not parts:
+        return False
+    if parts[0] == "memories":
+        return path.suffix == ".md" and ".git" not in parts
+    if rel.as_posix() in {"history.jsonl", "session_index.jsonl"}:
+        return True
+    if parts[0] == "archived_sessions":
+        return path.suffix == ".jsonl"
+    return False
+
+
 def slug_for_memory_path(path: Path) -> str:
     """Extract the project slug from a memory file path.
     `<...>/.claude/projects/<slug>/memory/foo.md` → "<slug>".
@@ -268,7 +391,20 @@ def slug_for_memory_path(path: Path) -> str:
     """
     if not is_memory_file(path):
         return ""
-    return path.resolve().parent.parent.name
+    resolved = path.resolve()
+    if _is_claude_memory_file(resolved):
+        return resolved.parent.parent.name
+    if _is_codex_file(resolved):
+        try:
+            rel = resolved.relative_to(_codex_root().resolve())
+        except ValueError:
+            return "codex"
+        if rel.parts and rel.parts[0] == "memories":
+            return "codex/memories"
+        if rel.parts and rel.parts[0] == "archived_sessions":
+            return f"codex/{rel.parts[0]}"
+        return "codex/history"
+    return ""
 
 
 def mark_path_seen(workspace: Path, memory_path: Path) -> bool:
@@ -291,7 +427,11 @@ def mark_path_seen(workspace: Path, memory_path: Path) -> bool:
     f = MemoryFile(
         path=memory_path.resolve(),
         slug=slug,
-        name=memory_path.name,
+        name=(
+            str(memory_path.resolve().relative_to(_codex_root().resolve()))
+            if slug.startswith("codex/")
+            else memory_path.name
+        ),
         size=size,
         sha256=h,
     )
@@ -327,6 +467,19 @@ def compute_diff(workspace: Path, slug: str, state: MemoryState) -> MemoryDiff:
     return diff
 
 
+def compute_codex_diff(state: MemoryState) -> MemoryDiff:
+    """Diff global Codex memory/history files against `state.last_seen`."""
+    diff = MemoryDiff()
+    for f in discover_codex_files():
+        key = str(f.path)
+        prev = state.last_seen.get(key)
+        if prev is None:
+            diff.new.append(f)
+        elif prev.get("hash") != f.sha256:
+            diff.modified.append(f)
+    return diff
+
+
 def prune_state_for_slug(state: MemoryState, slug: str) -> int:
     """Drop state entries for files under `slug`'s memory dir that no longer
     exist on disk. Returns count pruned. Mutates `state` in place.
@@ -351,6 +504,23 @@ def prune_state_for_slug(state: MemoryState, slug: str) -> int:
     return len(drop)
 
 
+def prune_state_for_codex(state: MemoryState) -> int:
+    """Drop missing Codex entries from state. Mutates `state` in place."""
+    root = _codex_root()
+    drop: list[str] = []
+    for key in list(state.last_seen.keys()):
+        try:
+            kp = Path(key)
+            kp.relative_to(root.resolve())
+        except (OSError, ValueError):
+            continue
+        if not kp.exists():
+            drop.append(key)
+    for k in drop:
+        del state.last_seen[k]
+    return len(drop)
+
+
 # ---------- monitor formatting ----------
 
 
@@ -359,7 +529,8 @@ def format_monitor_lines(workspace: Path) -> tuple[list[str], list[str]]:
 
     Behavior:
 
-      1. Resolve the Claude project slug from `workspace` path.
+      1. Resolve watched sources: Claude project slug from `workspace` path
+         and global Codex memory/history.
       2. If state file does NOT exist (first activation): snapshot all
          current memory files into state and return a one-line info issue
          (`agent-memory: initialized baseline (N files tracked)`). No
@@ -367,8 +538,7 @@ def format_monitor_lines(workspace: Path) -> tuple[list[str], list[str]]:
          coverage; existing files are NOT retroactively pushed through PR.
       3. Otherwise, diff current files against state. Surface new and
          modified files as inbox-worthy actions.
-      4. If no Claude project dir exists for this workspace's slug, return
-         empty (silent).
+      4. If neither Claude nor Codex watched sources exist, return empty.
       5. State pruning (deleted files) happens silently as a side-effect of
          the diff/save cycle — no monitor noise.
 
@@ -378,20 +548,34 @@ def format_monitor_lines(workspace: Path) -> tuple[list[str], list[str]]:
     """
     slug = workspace_to_slug(workspace)
     mem_dir = memory_dir_for_slug(slug)
-    if not mem_dir.is_dir():
+    has_claude = mem_dir.is_dir()
+    codex_files = discover_codex_files()
+    has_codex = bool(codex_files)
+    if not has_claude and not has_codex:
         return [], []
 
     state = load_state(workspace)
+    watched_sources: list[tuple[str, list[MemoryFile]]] = []
+    if has_claude:
+        watched_sources.append((f"claude:{slug}", discover_memory_files(slug)))
+    if has_codex:
+        watched_sources.append(("codex", codex_files))
 
     if state is None:
         # First activation: baseline current files, do not flood inbox.
-        current = discover_memory_files(slug)
+        current: list[MemoryFile] = []
+        source_ids: list[str] = []
+        for source_id, files in watched_sources:
+            current.extend(files)
+            source_ids.append(source_id)
         if not current:
-            # Empty memory dir; still write an empty state so subsequent
+            # Empty watched dirs; still write an empty state so subsequent
             # additions are detected as new (not as another baseline).
-            save_state(workspace, MemoryState())
+            save_state(workspace, MemoryState(baselined_sources=source_ids))
             return [], []
-        mark_seen(workspace, current)
+        state = MemoryState(baselined_sources=source_ids)
+        _mark_seen_in_state(state, current)
+        save_state(workspace, state)
         n = len(current)
         files_label = "file" if n == 1 else "files"
         return (
@@ -399,10 +583,49 @@ def format_monitor_lines(workspace: Path) -> tuple[list[str], list[str]]:
             [],
         )
 
-    diff = compute_diff(workspace, slug, state)
+    new_provider_files: list[MemoryFile] = []
+    initialized_sources: list[str] = []
+    known_sources = set(state.baselined_sources)
+    # Old v0.9 state files did not carry provider markers. If they already
+    # contain Claude paths, treat the current Claude source as initialized.
+    if not known_sources and any("/.claude/projects/" in k for k in state.last_seen):
+        known_sources.add(f"claude:{slug}")
+        state.baselined_sources.append(f"claude:{slug}")
+
+    for source_id, files in watched_sources:
+        if source_id not in known_sources:
+            new_provider_files.extend(files)
+            initialized_sources.append(source_id)
+            state.baselined_sources.append(source_id)
+    if initialized_sources:
+        _mark_seen_in_state(state, new_provider_files)
+        save_state(workspace, state)
+        n = len(new_provider_files)
+        files_label = "file" if n == 1 else "files"
+        sources = ", ".join(initialized_sources)
+        return (
+            [f"agent-memory: initialized baseline ({sources}; {n} {files_label} tracked)"],
+            [],
+        )
+
+    diff = MemoryDiff()
+    if has_claude:
+        claude_diff = compute_diff(workspace, slug, state)
+        diff.new.extend(claude_diff.new)
+        diff.modified.extend(claude_diff.modified)
+    if has_codex:
+        codex_diff = compute_codex_diff(state)
+        diff.new.extend(codex_diff.new)
+        diff.modified.extend(codex_diff.modified)
+
     if not diff.new and not diff.modified:
         # Opportunistic pruning: drop state entries for deleted files.
-        if prune_state_for_slug(state, slug) > 0:
+        pruned = 0
+        if has_claude:
+            pruned += prune_state_for_slug(state, slug)
+        if has_codex:
+            pruned += prune_state_for_codex(state)
+        if pruned > 0:
             save_state(workspace, state)
         return [], []
 
@@ -465,6 +688,17 @@ def scan_all_projects() -> list[tuple[str, int, int]]:
     return out
 
 
+def scan_codex_sources() -> list[tuple[str, int, int]]:
+    """Return grouped Codex source counts for detect/import UI."""
+    groups: dict[str, tuple[int, int]] = {}
+    for f in discover_codex_files():
+        count, size = groups.get(f.slug, (0, 0))
+        groups[f.slug] = (count + 1, size + f.size)
+    out = [(slug, count, size) for slug, (count, size) in groups.items()]
+    out.sort(key=lambda t: (-t[1], t[0]))
+    return out
+
+
 def read_all_projects(project_filter: str | None) -> tuple[str, Path | None, int]:
     """Read all Claude Code auto-memory markdown files into one text blob.
 
@@ -502,6 +736,30 @@ def read_all_projects(project_filter: str | None) -> tuple[str, Path | None, int
             count += 1
             if repr_path is None:
                 repr_path = f
+    return "\n".join(parts), repr_path, count
+
+
+def read_codex_sources() -> tuple[str, Path | None, int]:
+    """Read all Codex memory/history artifacts into one text blob."""
+    root = _codex_root()
+    parts: list[str] = []
+    count = 0
+    repr_path: Path | None = None
+    for f in discover_codex_files():
+        try:
+            content = f.path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if not content.strip():
+            continue
+        try:
+            rel = f.path.relative_to(root)
+        except ValueError:
+            rel = Path(f.path.name)
+        parts.append(f"--- from: codex/{rel.as_posix()} ---\n{content}\n")
+        count += 1
+        if repr_path is None:
+            repr_path = f.path
     return "\n".join(parts), repr_path, count
 
 
