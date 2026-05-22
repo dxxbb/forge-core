@@ -1158,6 +1158,56 @@ def proposal_new(root: str | None, inbox_arg: str | None, title: str) -> None:
     click.echo(f"  - forge pr render {out_path.parent.name} --root {workspace}")
 
 
+@proposal_group.command("workbench")
+@click.option("--root", type=click.Path(), default=None, help="Workspace root (default: cwd).")
+@click.option(
+    "--inbox",
+    "inbox_arg",
+    default=None,
+    help="Inbox file (path / filename / id-prefix). Default: every pending inbox under system/inbox/.",
+)
+@click.option(
+    "--title",
+    default="context-import-workbench",
+    show_default=True,
+    help="Slug for the new workbench id (will be appended to YYYYMMDD-HHMMSS).",
+)
+def proposal_workbench(root: str | None, inbox_arg: str | None, title: str) -> None:
+    """Scaffold a staged workbench before creating a final proposal.
+
+    Use this for large imports, especially agent memory/history. The workbench
+    lists information items and required triage fields so agents can process
+    the import in small resumable batches before any approval PR exists.
+    """
+    from forge.proposal.scaffold import resolve_inbox_arg
+    from forge.proposal.workbench import scaffold_workbench
+
+    workspace = _root(root)
+    if not (workspace / "system" / "inbox").exists():
+        click.echo(
+            f"error: {workspace} does not look like a personalOS workspace "
+            "(missing system/inbox/).",
+            err=True,
+        )
+        sys.exit(1)
+    try:
+        inbox_files = resolve_inbox_arg(workspace, inbox_arg)
+    except (FileNotFoundError, ValueError) as e:
+        click.echo(f"error: {e}", err=True)
+        sys.exit(1)
+    if not inbox_files:
+        click.echo("error: no pending inbox items (system/inbox/ is empty).", err=True)
+        sys.exit(1)
+
+    out_path = scaffold_workbench(workspace, inbox_files, title=title)
+    rel = out_path.relative_to(workspace).as_posix()
+    click.echo(f"created staged workbench: {rel}")
+    click.echo("next:")
+    click.echo("  - process the first batch item-by-item in workbench.md")
+    click.echo("  - run cross-review before editing canonical source")
+    click.echo("  - create a final proposal only after user item review")
+
+
 @proposal_group.command("validate")
 @click.argument("pr_ref", type=str)
 @click.option("--root", type=click.Path(), default=None, help="Workspace root (default: cwd).")

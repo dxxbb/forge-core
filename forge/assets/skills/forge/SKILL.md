@@ -416,6 +416,27 @@ Imported raw material into capture and created an inbox item. Reply "process inb
 Read pending inbox items and their capture sources, then turn them into
 a schema-aware proposal under `system/pr/<id>/proposal.md`.
 
+For large imports, especially agent memory/history, do **not** go straight to
+`forge proposal new`. Start with a staged workbench:
+
+```bash
+forge proposal workbench --root <path> --inbox <id-prefix>
+```
+
+The workbench is not an approval PR. It creates
+`system/pr/<id>/workbench.md` with:
+
+- an item list extracted from the inbox/capture evidence;
+- a batch plan for small-step triage;
+- required fields such as `canonical_sink_status`, `fact_volatility`,
+  `live_verify_required`, `privacy_level`, `apply_scope`, and `covered_by`;
+- a cross-review checkpoint before canonical-source edits;
+- a rule that final `proposal.md` is created only after item-level user review.
+
+Use the workbench when a single inbox item contains many facts, many projects,
+or a long memory/history corpus. The normal proposal flow below is for small
+or already-triaged imports.
+
 The schema-driven flow (default for v0.3+):
 
 ### 1. Scaffold The Proposal Stub
