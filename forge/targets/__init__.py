@@ -5,10 +5,12 @@ from __future__ import annotations
 from forge.targets.base import TargetAdapter
 from forge.targets.claude_code import ClaudeCodeAdapter
 from forge.targets.agents_md import AgentsMdAdapter
+from forge.targets.gemini_code import GeminiCodeAdapter
 
 _REGISTRY: dict[str, TargetAdapter] = {
     "claude-code": ClaudeCodeAdapter(),
     "agents-md": AgentsMdAdapter(),
+    "gemini-code": GeminiCodeAdapter(),
 }
 
 
