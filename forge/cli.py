@@ -7,7 +7,9 @@ import re
 import shutil
 import sys
 import hashlib
+import functools
 from datetime import datetime
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import click
@@ -21,6 +23,7 @@ from forge.governance.watcher import scan_git
 from forge.governance.rollback import rollback as rollback_fn
 from forge.ingest.classifier import classify, write_sections, IngestError
 from forge.layout import detect
+from forge.audit import write_portal
 
 
 def _root(path: str | None) -> Path:
@@ -334,6 +337,54 @@ def doctor(root: str | None) -> None:
         click.echo(line)
     if not report.ok:
         sys.exit(1)
+
+
+# ---------- audit ----------
+
+@main.group()
+def audit() -> None:
+    """Inspect source -> section -> runtime context audit chains."""
+
+
+@audit.command("portal")
+@click.option("--root", type=click.Path(), default=None, help="Workspace root (default: cwd).")
+@click.option(
+    "--output-dir",
+    type=click.Path(),
+    default=None,
+    help="Directory for context-audit-portal.html and audit-graph.json.",
+)
+def audit_portal(root: str | None, output_dir: str | None) -> None:
+    """Generate a local static audit portal for a forge workspace."""
+    out = Path(output_dir).resolve() if output_dir else None
+    html_path, json_path = write_portal(_root(root), out)
+    click.echo(f"wrote {html_path}")
+    click.echo(f"wrote {json_path}")
+
+
+@audit.command("serve")
+@click.option("--root", type=click.Path(), default=None, help="Workspace root (default: cwd).")
+@click.option("--host", default="127.0.0.1", show_default=True)
+@click.option("--port", default=8765, show_default=True, type=int)
+def audit_serve(root: str | None, host: str, port: int) -> None:
+    """Serve the audit portal as a local web UI."""
+    html_path, json_path = write_portal(_root(root))
+    handler = functools.partial(
+        SimpleHTTPRequestHandler,
+        directory=str(html_path.parent),
+    )
+    server = ThreadingHTTPServer((host, port), handler)
+    url = f"http://{host}:{port}/{html_path.name}"
+    click.echo(f"wrote {html_path}")
+    click.echo(f"wrote {json_path}")
+    click.echo(f"serving {url}")
+    click.echo("press Ctrl-C to stop")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        click.echo("\nstopped")
+    finally:
+        server.server_close()
 
 
 # ---------- review gate ----------
