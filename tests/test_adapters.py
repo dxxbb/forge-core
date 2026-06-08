@@ -30,6 +30,18 @@ def test_adapters_have_correct_filenames() -> None:
     assert get_adapter("agents-md").default_filename == "AGENTS.md"
 
 
+def test_config_filename_override_lets_two_configs_share_a_target() -> None:
+    """Two agents-md configs (e.g. a frontend and a backend agent) must not
+    collide on output filename — `filename:` disambiguates them."""
+    adapter = get_adapter("agents-md")
+    frontend = Config(name="CT Claw", target="agents-md", sections=[])
+    backend = Config(
+        name="Codex Backend", target="agents-md", sections=[], filename="CODEX-AGENTS.md"
+    )
+    assert adapter.filename(frontend) == "AGENTS.md"
+    assert adapter.filename(backend) == "CODEX-AGENTS.md"
+
+
 def test_user_can_register_custom_adapter(workspace: Path) -> None:
     """An external user can add a new target runtime without touching forge core."""
 

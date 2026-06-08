@@ -17,5 +17,10 @@ class TargetAdapter(ABC):
         """Render an ordered list of sections into the target runtime's text format."""
 
     def filename(self, config: Config) -> str:
-        """The output filename. Default: adapter's default_filename."""
-        return self.default_filename
+        """The output filename.
+
+        A config may override it with ``filename:`` — this is what lets two
+        configs share one target (e.g. two ``agents-md`` agents) without their
+        runtime outputs colliding. Defaults to the adapter's default_filename.
+        """
+        return config.filename or self.default_filename

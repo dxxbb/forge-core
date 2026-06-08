@@ -59,6 +59,7 @@ class Config:
     output_frontmatter: dict[str, Any] = field(default_factory=dict)
     demote_section_headings: bool = False
     section_views: dict[str, dict[str, Any]] = field(default_factory=dict)
+    filename: str | None = None
     meta: dict[str, Any] = field(default_factory=dict)
     path: Path | None = None
 
@@ -83,6 +84,9 @@ class Config:
         if not isinstance(out_fm, dict):
             raise ValueError(f"{path}: `output_frontmatter` must be a mapping")
         demote = bool(fm.pop("demote_section_headings", False))
+        filename = fm.pop("filename", None)
+        if filename is not None and not isinstance(filename, str):
+            raise ValueError(f"{path}: `filename` must be a string")
         section_views = fm.pop("section_views", None) or {}
         if not isinstance(section_views, dict):
             raise ValueError(f"{path}: `section_views` must be a mapping")
@@ -113,6 +117,7 @@ class Config:
             output_frontmatter=out_fm,
             demote_section_headings=demote,
             section_views=normalized_views,
+            filename=filename,
             meta=fm,
             path=path,
         )
