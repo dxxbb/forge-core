@@ -41,6 +41,7 @@ class SourceNode:
     position: FilePosition | None
     status: str
     content_excerpt: str | None = None
+    layer: str = "core"
 
 
 @dataclass
@@ -54,6 +55,7 @@ class SectionNode:
     source_pointers: list[str] = field(default_factory=list)
     relation_state: str = "uncertain"
     relation_note: str = ""
+    layer: str = "core"
 
 
 @dataclass
@@ -120,9 +122,10 @@ def build_audit_graph(root: Path) -> AuditGraph:
             source_pointers=pointers,
             relation_state=relation_state,
             relation_note=relation_note,
+            layer=_section_layer(root, section, pointers),
         )
         section_nodes.append(snode)
-        if not pointers:
+        if not pointers and section.type != "wrapper":
             unexplained.append(
                 {
                     "type": "missing_source_relation",
@@ -279,6 +282,8 @@ def _section_pointers(section: Section) -> list[str]:
 
 
 def _section_relation_state(section: Section, pointers: list[str]) -> tuple[str, str]:
+    if section.type == "wrapper":
+        return "wrapper", "compiled wrapper block; no upstream source by design"
     if not pointers:
         return "uncertain", "no source/upstream pointer declared"
     if section.kind == "derived" or section.generated_by or "provenance" in section.meta:
@@ -313,6 +318,7 @@ def _source_node(root: Path, pointer: str) -> SourceNode:
         position=position,
         status=status,
         content_excerpt=content_excerpt,
+        layer=_layer_for_pointer(root, pointer),
     )
 
 
@@ -352,6 +358,47 @@ def _iter_candidate_runtime_md(root: Path):
         if any(part in ignored_dirs for part in path.relative_to(root).parts):
             continue
         yield path
+
+
+def _layer_for_pointer(root: Path, pointer: str) -> str:
+    """Derive an architectural layer label from a source/upstream pointer.
+
+    The layer is a generic, data-derived grouping — not a hardcoded taxonomy:
+    in-workspace pointers group by their top-level directory (``base``,
+    ``customers``, ``skills``, ``docs`` …); cross-repo pointers group by the
+    originating project so an audit shows when canonical facts live in another
+    repository. It degrades to ``external`` / ``core`` when nothing is known.
+    """
+    normalized = str(pointer).replace("\\", "/")
+    path = Path(pointer).expanduser()
+    if not path.is_absolute():
+        return normalized.split("/", 1)[0] or "core"
+    try:
+        rel = path.resolve().relative_to(root)
+        return rel.as_posix().split("/", 1)[0] or "core"
+    except ValueError:
+        parts = path.parts
+        for marker in ("projects", "repos", "workspace"):
+            if marker in parts:
+                idx = parts.index(marker)
+                if idx + 1 < len(parts):
+                    return parts[idx + 1]
+        return "external"
+
+
+def _section_layer(root: Path, section: Section, pointers: list[str]) -> str:
+    """Layer for a section: explicit frontmatter wins, else its primary source.
+
+    A section inherits the layer of the canonical source it draws from, so the
+    section lane lines up with the source lane architecturally. Wrapper or
+    source-less sections fall back to ``core``.
+    """
+    declared = section.meta.get("layer") if isinstance(section.meta, dict) else None
+    if isinstance(declared, str) and declared.strip():
+        return declared.strip()
+    if pointers:
+        return _layer_for_pointer(root, pointers[0])
+    return "core"
 
 
 def _source_kind(pointer: str) -> str:

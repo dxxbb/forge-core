@@ -354,10 +354,16 @@ def audit() -> None:
     default=None,
     help="Directory for context-audit-portal.html and audit-graph.json.",
 )
-def audit_portal(root: str | None, output_dir: str | None) -> None:
+@click.option(
+    "--diff",
+    is_flag=True,
+    help="Open in change-review mode: diff the working tree against --base.",
+)
+@click.option("--base", "base_ref", default="HEAD", show_default=True, help="Base git ref for --diff.")
+def audit_portal(root: str | None, output_dir: str | None, diff: bool, base_ref: str) -> None:
     """Generate a local static audit portal for a forge workspace."""
     out = Path(output_dir).resolve() if output_dir else None
-    html_path, json_path = write_portal(_root(root), out)
+    html_path, json_path = write_portal(_root(root), out, diff=diff, base_ref=base_ref)
     click.echo(f"wrote {html_path}")
     click.echo(f"wrote {json_path}")
 
@@ -366,9 +372,15 @@ def audit_portal(root: str | None, output_dir: str | None) -> None:
 @click.option("--root", type=click.Path(), default=None, help="Workspace root (default: cwd).")
 @click.option("--host", default="127.0.0.1", show_default=True)
 @click.option("--port", default=8765, show_default=True, type=int)
-def audit_serve(root: str | None, host: str, port: int) -> None:
+@click.option(
+    "--diff",
+    is_flag=True,
+    help="Open in change-review mode: diff the working tree against --base.",
+)
+@click.option("--base", "base_ref", default="HEAD", show_default=True, help="Base git ref for --diff.")
+def audit_serve(root: str | None, host: str, port: int, diff: bool, base_ref: str) -> None:
     """Serve the audit portal as a local web UI."""
-    html_path, json_path = write_portal(_root(root))
+    html_path, json_path = write_portal(_root(root), diff=diff, base_ref=base_ref)
     handler = functools.partial(
         SimpleHTTPRequestHandler,
         directory=str(html_path.parent),
