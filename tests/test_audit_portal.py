@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from pathlib import Path
 
 from click.testing import CliRunner
 
-from forge.audit import build_audit_graph, write_portal
+from forge.audit import build_audit_diff, build_audit_graph, write_portal
 from forge.cli import main
 from forge.compiler.loader import load_all_configs, load_sections
 from forge.compiler.renderer import render
@@ -132,6 +133,42 @@ def test_portal_has_external_import_edge_inspector_copy(tmp_path: Path) -> None:
     assert "导入产物（Capture）" in html
 
 
+def test_audit_diff_includes_unlinked_review_file_changes(tmp_path: Path) -> None:
+    workspace = _audit_workspace(tmp_path)
+    clipping = workspace / "capture" / "web clipping" / "codex-note.md"
+    clipping.parent.mkdir(parents=True)
+    clipping.write_text(
+        "---\nsource: web clipping\n---\n\n# Codex note\n\nclipped input\n",
+        encoding="utf-8",
+    )
+    kb = workspace / "public knowledge base" / "topic" / "tech" / "ai" / "codex.md"
+    kb.parent.mkdir(parents=True)
+    kb.write_text(
+        "---\nsources:\n  - capture/web clipping/codex-note.md\n---\n\n# Codex\n\nold\n",
+        encoding="utf-8",
+    )
+    _git(workspace, "init")
+    _git(workspace, "add", ".")
+    _git(workspace, "commit", "-m", "base")
+
+    kb.write_text(
+        "---\nsources:\n  - capture/web clipping/codex-note.md\n---\n\n# Codex\n\nnew\n",
+        encoding="utf-8",
+    )
+
+    graph = build_audit_diff(workspace, "HEAD")
+    source = next(s for s in graph["sources"] if s["pointer"] == "public knowledge base/topic/tech/ai/codex.md")
+    assert source["kind"] == "unlinked-change"
+    assert source["change"] == "modified"
+    assert source["prev_content"].endswith("# Codex\n\nold\n")
+    capture = next(s for s in graph["sources"] if s["pointer"] == "capture/web clipping/codex-note.md")
+    assert capture["change"] == "unchanged"
+    edge = next(e for e in graph["edges"] if e["relation"] == "input_to_source")
+    assert edge["from_id"] == capture["id"]
+    assert edge["to_id"] == source["id"]
+    assert graph["diff"]["modified"] >= 1
+
+
 def test_wrapper_section_is_not_flagged_as_missing_source(tmp_path: Path) -> None:
     workspace = _audit_workspace(tmp_path)
     graph = build_audit_graph(workspace).to_dict()
@@ -241,11 +278,19 @@ def test_write_portal_outputs_html_and_json(tmp_path: Path) -> None:
     assert html.lstrip().startswith("<!doctype html>")
     assert "Forge Context Audit" in html
 
-    # The three provenance lanes are the backbone of the layered graph view,
-    # and source/section lanes group by architectural layer.
+    # The provenance lanes are dynamic: capture/clipping inputs sit to the
+    # left of canonical sources instead of being forced into a fixed 3-column
+    # layout.
+    assert "Capture / Clipping · 输入" in html
     assert "Canonical Source · 按架构层" in html
     assert "Canonical Section · 按架构层" in html
     assert "Runtime（Agent 实际读到）" in html
+    assert "--lane-count" in html
+    assert "diff hunk" in html
+    assert "已定位到第 " in html
+    assert "input_to_source" in html
+    assert 'id="graph-empty"' in html
+    assert "refreshFilteredLanes" in html
     assert 'id="hover-card"' in html
     assert "Hover 一屏预览关键内容；Enter/单击固定到右侧完整详情" in html
     assert "preview-compare" in html
@@ -364,3 +409,14 @@ def _audit_workspace(root: Path) -> Path:
     config = load_all_configs(root)["AGENTS"]
     (mirror_dir / "AGENTS.md").write_text(render(sections, config), encoding="utf-8")
     return root
+
+
+def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    if args and args[0] == "init":
+        result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
+        subprocess.run(["git", "-C", str(root), "config", "user.email", "test@example.com"], check=True)
+        subprocess.run(["git", "-C", str(root), "config", "user.name", "Test User"], check=True)
+    else:
+        result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    return result

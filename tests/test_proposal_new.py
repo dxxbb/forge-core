@@ -82,6 +82,9 @@ def test_scaffold_creates_pr_dir_and_proposal(tmp_path):
     assert p.items[0].monitor_info  # populated from inbox source summary
     assert "capture/import/" in p.items[0].extracted
     assert len(p.inbox_sources) == 2
+    body = out.read_text(encoding="utf-8")
+    assert "forge audit portal --diff --base HEAD" in body
+    assert "§0.5 is a text fallback" in body
 
 
 def test_proposal_new_cli_creates_stub(tmp_path):
@@ -92,6 +95,8 @@ def test_proposal_new_cli_creates_stub(tmp_path):
     pr_dirs = list((root / "system" / "pr").iterdir())
     assert len(pr_dirs) == 1
     assert (pr_dirs[0] / "proposal.md").is_file()
+    assert "forge audit portal" in result.output
+    assert "optional text fallback: forge pr render" in result.output
 
 
 def test_proposal_new_cli_errors_on_empty_inbox(tmp_path):

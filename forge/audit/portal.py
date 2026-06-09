@@ -202,7 +202,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
 
     /* ---------- body: full-bleed graph + floating detail drawer ---------- */
     .split { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; --insp-w: min(60vw, 900px); }
-    .canvas-wrap { position: absolute; inset: 0; overflow: auto; padding: 22px 22px 56px; background-color: var(--bg); background-image: radial-gradient(var(--canvas-dot) 1px, transparent 1.4px); background-size: 18px 18px; }
+    .canvas-wrap { position: absolute; inset: 0; overflow: auto; padding: 28px 36px 72px; background-color: var(--bg); background-image: radial-gradient(var(--canvas-dot) 1px, transparent 1.4px); background-size: 18px 18px; }
     .divider {
       position: absolute; top: 0; bottom: 0; right: var(--insp-w); width: 9px;
       transform: translateX(50%); z-index: 31; cursor: col-resize; display: none;
@@ -213,8 +213,13 @@ _HTML_TEMPLATE = r"""<!doctype html>
     .divider::after { content: ""; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); width: 4px; height: 40px; border-radius: 3px; background: var(--line-2); transition: background .12s; }
     .divider:hover::after, .divider.drag::after { background: var(--accent); }
     body.dragging { cursor: col-resize; user-select: none; }
-    .lanes { position: relative; display: grid; grid-template-columns: repeat(3, 270px); justify-content: space-between; gap: 40px; }
-    .lanes.has-external { grid-template-columns: repeat(4, 236px); }
+    .lanes {
+      --lane-gap: clamp(56px, 5.2vw, 104px);
+      position: relative; display: grid;
+      grid-template-columns: repeat(var(--lane-count, 3), minmax(292px, 1fr));
+      justify-content: stretch; gap: var(--lane-gap); width: 100%;
+      min-width: var(--lane-min-width, 100%);
+    }
     .links-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; overflow: visible; }
     .edge-chips { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
     .edge-chip {
@@ -226,6 +231,15 @@ _HTML_TEMPLATE = r"""<!doctype html>
     .edge-chip .d { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto; }
     .edge-chip:hover, .edge-chip.on { border-color: var(--accent); color: var(--accent); box-shadow: var(--shadow-md); transform: translate(-50%, -50%) scale(1.08); z-index: 3; }
     .edge-chip.dim { opacity: .22; }
+    .graph-empty {
+      position: absolute; left: 50%; top: 36%; transform: translate(-50%, -50%);
+      z-index: 4; width: min(420px, calc(100vw - 48px)); text-align: center;
+      border: 1px solid var(--line); border-radius: var(--r-md); background: rgba(251,250,247,.96);
+      box-shadow: var(--shadow-md); padding: 18px 20px; color: var(--ink-soft);
+    }
+    .graph-empty[hidden] { display: none; }
+    .graph-empty b { display: block; color: var(--ink); font-size: 14px; margin-bottom: 5px; }
+    .graph-empty span { font-size: 12px; line-height: 1.45; }
     /* ---------- motion / polish ---------- */
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     @keyframes panelIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
@@ -236,6 +250,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
     @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; } }
     .lane { position: relative; z-index: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
     .lane[hidden] { display: none; }
+    .lane.filtered-empty { display: none; }
     .lane-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding-bottom: 2px; }
     .lane-head h2 { margin: 0; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-soft); }
     .lane-head .count { font-size: 11px; color: var(--muted); }
@@ -247,9 +262,9 @@ _HTML_TEMPLATE = r"""<!doctype html>
     .node {
       position: relative; z-index: 1; text-align: left; width: 100%;
       border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel);
-      padding: 9px 11px; box-shadow: var(--shadow-sm);
+      padding: 10px 12px; box-shadow: var(--shadow-sm);
       transition: box-shadow .16s ease, border-color .16s ease, transform .14s cubic-bezier(.4,0,.2,1), opacity .16s ease;
-      display: grid; gap: 4px; animation: fadeIn .22s ease both;
+      display: grid; gap: 5px; animation: fadeIn .22s ease both;
     }
     .node:hover { border-color: var(--border-strong); transform: translateY(-1px); box-shadow: var(--shadow-md); }
     .node:active { transform: translateY(0); }
@@ -291,7 +306,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
     .node .sdot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; box-shadow: 0 0 0 3px rgba(0,0,0,.03); }
     .node.sel { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow-md); }
     .node.kbd { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-    .node.dim { opacity: .26; filter: saturate(.5); }
+    .node.dim { display: none; }
     .node.hit { border-color: var(--accent); }
 
     .hover-card {
@@ -430,7 +445,8 @@ _HTML_TEMPLATE = r"""<!doctype html>
     @media (max-width: 1080px) {
       .split { --insp-w: 100vw; }
       .split.maxed .inspector { width: 100vw; }
-      .lanes { grid-template-columns: 1fr; gap: 22px; }
+      .canvas-wrap { padding: 20px 18px 56px; }
+      .lanes { grid-template-columns: 1fr; gap: 22px; min-width: 100%; }
       .links-svg { display: none; }
       .counts { display: none; }
       .crumbs { display: none; }
@@ -479,8 +495,12 @@ _HTML_TEMPLATE = r"""<!doctype html>
           <svg class="links-svg" id="links"></svg>
           <div class="edge-chips" id="edge-chips"></div>
           <div class="hover-card" id="hover-card" hidden></div>
+          <div class="graph-empty" id="graph-empty" hidden><b>没有匹配节点</b><span>调整 Edge Status，或关闭“只看改动 / 只看缺口”。</span></div>
           <section class="lane" id="lane-external" hidden>
             <div class="lane-head"><h2>External Input · 导入</h2><span class="count" id="cnt-external"></span></div>
+          </section>
+          <section class="lane" id="lane-captures" hidden>
+            <div class="lane-head"><h2>Capture / Clipping · 输入</h2><span class="count" id="cnt-captures"></span></div>
           </section>
           <section class="lane" id="lane-sources">
             <div class="lane-head"><h2>Canonical Source · 按架构层</h2><span class="count" id="cnt-sources"></span></div>
@@ -517,8 +537,8 @@ _HTML_TEMPLATE = r"""<!doctype html>
       uncertain: "var(--uncertain)", missing: "var(--missing)", wrapper: "var(--wrapper)",
       imported: "var(--exact)", pending: "var(--uncertain)",
     };
-    const KIND_COLOR = { source: "#5f7d7a", capture: "#9a7448", memory: "#73677d", project: "#5c7189" };
-    const KIND_LABEL = { source: "Source", capture: "Capture", memory: "Memory", project: "Project" };
+    const KIND_COLOR = { source: "#5f7d7a", capture: "#9a7448", memory: "#73677d", project: "#5c7189", "unlinked-change": "#8a6f5a" };
+    const KIND_LABEL = { source: "Source", capture: "Capture", memory: "Memory", project: "Project", "unlinked-change": "Review Change" };
     const externals = graph.externals || [];
 
     // ---- indices ----
@@ -527,8 +547,11 @@ _HTML_TEMPLATE = r"""<!doctype html>
     const srcEdges = graph.edges.filter(e => e.relation === "source_to_section");
     const rtEdges = graph.edges.filter(e => e.relation === "section_to_runtime");
     const importEdges = graph.edges.filter(e => e.relation === "external_to_source");
+    const inputEdges = graph.edges.filter(e => e.relation === "input_to_source");
     const importEdgesTo = (id) => importEdges.filter(e => e.to_id === id);
     const importEdgesFrom = (id) => importEdges.filter(e => e.from_id === id);
+    const inputEdgesTo = (id) => inputEdges.filter(e => e.to_id === id);
+    const inputEdgesFrom = (id) => inputEdges.filter(e => e.from_id === id);
     const outAdj = new Map(), inAdj = new Map();
     graph.edges.forEach(e => {
       (outAdj.get(e.from_id) || outAdj.set(e.from_id, []).get(e.from_id)).push(e.to_id);
@@ -542,7 +565,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
     // ---- change-review (diff) mode ----
     const diffMode = !!(graph.diff && graph.diff.available);
     const CHG_LABEL = { added: "新增", modified: "修改", removed: "删除", unchanged: "未变" };
-    function lineDiff(oldText, newText) {
+    function lineDiffRows(oldText, newText) {
       const a = String(oldText || "").split("\n"), b = String(newText || "").split("\n");
       const m = a.length, n = b.length;
       const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
@@ -550,19 +573,23 @@ _HTML_TEMPLATE = r"""<!doctype html>
         dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
       const out = []; let i = 0, j = 0;
       while (i < m && j < n) {
-        if (a[i] === b[j]) { out.push(["ctx", a[i]]); i++; j++; }
-        else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push(["del", a[i]]); i++; }
-        else { out.push(["add", b[j]]); j++; }
+        if (a[i] === b[j]) { out.push({ type: "ctx", text: a[i], oldNo: i + 1, newNo: j + 1 }); i++; j++; }
+        else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push({ type: "del", text: a[i], oldNo: i + 1, newNo: null }); i++; }
+        else { out.push({ type: "add", text: b[j], oldNo: null, newNo: j + 1 }); j++; }
       }
-      while (i < m) out.push(["del", a[i++]]);
-      while (j < n) out.push(["add", b[j++]]);
+      while (i < m) out.push({ type: "del", text: a[i], oldNo: i + 1, newNo: null }), i++;
+      while (j < n) out.push({ type: "add", text: b[j], oldNo: null, newNo: j + 1 }), j++;
       return out;
     }
+    function diffLineLabel(row) {
+      const no = row.type === "del" ? row.oldNo : row.type === "add" ? row.newNo : row.newNo;
+      const sign = row.type === "add" ? "+" : row.type === "del" ? "−" : " ";
+      return sign + (no == null ? "" : no);
+    }
     function diffBlock(oldText, newText, caption) {
-      const rows = lineDiff(oldText, newText).map(([t, l]) => {
-        const cls = t === "add" ? " d-add" : t === "del" ? " d-del" : "";
-        const sign = t === "add" ? "+" : t === "del" ? "−" : " ";
-        return '<div class="code-line' + cls + '"><span class="ln">' + sign + '</span><span class="lc">' + esc(l || " ") + "</span></div>";
+      const rows = lineDiffRows(oldText, newText).map(row => {
+        const cls = row.type === "add" ? " d-add" : row.type === "del" ? " d-del" : "";
+        return '<div class="code-line' + cls + '"><span class="ln">' + esc(diffLineLabel(row)) + '</span><span class="lc">' + esc(row.text || " ") + "</span></div>";
       }).join("");
       return '<div class="code">' + (caption ? '<div class="code-cap">' + caption + " · diff</div>" : "") +
         '<div class="code-scroll">' + rows + "</div></div>";
@@ -608,10 +635,17 @@ _HTML_TEMPLATE = r"""<!doctype html>
       return r.length ? Math.min(...r) : 1e9;
     };
     const orderedSections = [...graph.sections].sort((a, b) => sectionSort(a) - sectionSort(b) || a.name.localeCompare(b.name));
+    function isCaptureInput(s) {
+      const pointer = String((s && s.pointer) || "").replace(/\\/g, "/");
+      return !!s && (s.kind === "capture" || s.kind === "memory" || s.layer === "capture" ||
+        pointer.startsWith("capture/") || pointer.includes("/capture/"));
+    }
     const orderedSources = [...graph.sources].sort((a, b) => {
       const ko = ["source", "capture", "memory", "project"];
       return ko.indexOf(a.kind) - ko.indexOf(b.kind) || a.label.localeCompare(b.label);
     });
+    const captureSources = orderedSources.filter(isCaptureInput);
+    const canonicalSources = orderedSources.filter(s => !isCaptureInput(s));
 
     // ---- gap model (deduped, severity-ranked) ----
     function gaps() {
@@ -673,6 +707,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
 
     // ---- DOM render: lanes ----
     const laneExternal = document.getElementById("lane-external");
+    const laneCaptures = document.getElementById("lane-captures");
     const laneSources = document.getElementById("lane-sources");
     const laneSections = document.getElementById("lane-sections");
     const laneRuntimes = document.getElementById("lane-runtimes");
@@ -721,7 +756,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
     }
 
     function renderSources() {
-      groupByLayer(orderedSources).forEach(([layer, items]) => {
+      groupByLayer(canonicalSources).forEach(([layer, items]) => {
         groupLabel(laneSources, layer, items.length);
         items.forEach(s => {
           const st = nodeStatus(s);
@@ -732,6 +767,24 @@ _HTML_TEMPLATE = r"""<!doctype html>
             "</div>" +
             '<div class="ptr">' + esc(s.pointer) + "</div>" +
             (s.status === "missing" ? '<div class="submeta" style="color:var(--missing)">未解析 · missing</div>' : "")
+          ));
+        });
+      });
+    }
+    function renderCaptures() {
+      if (!captureSources.length) return;
+      laneCaptures.hidden = false;
+      groupByLayer(captureSources).forEach(([layer, items]) => {
+        groupLabel(laneCaptures, layer, items.length);
+        items.forEach(s => {
+          const st = nodeStatus(s);
+          laneCaptures.appendChild(nodeEl(s, "source",
+            '<div class="row">' +
+              '<span class="kind-ic" style="background:' + (KIND_COLOR[s.kind] || "#8f969e") + '">' + (ICONS[s.kind] || ICONS.capture) + "</span>" +
+              '<span class="name">' + esc(s.label) + "</span>" + statusDot(st) +
+            "</div>" +
+            '<div class="ptr">' + esc(s.pointer) + "</div>" +
+            (inputEdgesFrom(s.id).length ? '<div class="submeta"><span class="meta-mark" style="color:var(--declared)">→ KB</span></div>' : "")
           ));
         });
       });
@@ -788,12 +841,32 @@ _HTML_TEMPLATE = r"""<!doctype html>
     const svg = document.getElementById("links");
     const chips = document.getElementById("edge-chips");
     const lanes = document.getElementById("lanes");
+    const graphEmpty = document.getElementById("graph-empty");
+    const canvasEl = document.getElementById("canvas");
     let pathByEdge = new Map();
     function elFor(id) { return lanes.querySelector('.node[data-id="' + cssEsc(id) + '"]'); }
     function cssEsc(s) { return (window.CSS && CSS.escape) ? CSS.escape(s) : String(s).replace(/"/g, '\\"'); }
     function edgeBrief(e) {
       if (e.relation === "external_to_source") return e.status === "pending" ? "待导入" : "导入";
+      if (e.relation === "input_to_source") return "整合";
       return e.status || "—";
+    }
+    function edgeLabel(e) {
+      if (e.relation === "section_to_runtime") return "Section→Runtime";
+      if (e.relation === "external_to_source") return "Import";
+      if (e.relation === "input_to_source") return "Input→Source";
+      return "Source→Section";
+    }
+    function showEdgeChip(e) {
+      if (e.relation === "input_to_source" || e.relation === "external_to_source") return true;
+      if (e.change && e.change !== "unchanged") return true;
+      return e.status === "uncertain" || e.status === "missing";
+    }
+    function refreshLaneColumns() {
+      const count = [...lanes.querySelectorAll(".lane")].filter(lane => !lane.hidden && !lane.classList.contains("filtered-empty")).length;
+      lanes.style.setProperty("--lane-count", String(Math.max(1, count)));
+      const minWidth = Math.max(1, count) * 292 + Math.max(0, count - 1) * 72;
+      lanes.style.setProperty("--lane-min-width", minWidth + "px");
     }
 
     function drawLinks() {
@@ -805,6 +878,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
       graph.edges.forEach(e => {
         const a = elFor(e.from_id), b = elFor(e.to_id);
         if (!a || !b) return;
+        if (a.classList.contains("dim") || b.classList.contains("dim")) return;
         const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
         const x1 = ra.right - wrap.left, y1 = ra.top - wrap.top + ra.height / 2;
         const x2 = rb.left - wrap.left, y2 = rb.top - wrap.top + rb.height / 2;
@@ -837,20 +911,24 @@ _HTML_TEMPLATE = r"""<!doctype html>
         hit.addEventListener("mouseenter", () => { hoverEdgeId = e.id; applyHighlight(); scheduleHoverPreview(() => showEdgePreview(e.id, hit)); });
         hit.addEventListener("mouseleave", () => { hoverEdgeId = null; applyHighlight(); cancelHoverPreview(); scheduleHideHoverCard(); });
         svg.appendChild(hit);
-        // Midpoint chip: a small, info-carrying handle on the edge.
-        const chip = document.createElement("div");
-        chip.className = "edge-chip";
-        chip.dataset.edge = e.id;
-        chip.dataset.from = e.from_id;
-        chip.dataset.to = e.to_id;
-        chip.style.left = ((x1 + x2) / 2) + "px";
-        chip.style.top = ((y1 + y2) / 2) + "px";
-        chip.title = (e.relation === "section_to_runtime" ? "Section→Runtime" : e.relation === "external_to_source" ? "Import" : "Source→Section") + " · " + (e.evidence || "");
-        chip.innerHTML = '<span class="d" style="background:' + (STATUS_COLOR[e.status] || "var(--muted)") + '"></span>' + esc(edgeBrief(e));
-        chip.addEventListener("click", (ev) => { ev.stopPropagation(); cancelHoverPreview(); hideHoverCard(); selectEdge(e.id); });
-        chip.addEventListener("mouseenter", () => { hoverEdgeId = e.id; applyHighlight(); scheduleHoverPreview(() => showEdgePreview(e.id, chip)); });
-        chip.addEventListener("mouseleave", () => { hoverEdgeId = null; applyHighlight(); cancelHoverPreview(); scheduleHideHoverCard(); });
-        chips.appendChild(chip);
+        // Only show chips for review-relevant edges. Routine exact/derived
+        // edges remain hoverable through the wide transparent hit-path, but
+        // their labels no longer pile up in the middle of dense lanes.
+        if (showEdgeChip(e)) {
+          const chip = document.createElement("div");
+          chip.className = "edge-chip";
+          chip.dataset.edge = e.id;
+          chip.dataset.from = e.from_id;
+          chip.dataset.to = e.to_id;
+          chip.style.left = ((x1 + x2) / 2) + "px";
+          chip.style.top = ((y1 + y2) / 2) + "px";
+          chip.title = edgeLabel(e) + " · " + (e.evidence || "");
+          chip.innerHTML = '<span class="d" style="background:' + (STATUS_COLOR[e.status] || "var(--muted)") + '"></span>' + esc(edgeBrief(e));
+          chip.addEventListener("click", (ev) => { ev.stopPropagation(); cancelHoverPreview(); hideHoverCard(); selectEdge(e.id); });
+          chip.addEventListener("mouseenter", () => { hoverEdgeId = e.id; applyHighlight(); scheduleHoverPreview(() => showEdgePreview(e.id, chip)); });
+          chip.addEventListener("mouseleave", () => { hoverEdgeId = null; applyHighlight(); cancelHoverPreview(); scheduleHideHoverCard(); });
+          chips.appendChild(chip);
+        }
         const key = e.from_id + "|" + e.to_id;
         (pathByEdge.get(key) || pathByEdge.set(key, []).get(key)).push(p);
       });
@@ -939,16 +1017,30 @@ _HTML_TEMPLATE = r"""<!doctype html>
       return '<div class="preview-code' + (extraClass ? " " + extraClass : "") + '">' + (caption ? '<div class="preview-cap">' + esc(caption) + "</div>" : "") + rows + more + "</div>";
     }
     function previewDiff(oldText, newText, caption, maxRows) {
-      const raw = lineDiff(oldText, newText);
-      const changed = raw.filter(([t, l]) => t !== "ctx" || String(l || "").trim());
-      const rows = changed.slice(0, maxRows || 14)
-        .map(([t, l]) => {
-          const cls = t === "add" ? " d-add" : t === "del" ? " d-del" : "";
-          const sign = t === "add" ? "+" : t === "del" ? "−" : " ";
-          return '<div class="preview-line' + cls + '"><span class="ln">' + sign + '</span><span class="lc">' + esc(l || " ") + "</span></div>";
+      const raw = lineDiffRows(oldText, newText);
+      const limit = maxRows || 14;
+      const firstChange = raw.findIndex(row => row.type !== "ctx");
+      let start = 0, end = Math.min(raw.length, limit);
+      if (firstChange >= 0) {
+        const context = 2;
+        start = Math.max(0, firstChange - context);
+        let lastChange = firstChange, after = 0;
+        for (let i = firstChange + 1; i < raw.length; i++) {
+          if (raw[i].type !== "ctx") { lastChange = i; after = 0; continue; }
+          after++;
+          if (after >= context) break;
+        }
+        end = Math.min(raw.length, Math.max(lastChange + context + 1, start + 1));
+        if (end - start > limit) end = start + limit;
+      }
+      const rows = raw.slice(start, end)
+        .map(row => {
+          const cls = row.type === "add" ? " d-add" : row.type === "del" ? " d-del" : "";
+          return '<div class="preview-line' + cls + '"><span class="ln">' + esc(diffLineLabel(row)) + '</span><span class="lc">' + esc(row.text || " ") + "</span></div>";
         }).join("");
-      const more = changed.length > (maxRows || 14) ? '<div class="preview-more">完整 diff 在右侧详情</div>' : "";
-      return '<div class="preview-code preview-diff">' + (caption ? '<div class="preview-cap">' + esc(caption) + " · diff</div>" : "") + rows + more + "</div>";
+      const located = firstChange > 0 ? '<div class="preview-more">已定位到第 ' + (raw[firstChange].newNo || raw[firstChange].oldNo || 1) + " 行附近的变更 hunk</div>" : "";
+      const more = (start > 0 || end < raw.length) ? '<div class="preview-more">完整 diff 在右侧详情</div>' : "";
+      return '<div class="preview-code preview-diff">' + (caption ? '<div class="preview-cap">' + esc(caption) + " · diff hunk</div>" : "") + located + rows + more + "</div>";
     }
     function previewHeader(kind, title, subtitle, status) {
       return '<div class="preview-head">' +
@@ -986,12 +1078,13 @@ _HTML_TEMPLATE = r"""<!doctype html>
       return previewCode(isRemoved ? (node.prev_content || text || "") : text, startLine, caption, 12);
     }
     function sourcePreviewHTML(s) {
-      const consumers = srcEdgesFrom(s.id).map(e => byId.get(e.to_id));
+      const downstream = [...inputEdgesFrom(s.id), ...srcEdgesFrom(s.id)];
+      const consumers = downstream.map(e => byId.get(e.to_id));
       return previewHeader((KIND_LABEL[s.kind] || s.kind || "Source") + " Source", s.label, s.pointer, nodeStatus(s)) +
         previewMeta([
           ["change ", s.change && s.change !== "unchanged" ? (CHG_LABEL[s.change] || s.change) : "—", STATUS_COLOR[nodeStatus(s)]],
           ["status ", s.status === "missing" ? "missing" : "resolved"],
-          ["to ", consumers.length + " section"],
+          ["to ", consumers.length + " downstream"],
           ["layer ", s.layer || "core"],
         ]) +
         '<div class="preview-section"><h4>' + (s.change && s.change !== "unchanged" ? "Review diff / 内容变化" : "内容摘录") + "</h4>" +
@@ -1041,7 +1134,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
     function edgePreviewHTML(e) {
       const from = byId.get(e.from_id), to = byId.get(e.to_id);
       const isRt = e.relation === "section_to_runtime";
-      const rel = isRt ? "Section → Runtime" : e.relation === "external_to_source" ? "External Input → Capture" : "Source → Section";
+      const rel = isRt ? "Section → Runtime" : e.relation === "external_to_source" ? "External Input → Capture" : e.relation === "input_to_source" ? "Input / Capture → Canonical Source" : "Source → Section";
       let fromText = "", toText = "", fromStart = 1, toStart = 1, fromTitle = "", toTitle = "", method;
       if (e.relation === "section_to_runtime") {
         const rng = e.runtime_range;
@@ -1061,6 +1154,8 @@ _HTML_TEMPLATE = r"""<!doctype html>
         toTitle = (to && (to.name || to.pointer || to.label)) || "to";
         method = e.relation === "external_to_source"
           ? { kind: "capture import", color: "var(--declared)", note: "frontmatter 记录外部来源；不读取外部原文" }
+          : e.relation === "input_to_source"
+          ? { kind: "KB source declaration", color: "var(--declared)", note: "KB frontmatter 声明该 clipping/capture 被整合进这份知识库" }
           : classifyExtraction(fromText, toText);
       }
       return previewHeader(rel, (from && (from.name || from.label || from.config)) + " → " + (to && (to.name || to.label || to.config)), e.evidence || "", e.status) +
@@ -1325,12 +1420,15 @@ _HTML_TEMPLATE = r"""<!doctype html>
           flow;
       }
       const isRt = e.relation === "section_to_runtime";
-      const relLabel = isRt ? "Section → Runtime" : "Source → Section";
+      const isInput = e.relation === "input_to_source";
+      const relLabel = isRt ? "Section → Runtime" : isInput ? "Input / Capture → Canonical Source" : "Source → Section";
       const head = eyebrow(relLabel + " · " + (e.status || ""), e.status) +
         '<h2 class="insp-title" style="font-size:17px">' + esc(from && (from.name || from.label || from.config)) +
         ' <span style="color:var(--muted-2)">→</span> ' + esc(to && (to.name || to.label || to.config)) + "</h2>" +
         (isRt
           ? '<p class="insp-sub" style="font-family:var(--font)">编译器把 section block 逐字渲染进 runtime；命中行范围是精确的。</p>'
+          : isInput
+          ? '<p class="insp-sub" style="font-family:var(--font)">KB frontmatter 声明该 clipping/capture 已整合进 canonical knowledge source。</p>'
           : '<p class="insp-sub" style="font-family:var(--font)">声明级血缘：' + esc(e.evidence || "") + "</p>");
       // Original info (from) and product (to)
       let fromText, fromCap, toText, toCap, toStart = 1, hlRange = null, method;
@@ -1346,10 +1444,12 @@ _HTML_TEMPLATE = r"""<!doctype html>
       } else {
         fromText = (from && from.content_excerpt) || "";
         fromCap = esc((from && from.pointer) || "source");
-        toText = (to && to.content) || "";
+        toText = (to && (to.content || to.content_excerpt)) || "";
         toStart = (to && to.position && to.position.start_line) || 1;
-        toCap = esc((to && to.name) || "section");
-        method = classifyExtraction(fromText, toText);
+        toCap = esc((to && (to.name || to.pointer)) || (isInput ? "canonical source" : "section"));
+        method = isInput
+          ? { kind: "KB frontmatter 声明", color: "var(--declared)", note: "这是 review graph 中的 source-to-source 关系，不替代 section/runtime provenance" }
+          : classifyExtraction(fromText, toText);
       }
       const methodCard =
         '<div class="kv">' +
@@ -1456,7 +1556,8 @@ _HTML_TEMPLATE = r"""<!doctype html>
     }
 
     function sourceHTML(s) {
-      const consumers = srcEdgesFrom(s.id);
+      const consumers = [...inputEdgesFrom(s.id), ...srcEdgesFrom(s.id)];
+      const upstreamInputs = inputEdgesTo(s.id);
       const head = eyebrow((KIND_LABEL[s.kind] || s.kind) + " Source", nodeStatus(s)) +
         '<h2 class="insp-title">' + esc(s.label) + "</h2>" +
         '<p class="insp-sub">' + esc(s.pointer) + "</p>" +
@@ -1466,7 +1567,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
           '<span class="k">架构层</span><span class="v">' + tag(s.layer || "core", "var(--accent)") + "</span>" +
           '<span class="k">kind</span><span class="v">' + esc(KIND_LABEL[s.kind] || s.kind || "") + "</span>" +
           '<span class="k">位置</span><span class="v">' + esc(pos(s.position)) + "</span>" +
-          '<span class="k">状态</span><span class="v">' + (s.status === "missing" ? tag("未解析 missing", "var(--missing)") : tag("已解析 resolved", "var(--exact)")) + "</span>" +
+          '<span class="k">状态</span><span class="v">' + (s.status === "missing" ? tag("未解析 missing", "var(--missing)") : s.status === "unlinked" ? tag("review-only unlinked", "var(--uncertain)") : tag("已解析 resolved", "var(--exact)")) + "</span>" +
         "</div>" +
         '<div class="insp-section">' +
           ((s.content_excerpt || s.prev_content) ? contentBlock(s, s.content_excerpt, s.position && s.position.start_line, esc(s.pointer))
@@ -1474,8 +1575,11 @@ _HTML_TEMPLATE = r"""<!doctype html>
         "</div>";
       const lineage = consumers.length
         ? '<div class="lineage">' + consumers.map(e => '<div class="lin-row">' + nodelink(byId.get(e.to_id), e.status) + "</div>").join("") + "</div>"
-        : '<div class="empty">没有 section 声明引用它。</div>';
-      return head + tabbed([["Content", content], ["进入的 Section", lineage, consumers.length]]);
+        : '<div class="empty">没有下游声明引用它。</div>';
+      const inputs = upstreamInputs.length
+        ? '<div class="lineage">' + upstreamInputs.map(e => '<div class="lin-row">' + nodelink(byId.get(e.from_id), e.status) + '<span class="lin-arrow">→</span>' + nodelink(s) + "</div>").join("") + "</div>"
+        : '<div class="empty">没有上游 clipping/capture 声明。</div>';
+      return head + tabbed([["Content", content], ["上游输入", inputs, upstreamInputs.length], ["下游", lineage, consumers.length]]);
     }
 
     function sectionHTML(s) {
@@ -1583,7 +1687,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
     // ---- filters & search ----
     const activeStatus = new Set(["exact", "derived", "declared", "uncertain", "missing", "wrapper"]);
     let gapsOnly = false;
-    let changedOnly = false;
+    let changedOnly = diffMode;
     let query = "";
     function applyFilters() {
       const gapTargets = gapsOnly ? gapNodeSet() : null;
@@ -1596,6 +1700,36 @@ _HTML_TEMPLATE = r"""<!doctype html>
         if (visible && changedTargets) visible = changedTargets.has(el.dataset.id);
         el.classList.toggle("dim", !visible);
       });
+      refreshFilteredLanes();
+      refreshLaneColumns();
+      requestAnimationFrame(drawLinks);
+    }
+    function refreshFilteredLanes() {
+      let visibleNodeCount = 0;
+      lanes.querySelectorAll(".lane").forEach(lane => {
+        let anyVisible = false;
+        let currentLabel = null;
+        let currentVisible = false;
+        const groups = [];
+        [...lane.children].forEach(child => {
+          if (child.classList.contains("lane-head")) return;
+          if (child.classList.contains("lane-group-label")) {
+            if (currentLabel) groups.push([currentLabel, currentVisible]);
+            currentLabel = child;
+            currentVisible = false;
+            return;
+          }
+          if (child.classList.contains("node") && !child.classList.contains("dim")) {
+            anyVisible = true;
+            currentVisible = true;
+            visibleNodeCount++;
+          }
+        });
+        if (currentLabel) groups.push([currentLabel, currentVisible]);
+        groups.forEach(([label, visible]) => { label.hidden = !visible; });
+        lane.classList.toggle("filtered-empty", !anyVisible);
+      });
+      graphEmpty.hidden = visibleNodeCount > 0;
     }
     function gapNodeSet() {
       const set = new Set();
@@ -1627,12 +1761,12 @@ _HTML_TEMPLATE = r"""<!doctype html>
       if (diffMode) parts.push('<span class="branch">⎇ base ' + esc(graph.diff.base_ref) + "</span>");
       document.getElementById("crumbs").innerHTML = parts.join(" ");
     })();
-    document.getElementById("cnt-sources").textContent = graph.sources.length;
+    document.getElementById("cnt-captures").textContent = captureSources.length;
+    document.getElementById("cnt-sources").textContent = canonicalSources.length;
     document.getElementById("cnt-sections").textContent = graph.sections.length;
     document.getElementById("cnt-runtimes").textContent = graph.runtimes.length;
     if (externals.length) {
       laneExternal.hidden = false;
-      lanes.classList.add("has-external");
       document.getElementById("cnt-external").textContent = externals.length;
     }
     mountCounts();
@@ -1643,7 +1777,12 @@ _HTML_TEMPLATE = r"""<!doctype html>
       document.body.classList.toggle("audit-view", !reviewView);
       document.querySelectorAll("#mode-seg .seg-btn").forEach(b =>
         b.classList.toggle("active", (b.dataset.mode === "review") === reviewView));
+      if (diffMode) {
+        changedOnly = reviewView;
+        document.getElementById("changed-only").setAttribute("aria-pressed", String(changedOnly));
+      }
       renderInspector();
+      applyFilters();
     }
     if (!diffMode) { modeReview.disabled = true; modeReview.title = "用 forge audit portal --diff 生成以启用变更评审"; }
     document.querySelectorAll("#mode-seg .seg-btn").forEach(b => b.addEventListener("click", () => {
@@ -1652,8 +1791,11 @@ _HTML_TEMPLATE = r"""<!doctype html>
       applyMode();
     }));
     applyMode();
-    renderExternals(); renderSources(); renderSections(); renderRuntimes();
+    renderExternals(); renderCaptures(); renderSources(); renderSections(); renderRuntimes();
+    refreshLaneColumns();
     renderInspector();
+    applyFilters();
+    requestAnimationFrame(() => canvasEl.scrollTo({ left: 0, top: 0 }));
     requestAnimationFrame(drawLinks);
 
     // ---- events ----
@@ -1671,18 +1813,19 @@ _HTML_TEMPLATE = r"""<!doctype html>
     const changedBtn = document.getElementById("changed-only");
     if (diffMode) {
       changedBtn.hidden = false;
+      changedBtn.setAttribute("aria-pressed", String(changedOnly));
       changedBtn.addEventListener("click", () => { changedOnly = !changedOnly; changedBtn.setAttribute("aria-pressed", String(changedOnly)); applyFilters(); });
     }
     document.getElementById("reset-view").addEventListener("click", () => {
-      hoverId = null; keyboardFocusId = null; query = ""; input.value = ""; gapsOnly = false; changedOnly = false;
+      hoverId = null; keyboardFocusId = null; query = ""; input.value = ""; gapsOnly = false; changedOnly = diffMode && reviewView;
       cancelHoverPreview(); hideHoverCard();
       gapsBtn.setAttribute("aria-pressed", "false");
       changedBtn.setAttribute("aria-pressed", "false");
       activeStatus.clear(); ["exact", "derived", "declared", "uncertain", "missing", "wrapper"].forEach(s => activeStatus.add(s));
       document.querySelectorAll(".filter").forEach(b => b.setAttribute("aria-pressed", "true"));
-      applyFilters(); closePanel();
+      applyFilters(); canvasEl.scrollTo({ left: 0, top: 0 }); closePanel();
     });
-    document.getElementById("canvas").addEventListener("click", (e) => {
+    canvasEl.addEventListener("click", (e) => {
       if (e.target.closest(".node")) return;
       hideHoverCard();
       if (panelOpen) closePanel();

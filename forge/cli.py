@@ -1191,7 +1191,9 @@ def proposal_new(root: str | None, inbox_arg: str | None, title: str) -> None:
     Reads pending inbox file(s), pre-fills the `items[]` skeleton (one item per
     inbox source) with monitor_info / extracted derived from the inbox + capture
     frontmatter. Disposition / rationale / propagation are left as placeholders
-    for the agent to fill in. Run `forge proposal validate` afterwards.
+    for the agent to fill in. After filling the proposal, prepare the proposed
+    working-tree changes and use `forge audit portal --diff` as the default
+    review surface.
     """
     from forge.proposal.scaffold import resolve_inbox_arg, scaffold_proposal
 
@@ -1217,8 +1219,11 @@ def proposal_new(root: str | None, inbox_arg: str | None, title: str) -> None:
     click.echo(f"created proposal stub: {rel}")
     click.echo("next:")
     click.echo("  - fill out items[].disposition / extracted / rationale / propagation")
+    click.echo("  - apply the proposed asset/context edits to the working tree")
     click.echo(f"  - forge proposal validate {out_path.parent.name} --root {workspace}")
-    click.echo(f"  - forge pr render {out_path.parent.name} --root {workspace}")
+    click.echo(f"  - forge build --root {workspace} && forge doctor --root {workspace}")
+    click.echo(f"  - forge audit portal --root {workspace} --diff --base HEAD")
+    click.echo(f"  - optional text fallback: forge pr render {out_path.parent.name} --root {workspace}")
 
 
 @proposal_group.command("workbench")
@@ -3603,7 +3608,10 @@ def target_remove(adapter: str, delete_file: bool, root: str | None) -> None:
 def self_install_cmd(dry_run: bool, force: bool, runtime_names: tuple[str, ...]) -> None:
     """Bind forge-as-skill into every detected agent runtime (idempotent).
 
-    Currently supports: claude-code (~/.claude/skills/forge/SKILL.md).
+    Currently supports:
+
+    - claude-code (~/.claude/skills/forge/SKILL.md)
+    - codex (~/.codex/skills/forge/SKILL.md)
 
     Re-run safely after `forge update` — files with the managed-by marker are
     refreshed; unmanaged files report a conflict and are not touched.
@@ -3628,7 +3636,7 @@ def self_install_cmd(dry_run: bool, force: bool, runtime_names: tuple[str, ...])
 
     detected = [a for a in actions if a.status not in ("skipped", "conflict")]
     if detected and not dry_run:
-        click.echo("\nTriggers in Claude Code (any of):")
+        click.echo("\nTriggers in supported agent runtimes (any of):")
         click.echo("  'approve my changes' / 'review my context' / '过一下' / '审一下'")
         click.echo("  'forge approve' / 'forge diff' / 'forge reject'")
 

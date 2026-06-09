@@ -146,6 +146,12 @@ Portal 的设计契约:
 
 这个界面把 forge 的一句话目标落到可验收表面: owner 不只知道 "compiled context 变了",还要能看清"它为什么变、从哪来、进了哪个 runtime"。
 
+**流程契约**: Portal 是 context change 的默认验收面。`system/pr/<id>/proposal.md`
+仍是审计记录和 text fallback,但正常 approve 前必须先准备 working-tree
+review state,运行 `forge build` / `forge doctor`,再生成
+`forge audit portal --diff --base HEAD`。只有当 Portal 不可用、变更不适合图形化
+review,或用户明确要求纯文本时,才退回 `forge pr render` 的 §0.5 view 作为主要审阅面。
+
 ---
 
 ## 5. Target adapter

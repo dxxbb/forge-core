@@ -114,6 +114,14 @@ Portal contract:
 
 This makes the core promise reviewable: the owner can see not just that compiled context changed, but why it changed, where it came from, and which runtime received it.
 
+**Workflow contract**: Portal is the default acceptance surface for context
+changes. `system/pr/<id>/proposal.md` remains the audit record and text
+fallback, but the normal path before approve is to prepare the working-tree
+review state, run `forge build` / `forge doctor`, then generate
+`forge audit portal --diff --base HEAD`. Use the §0.5 `forge pr render` view
+as the primary review surface only when Portal is unavailable, unsuitable for
+the specific change, or explicitly requested by the user.
+
 ---
 
 ## 5. Target adapters

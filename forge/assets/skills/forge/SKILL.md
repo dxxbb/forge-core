@@ -75,9 +75,9 @@ forge monitor --root <path>
 Then choose one next action:
 
 - If monitor says `status: clean`, say it is clean and stop. Do not suggest import.
-- If monitor lists pending proposals, review the newest proposal.
+- If monitor lists pending proposals, review the newest proposal through the Portal-first review flow.
 - If monitor lists pending inbox and no proposal, process inbox to proposal.
-- If monitor lists context source changes, run **Build And Review Runtime**.
+- If monitor lists context source changes, run **Build And Review Runtime** and generate the Portal diff.
 - If monitor lists import source updates, run **Import To Capture** with those concrete updates as the recommended plan.
 - If monitor lists `workspace-project changed: <name> · ...` lines, run **Workspace-Project Sync** for that project.
 - If monitor ends with a `note: N project onepage(s) ... on legacy schema` hint, run `forge migrate-onepage --root <path>` (a pure schema backfill, no review needed) and stop. Use `--dry-run` first if you want a preview.
@@ -577,7 +577,38 @@ and version strings (`v0.3.3`) from being split mid-token. **For Chinese
 sentence breaks, write the fullwidth `，` — ASCII `,` between CJK chars
 is no longer a break candidate.**
 
-### 4. Render For User Review
+### 4. Prepare Portal Review Surface
+
+The default review surface is the audit Portal, not the text §0.5 block.
+Portal review only becomes meaningful after the proposed source/context edits
+exist in the working tree, because `forge audit portal --diff` compares the
+working tree against the base ref and then expands source -> section -> runtime
+lineage.
+
+For an inbox-derived proposal, after filling the schema:
+
+1. Apply the proposal's proposed asset/context edits to the working tree without
+   approving or committing.
+2. Run `forge proposal validate`.
+3. Run `forge build` and `forge doctor`.
+4. Run `forge audit portal --diff --base HEAD`.
+5. Present the Portal path as the primary review surface, with `proposal.md` as
+   the audit record.
+
+Use `HEAD` as the base unless the user explicitly asks to review against a
+different commit/ref.
+
+```bash
+forge proposal validate <pr-id> --root <path>
+forge build --root <path>
+forge doctor --root <path>
+forge audit portal --root <path> --diff --base HEAD
+```
+
+If `forge build`, `forge doctor`, or Portal generation fails, stop and show the
+error. Do not approve.
+
+### 4.5 Text Fallback: Render §0.5
 
 ```bash
 forge pr render <pr-id> --root <path>            # default: writes inline into proposal.md body
@@ -587,12 +618,13 @@ forge pr render <pr-id> --root <path> --width 78 # explicit wrap width (default 
 forge pr render <pr-id> --root <path> --no-wrap  # disable content soft-wrap (legacy v0.3.2)
 ```
 
+This is the fallback review surface when the Portal is unavailable, too noisy
+for the specific change, or the user explicitly requests a text-only review.
 The default behavior writes the rendered §0.5 view into the proposal body
 between the `<!-- BEGIN AUTO-RENDERED -->` / `<!-- END AUTO-RENDERED -->`
 markers — the reviewer opens `proposal.md` in Obsidian / editor and sees
 the per-item disposition + propagation tree + merged diff + approve pipeline
-directly, no redirection needed. User-authored content outside the markers
-is preserved.
+directly. User-authored content outside the markers is preserved.
 
 v0.3.3+: render and reformat default to wrap content at 78 display cols
 (CJK = 2 cols), preferring CJK fullwidth punctuation (`，。、；：！？）】」』→`)
@@ -624,7 +656,7 @@ proposal under `system/pr/` is the new state of record.
 Then tell the user:
 
 ```text
-Proposal written to system/pr/<id>/proposal.md. Run `forge pr render <id>` to see the §0.5 view, then reply approve / reject / revise.
+Proposal written to system/pr/<id>/proposal.md. I will prepare the working-tree review state and open/generate `forge audit portal --diff`; reply approve / reject / revise after reviewing the Portal. §0.5 is available as text fallback via `forge pr render <id>`.
 ```
 
 ### Disposition reference
@@ -661,30 +693,36 @@ opted-in proposals; the validator/doctor will report the proposal as
 
 ## Review Proposal
 
-When presenting a proposal, `approve` means approve this `system/pr` proposal. Do not ask for a second commit/seal confirmation.
+When presenting a proposal, `approve` means approve this `system/pr` proposal
+and the current working-tree review state shown in the Portal. Do not ask for a
+second commit/seal confirmation.
 
-If user approves, apply the proposal:
+Before asking for approval, the proposal's asset/context changes must already
+be present in the working tree and reviewed through the Portal-first flow:
 
 - write reviewed asset files under `user space`, `workspace`, `assist config`, or `public knowledge base`
 - update `context build/sections` only with reviewed projection content
 
-Then run:
+Then run or confirm:
 
 ```bash
 forge build --root <path>
 forge doctor --root <path>
 forge diff --root <path> --no-color --no-pager
+forge audit portal --root <path> --diff --base HEAD
 ```
 
-If build or doctor fails, stop and show the error. Do not commit.
+If build, doctor, or Portal generation fails, stop and show the error. Do not
+commit.
 
-If build and doctor pass, commit the approved PR state:
+Only after the user explicitly approves the Portal/proposal review state, commit
+the approved PR state:
 
 ```bash
 forge approve --root <path> -m "<short message>"
 ```
 
-This command is a temporary forge-core implementation detail: it rebuilds runtime, stages tracked context paths, and creates the git commit. Do not describe it to the user as a separate approve step. User-visible semantics are simply: "approved proposal applied and committed."
+This command is a temporary forge-core implementation detail: it rebuilds runtime, stages tracked context paths, and creates the git commit. Do not describe it to the user as a separate approve step. User-visible semantics are simply: "approved Portal/proposal state applied and committed."
 
 Finally, close the PR — appends a one-line summary to `system/approve log/<date>.md`
 and removes the PR directory:

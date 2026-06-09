@@ -56,9 +56,9 @@ forge monitor --root <path>
 Then choose one next action:
 
 - If monitor says `status: clean`, say it is clean and stop. Do not suggest import.
-- If monitor lists pending proposals, review the newest proposal.
+- If monitor lists pending proposals, review the newest proposal through the Portal-first review flow.
 - If monitor lists pending inbox and no proposal, process inbox to proposal.
-- If monitor lists context source changes, run **Build And Review Runtime**.
+- If monitor lists context source changes, run **Build And Review Runtime** and generate the Portal diff.
 - If monitor lists import source updates, run **Import To Capture** with those concrete updates as the recommended plan.
 - If monitor/doctor fails, show the failing lines and offer to fix.
 
@@ -421,7 +421,8 @@ how the upstream / body changes. Example table:
 `forge doctor` will report per-asset-dir bridge coverage after the proposal
 applies — use it as a sanity check, not a gate.
 
-Do not edit asset files or context sections yet.
+Do not approve or commit yet. For review, prepare the proposed asset/context
+edits in the working tree so the Portal can show the actual diff.
 
 After writing the proposal, mark the inbox item as processed (it is now
 represented by the proposal under `system/pr/`):
@@ -436,14 +437,17 @@ proposal under `system/pr/` is the new state of record.
 Then tell the user:
 
 ```text
-Proposal written to system/pr/<id>/proposal.md. Review it and reply approve / reject / revise.
+Proposal written to system/pr/<id>/proposal.md. I will prepare the working-tree review state and generate `forge audit portal --diff`; reply approve / reject / revise after reviewing the Portal.
 ```
 
 ## Review Proposal
 
-When presenting a proposal, `approve` means approve this `system/pr` proposal. Do not ask for a second commit/seal confirmation.
+When presenting a proposal, `approve` means approve this `system/pr` proposal
+and the current working-tree review state shown in the Portal. Do not ask for a
+second commit/seal confirmation.
 
-If user approves, apply the proposal:
+Before asking for approval, apply the proposal's proposed edits to the working
+tree without committing:
 
 - write reviewed asset files under `user space`, `workspace`, `assist config`, or `public knowledge base`
 - update `context build/sections` only with reviewed projection content
@@ -454,17 +458,20 @@ Then run:
 forge build --root <path>
 forge doctor --root <path>
 forge diff --root <path> --no-color --no-pager
+forge audit portal --root <path> --diff --base HEAD
 ```
 
-If build or doctor fails, stop and show the error. Do not commit.
+If build, doctor, or Portal generation fails, stop and show the error. Do not
+commit.
 
-If build and doctor pass, commit the approved PR state:
+Only after the user explicitly approves the Portal/proposal review state,
+commit the approved PR state:
 
 ```bash
 forge approve --root <path> -m "<short message>"
 ```
 
-This command is a temporary forge-core implementation detail: it rebuilds runtime, stages tracked context paths, and creates the git commit. Do not describe it to the user as a separate approve step. User-visible semantics are simply: "approved proposal applied and committed."
+This command is a temporary forge-core implementation detail: it rebuilds runtime, stages tracked context paths, and creates the git commit. Do not describe it to the user as a separate approve step. User-visible semantics are simply: "approved Portal/proposal state applied and committed."
 
 Finally, close the PR — appends a one-line summary to `system/approve log/<date>.md`
 and removes the PR directory:
@@ -490,9 +497,11 @@ Use this only when context source changed outside a proposal and the user asks t
 forge build --root <path>
 forge doctor --root <path>
 forge diff --root <path> --no-color --no-pager
+forge audit portal --root <path> --diff --base HEAD
 ```
 
-Show the high-signal summary. Do not paste enormous diffs unless user asks.
+Show the high-signal summary and the Portal path. Do not paste enormous diffs
+unless user asks.
 
 Runtime files are generated only:
 

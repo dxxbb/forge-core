@@ -6,10 +6,14 @@ concern is the inverse: telling the agent runtime *how to drive forge*. It
 writes forge's own SKILL.md (or runtime equivalent) to a discoverable global
 location so the agent can pick it up.
 
-Currently supports: claude-code (~/.claude/skills/forge/SKILL.md). Other
-runtimes (codex AGENTS.md, cursor .cursor/rules) are detected and surfaced
-in the summary but not auto-written — those entrypoints are project-level or
-require opt-in semantics that aren't yet designed.
+Currently supports:
+
+- claude-code (~/.claude/skills/forge/SKILL.md)
+- codex (~/.codex/skills/forge/SKILL.md)
+
+Other runtimes (cursor .cursor/rules) are detected and surfaced in the summary
+but not auto-written — those entrypoints are project-level or require opt-in
+semantics that aren't yet designed.
 
 Manifest: ~/.forge/manifest.json. Tracks each runtime binding so re-runs are
 idempotent and `forge update` can refresh deterministically.
@@ -119,10 +123,30 @@ class ClaudeCodeRuntime(SkillRuntime):
         return _inject_marker(src.read_text(encoding="utf-8"), self.name)
 
 
+class CodexRuntime(SkillRuntime):
+    name = "codex"
+
+    def detect(self, home: Path) -> bool:
+        return (home / ".codex").is_dir()
+
+    def target_path(self, home: Path) -> Path:
+        return home / ".codex" / "skills" / "forge" / "SKILL.md"
+
+    def render(self) -> str:
+        src = _packaged_skill_source()
+        if not src.exists():
+            raise FileNotFoundError(
+                f"packaged skill asset missing at {src}. "
+                "Reinstall forge from a release wheel or `pip install -e .` from source."
+            )
+        return _inject_marker(src.read_text(encoding="utf-8"), self.name)
+
+
 # Registry of supported runtimes. To add a new one, subclass SkillRuntime
 # and append here.
 RUNTIMES: list[SkillRuntime] = [
     ClaudeCodeRuntime(),
+    CodexRuntime(),
 ]
 
 

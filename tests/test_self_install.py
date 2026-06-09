@@ -26,6 +26,11 @@ def _make_claude_home(home: Path) -> Path:
     return home
 
 
+def _make_codex_home(home: Path) -> Path:
+    (home / ".codex").mkdir(parents=True)
+    return home
+
+
 # ---------- module-level: detection / install / idempotence ----------
 
 
@@ -33,6 +38,7 @@ def test_skipped_when_runtime_not_detected(tmp_path: Path) -> None:
     actions = self_install(home=tmp_path)
     statuses = {a.runtime: a.status for a in actions}
     assert statuses["claude-code"] == "skipped"
+    assert statuses["codex"] == "skipped"
     # No manifest written when nothing was installed.
     assert not manifest_path(tmp_path).exists()
 
@@ -50,6 +56,21 @@ def test_fresh_install_writes_skill_with_marker(tmp_path: Path) -> None:
     assert MANAGED_MARKER_RE.search(body), "managed-by marker missing"
     assert "forge-runtime: claude-code" in body
     assert "name: forge" in body  # original frontmatter survived
+
+
+def test_fresh_install_writes_codex_skill_with_marker(tmp_path: Path) -> None:
+    home = _make_codex_home(tmp_path)
+    actions = self_install(home=home)
+
+    codex = next(a for a in actions if a.runtime == "codex")
+    assert codex.status == "installed"
+    assert codex.target == home / ".codex" / "skills" / "forge" / "SKILL.md"
+    assert codex.target.exists()
+
+    body = codex.target.read_text("utf-8")
+    assert MANAGED_MARKER_RE.search(body), "managed-by marker missing"
+    assert "forge-runtime: codex" in body
+    assert "forge audit portal --diff" in body
 
 
 def test_rerun_is_idempotent(tmp_path: Path) -> None:
@@ -177,6 +198,15 @@ def test_only_filter_restricts_runtimes(tmp_path: Path) -> None:
     assert {a.runtime for a in actions} == {"claude-code"}
 
 
+def test_only_filter_can_select_codex(tmp_path: Path) -> None:
+    home = _make_codex_home(tmp_path)
+    actions = self_install(home=home, only=["codex"])
+    assert {a.runtime for a in actions} == {"codex"}
+    codex = actions[0]
+    assert codex.status == "installed"
+    assert codex.target.exists()
+
+
 def test_format_summary_handles_empty() -> None:
     assert "no runtimes" in format_summary([])
 
@@ -192,6 +222,18 @@ def test_cli_self_install_runs_in_sandboxed_home(tmp_path: Path, monkeypatch) ->
     assert result.exit_code == 0, result.output
     assert "installed" in result.output
     assert (home / ".claude" / "skills" / "forge" / "SKILL.md").exists()
+
+
+def test_cli_self_install_installs_codex_in_sandboxed_home(tmp_path: Path, monkeypatch) -> None:
+    home = _make_codex_home(tmp_path)
+    monkeypatch.setenv("HOME", str(home))
+    runner = CliRunner()
+    result = runner.invoke(main, ["self-install", "--runtime", "codex"])
+    assert result.exit_code == 0, result.output
+    assert "codex" in result.output
+    target = home / ".codex" / "skills" / "forge" / "SKILL.md"
+    assert target.exists()
+    assert "forge-runtime: codex" in target.read_text("utf-8")
 
 
 def test_cli_self_install_dry_run(tmp_path: Path, monkeypatch) -> None:

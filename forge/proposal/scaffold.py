@@ -321,11 +321,13 @@ def _default_body() -> str:
         "   placeholder — replace `<APPLY|COVERED|...>` with the actual value (e.g.\n"
         "   `disposition: APPLY`).\n"
         "2. For MIXED items, expand `sub_items[]` with one entry per sub-source.\n"
-        "3. Run `forge proposal validate <pr-id>` to check schema completeness.\n"
-        "   Validate auto-renders into the BEGIN/END block when the schema is complete.\n"
-        "4. Run `forge pr render <pr-id>` to manually re-render (writes inline by default;\n"
-        "   pass `--stdout` to print instead).\n"
-        "5. Present the rendered view to the user for approve/reject.\n\n"
+        "3. Apply the proposed asset/context edits to the working tree without approving.\n"
+        "4. Run `forge proposal validate <pr-id>` to check schema completeness.\n"
+        "   Validate auto-renders the text fallback into the BEGIN/END block when complete.\n"
+        "5. Run `forge build`, `forge doctor`, then `forge audit portal --diff --base HEAD`.\n"
+        "   The Portal is the default review surface because it shows the working-tree\n"
+        "   source/section/runtime diff; §0.5 is a text fallback.\n"
+        "6. Present the Portal path plus proposal path to the user for approve/reject.\n\n"
         "Schema reference: `forge.proposal.schema` (Disposition enum + Item/SubItem dataclasses).\n"
     )
 
