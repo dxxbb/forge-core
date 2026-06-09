@@ -95,6 +95,25 @@ This is deliberately *structural*, not LLM-based. v0.1 answers "did my change do
 
 **What this gives you:** when you refactor your sections, you can verify the compiled output changed the way you meant it to change, and didn't bloat or drop content.
 
+### Context Audit Portal
+
+`forge audit portal` is the visual acceptance surface between evaluation and governance. It does not edit canonical truth; it expands the current workspace provenance into a graph the owner can review:
+
+```
+External Input → Canonical Source → Canonical Section → Runtime
+```
+
+Portal contract:
+
+- **Desktop-first**: this is a high-density review surface for a monitor, not a mobile reading view.
+- **Graph = provenance map**: nodes represent source / section / runtime / external import; edges represent import, declared/derived upstream, and compiler-exact runtime mapping.
+- **Hover = review lens**: hover shows a one-screen preview. Nodes prioritize the current change diff; edges prioritize a `From / To` comparison so the reviewer can see what was copied, excerpted, or summarized into what.
+- **Click / Enter = full detail**: full text, long diffs, runtime hits, and method notes pin into the right drawer. The drawer can scroll and maximize.
+- **Direction keys = lane navigation**: left/right move across provenance lanes; up/down move within the current lane.
+- **No in-portal mutation**: the portal only displays compiler exact mapping, frontmatter declarations, and computed approximations. Relationship fixes must land back in source, derive records, or proposals.
+
+This makes the core promise reviewable: the owner can see not just that compiled context changed, but why it changed, where it came from, and which runtime received it.
+
 ---
 
 ## 5. Target adapters

@@ -57,48 +57,49 @@ _HTML_TEMPLATE = r"""<!doctype html>
   <style>
     :root {
       color-scheme: light;
-      /* Design language adopted from a Claude Design pass (Linear/Vercel-grade,
-         restrained: exact recedes to gray, gaps & changes pop). */
-      --bg: #f4f5f7;
-      --canvas-dot: #e3e5ea;
-      --panel: #ffffff;
-      --panel-soft: #fafbfc;
-      --surface-3: #f3f4f6;
-      --ink: #16181d;
-      --ink-soft: #585f6b;
-      --muted: #8a909c;
-      --muted-2: #aab0bb;
-      --line: #e8eaee;
-      --line-2: #dfe2e8;
-      --line-soft: #eef0f3;
-      --accent: #5b5bd6;
-      --accent-2: #4a4ac4;
-      --accent-soft: #eeeefb;
-      --accent-ring: rgba(91, 91, 214, 0.35);
-      --exact: #aab0bb;
-      --exact-soft: #eef0f3;
-      --derived: #2f6feb;
-      --derived-soft: #eaf1fe;
-      --declared: #8155f4;
-      --declared-soft: #f1ecfe;
-      --uncertain: #c5871a;
-      --uncertain-soft: #fbf2dd;
-      --missing: #db4a55;
-      --missing-soft: #fdeced;
-      --wrapper: #9aa1ad;
-      --added: #1f9d57;
-      --added-soft: #e7f6ee;
-      --modified: #c5871a;
-      --modified-soft: #fbf2dd;
-      --removed: #db4a55;
-      --removed-soft: #fdeced;
-      --diff-add-bg: #e7f6ee;
-      --diff-add-mark: #1f9d57;
-      --diff-del-bg: #fdeced;
-      --diff-del-mark: #db4a55;
-      --shadow-sm: 0 1px 2px rgba(20, 22, 28, .05), 0 1px 1px rgba(20, 22, 28, .03);
-      --shadow-md: 0 4px 16px rgba(20, 22, 28, .08), 0 1px 3px rgba(20, 22, 28, .05);
-      --shadow-lg: 0 12px 40px rgba(20, 22, 28, .14), 0 2px 8px rgba(20, 22, 28, .06);
+      /* Neutral review palette: mid-light, low-saturation, with semantic colors
+         muted enough for long desktop review sessions. */
+      --bg: #f1f0ec;
+      --canvas-dot: #ddd9d1;
+      --panel: #fbfaf7;
+      --panel-soft: #f6f4ef;
+      --surface-3: #ece9e2;
+      --ink: #202329;
+      --ink-soft: #5f6670;
+      --muted: #858b93;
+      --muted-2: #a3a7ad;
+      --line: #e2ded6;
+      --line-2: #d5d0c7;
+      --border-strong: #beb8ad;
+      --line-soft: #ebe7df;
+      --accent: #566579;
+      --accent-2: #47586d;
+      --accent-soft: #e7ebee;
+      --accent-ring: rgba(86, 101, 121, 0.28);
+      --exact: #9ca0a6;
+      --exact-soft: #ece9e2;
+      --derived: #5c7189;
+      --derived-soft: #e7ecf0;
+      --declared: #73677d;
+      --declared-soft: #eee9f0;
+      --uncertain: #9a7448;
+      --uncertain-soft: #f1e8dc;
+      --missing: #a86464;
+      --missing-soft: #f1e4e2;
+      --wrapper: #92969c;
+      --added: #5d8065;
+      --added-soft: #e4ece5;
+      --modified: #9a7448;
+      --modified-soft: #f1e8dc;
+      --removed: #a86464;
+      --removed-soft: #f1e4e2;
+      --diff-add-bg: #e4ece5;
+      --diff-add-mark: #4f7658;
+      --diff-del-bg: #f1e4e2;
+      --diff-del-mark: #965858;
+      --shadow-sm: 0 1px 2px rgba(32, 35, 41, .05), 0 1px 1px rgba(32, 35, 41, .03);
+      --shadow-md: 0 4px 16px rgba(32, 35, 41, .08), 0 1px 3px rgba(32, 35, 41, .05);
+      --shadow-lg: 0 12px 40px rgba(32, 35, 41, .13), 0 2px 8px rgba(32, 35, 41, .06);
       --r-lg: 12px;
       --r-md: 9px;
       --r-sm: 6px;
@@ -133,7 +134,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
     .brand { display: flex; align-items: center; gap: 9px; min-width: 0; flex: 0 0 auto; }
     .brand .mark {
       width: 26px; height: 26px; border-radius: 7px; flex: 0 0 auto;
-      background: #16181d; display: grid; place-items: center; color: #fff;
+      background: #2f343b; display: grid; place-items: center; color: #fff;
       font-weight: 700; font-size: 14px; font-family: var(--mono);
     }
     .brand .app-name { font-size: 14px; font-weight: 650; letter-spacing: -.01em; white-space: nowrap; }
@@ -152,7 +153,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
       padding: 9px 12px 9px 32px; font-size: 13px; background: var(--panel-soft); color: var(--ink);
       transition: border-color .15s, box-shadow .15s, background .15s;
     }
-    .search:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); background: #fff; }
+    .search:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); background: var(--panel); }
     .search::placeholder { color: var(--muted); }
     .search-wrap svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
 
@@ -199,18 +200,42 @@ _HTML_TEMPLATE = r"""<!doctype html>
     }
     .ghost-btn:hover { border-color: var(--accent); color: var(--accent); }
 
-    /* ---------- body split ---------- */
-    .split { flex: 1 1 auto; display: grid; grid-template-columns: minmax(0,1fr) 7px var(--insp-w, 620px); min-height: 0; }
-    .divider { position: relative; cursor: col-resize; background: var(--line); }
-    .divider::before { content: ""; position: absolute; inset: 0 -5px; }
-    .divider:hover, .divider.drag { background: var(--accent); }
-    .divider::after { content: ""; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); width: 3px; height: 34px; border-radius: 3px; background: var(--muted); opacity: .5; }
-    .divider:hover::after, .divider.drag::after { background: #fff; opacity: .9; }
+    /* ---------- body: full-bleed graph + floating detail drawer ---------- */
+    .split { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; --insp-w: min(60vw, 900px); }
+    .canvas-wrap { position: absolute; inset: 0; overflow: auto; padding: 22px 22px 56px; background-color: var(--bg); background-image: radial-gradient(var(--canvas-dot) 1px, transparent 1.4px); background-size: 18px 18px; }
+    .divider {
+      position: absolute; top: 0; bottom: 0; right: var(--insp-w); width: 9px;
+      transform: translateX(50%); z-index: 31; cursor: col-resize; display: none;
+    }
+    .split.panel-open .divider { display: block; }
+    .split.maxed .divider { display: none; }
+    .divider::before { content: ""; position: absolute; inset: 0; }
+    .divider::after { content: ""; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); width: 4px; height: 40px; border-radius: 3px; background: var(--line-2); transition: background .12s; }
+    .divider:hover::after, .divider.drag::after { background: var(--accent); }
     body.dragging { cursor: col-resize; user-select: none; }
-    .canvas-wrap { position: relative; overflow: auto; padding: 22px 22px 56px; background-color: var(--bg); background-image: radial-gradient(var(--canvas-dot) 1px, transparent 1.4px); background-size: 18px 18px; }
-    .lanes { position: relative; display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 38px; }
+    .lanes { position: relative; display: grid; grid-template-columns: repeat(3, 270px); justify-content: space-between; gap: 40px; }
+    .lanes.has-external { grid-template-columns: repeat(4, 236px); }
     .links-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; overflow: visible; }
+    .edge-chips { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+    .edge-chip {
+      position: absolute; transform: translate(-50%, -50%); pointer-events: auto; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 999px;
+      background: var(--panel); border: 1px solid var(--line); font-size: 10px; color: var(--ink-soft);
+      box-shadow: var(--shadow-sm); white-space: nowrap; transition: border-color .14s, color .14s, box-shadow .14s, transform .14s, opacity .14s;
+    }
+    .edge-chip .d { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto; }
+    .edge-chip:hover, .edge-chip.on { border-color: var(--accent); color: var(--accent); box-shadow: var(--shadow-md); transform: translate(-50%, -50%) scale(1.08); z-index: 3; }
+    .edge-chip.dim { opacity: .22; }
+    /* ---------- motion / polish ---------- */
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes panelIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+    @keyframes dashmove { to { stroke-dashoffset: -26; } }
+    .links-svg path[data-edge] { transition: stroke .16s ease, stroke-width .16s ease, opacity .16s ease; }
+    .links-svg path.flow { animation: dashmove .5s linear infinite; }
+    #insp-body.anim { animation: panelIn .2s cubic-bezier(.4, 0, .2, 1); }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; } }
     .lane { position: relative; z-index: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+    .lane[hidden] { display: none; }
     .lane-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding-bottom: 2px; }
     .lane-head h2 { margin: 0; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-soft); }
     .lane-head .count { font-size: 11px; color: var(--muted); }
@@ -222,19 +247,20 @@ _HTML_TEMPLATE = r"""<!doctype html>
     .node {
       position: relative; z-index: 1; text-align: left; width: 100%;
       border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel);
-      padding: 8px 10px; box-shadow: var(--shadow-sm);
-      transition: box-shadow .15s, border-color .15s, transform .12s, opacity .15s;
-      display: grid; gap: 4px;
+      padding: 9px 11px; box-shadow: var(--shadow-sm);
+      transition: box-shadow .16s ease, border-color .16s ease, transform .14s cubic-bezier(.4,0,.2,1), opacity .16s ease;
+      display: grid; gap: 4px; animation: fadeIn .22s ease both;
     }
-    .node:hover { border-color: #cdc8bd; transform: translateY(-1px); box-shadow: var(--shadow-md); }
+    .node:hover { border-color: var(--border-strong); transform: translateY(-1px); box-shadow: var(--shadow-md); }
+    .node:active { transform: translateY(0); }
     .node .chg { position: absolute; top: -8px; right: -8px; min-width: 19px; height: 19px; padding: 0 5px; border-radius: 999px; display: grid; place-items: center; font-size: 12px; font-weight: 800; color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); z-index: 2; }
     .chg-added { background: var(--added); }
     .chg-modified { background: var(--modified); }
     .chg-removed { background: var(--removed); }
     .node.ch-removed { opacity: .6; }
     .node.ch-removed .name { text-decoration: line-through; }
-    .node.ch-added { border-color: #5ec39a; }
-    .node.ch-modified { border-color: #e8b765; }
+    .node.ch-added { border-color: #9cb5a1; }
+    .node.ch-modified { border-color: #c6aa82; }
     body.audit-view .chg { display: none; }
     body.audit-view .node.ch-added, body.audit-view .node.ch-modified, body.audit-view .node.ch-removed { border-color: var(--line); }
     body.audit-view #changed-only { display: none; }
@@ -245,13 +271,13 @@ _HTML_TEMPLATE = r"""<!doctype html>
     .tab .n { color: var(--muted); font-weight: 600; margin-left: 5px; }
     .tabpane[hidden] { display: none; }
     .code-line.d-add { background: var(--diff-add-bg); }
-    .code-line.d-add .ln { background: #d3efdd; color: var(--diff-add-mark); }
+    .code-line.d-add .ln { background: #d8e4da; color: var(--diff-add-mark); }
     .code-line.d-del { background: var(--diff-del-bg); }
-    .code-line.d-del .ln { background: #f7d7d4; color: var(--diff-del-mark); }
+    .code-line.d-del .ln { background: #ead2cf; color: var(--diff-del-mark); }
     .diff-banner { display: flex; align-items: center; gap: 8px; border-radius: var(--r-md); padding: 9px 12px; font-size: 12.5px; margin-bottom: 14px; font-weight: 600; }
-    .diff-banner.added { background: var(--added-soft); color: #126c3b; }
-    .diff-banner.modified { background: var(--modified-soft); color: #8a5e12; }
-    .diff-banner.removed { background: var(--removed-soft); color: #a8323c; }
+    .diff-banner.added { background: var(--added-soft); color: #47684f; }
+    .diff-banner.modified { background: var(--modified-soft); color: #765735; }
+    .diff-banner.removed { background: var(--removed-soft); color: #81504f; }
     .diff-pill { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px; font-size: 12px; color: var(--ink-soft); background: var(--panel); }
     .diff-pill b { font-weight: 700; }
     .node .row { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -259,10 +285,51 @@ _HTML_TEMPLATE = r"""<!doctype html>
     .node .name { font-weight: 650; font-size: 13.5px; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; }
     .node .ptr { font-size: 11.5px; color: var(--muted); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .node .tags { display: flex; flex-wrap: wrap; gap: 5px; }
+    .node .submeta { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+    .node .submeta .meta-mark { font-weight: 600; }
+    .node .submeta .dotsep { color: var(--muted-2); }
     .node .sdot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; box-shadow: 0 0 0 3px rgba(0,0,0,.03); }
     .node.sel { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow-md); }
+    .node.kbd { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
     .node.dim { opacity: .26; filter: saturate(.5); }
     .node.hit { border-color: var(--accent); }
+
+    .hover-card {
+      position: absolute; z-index: 24; width: min(720px, calc(100vw - 32px)); max-height: min(76vh, 620px); overflow: hidden;
+      padding: 12px 14px 13px; border: 1px solid var(--line-2); border-radius: var(--r-md);
+      background: rgba(251,250,247,.99); box-shadow: var(--shadow-lg); pointer-events: auto;
+      animation: panelIn .14s cubic-bezier(.4, 0, .2, 1);
+    }
+    .hover-card[hidden] { display: none; }
+    .preview-head { display: grid; gap: 3px; }
+    .preview-eyebrow { margin: 0; display: flex; align-items: center; gap: 7px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+    .preview-title { margin: 0; font-size: 14.5px; line-height: 1.22; font-weight: 750; overflow-wrap: anywhere; }
+    .preview-sub { margin: 0; font-size: 11.5px; color: var(--muted); font-family: var(--mono); overflow-wrap: anywhere; }
+    .preview-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .preview-chip { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 2px 7px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel-soft); color: var(--ink-soft); font-size: 10.5px; line-height: 1.35; }
+    .preview-chip b { font-weight: 700; color: var(--ink); }
+    .preview-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 7px 13px; margin-top: 8px; }
+    .preview-row { display: grid; grid-template-columns: 54px minmax(0,1fr); gap: 7px; align-items: baseline; font-size: 11.5px; }
+    .preview-k { color: var(--muted); }
+    .preview-v { color: var(--ink-soft); overflow-wrap: anywhere; }
+    .preview-flow { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .preview-section { margin-top: 8px; }
+    .preview-section h4 { margin: 0 0 5px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-soft); }
+    .preview-compare { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 9px; margin-top: 9px; }
+    .preview-pane { min-width: 0; }
+    .preview-pane-title { margin: 0 0 5px; display: flex; justify-content: space-between; gap: 8px; color: var(--ink-soft); font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; }
+    .preview-pane-title span:last-child { color: var(--muted); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: none; letter-spacing: 0; }
+    .preview-code { border: 1px solid var(--line); border-radius: var(--r-sm); overflow: hidden; background: var(--panel-soft); }
+    .preview-code .preview-cap { padding: 5px 9px; border-bottom: 1px solid var(--line-soft); font-size: 10.5px; color: var(--muted); background: var(--panel); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .preview-code .preview-line { display: grid; grid-template-columns: 30px minmax(0,1fr); font-family: var(--mono); font-size: 10.6px; line-height: 1.3; }
+    .preview-code .ln { color: var(--muted-2); text-align: right; padding: 0 6px; border-right: 1px solid var(--line-soft); background: #f4f1e9; }
+    .preview-code .lc { padding: 0 7px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .preview-compare .preview-code .lc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .preview-diff .lc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .preview-code .d-add { background: var(--diff-add-bg); }
+    .preview-code .d-del { background: var(--diff-del-bg); }
+    .preview-more { padding: 3px 7px; border-top: 1px solid var(--line-soft); color: var(--muted); font-size: 10.5px; }
+    .hover-card .hover-hint { margin: 9px 0 0; padding-top: 8px; border-top: 1px solid var(--line-soft); font-size: 10.8px; color: var(--muted); }
 
     .tag {
       display: inline-flex; align-items: center; gap: 5px;
@@ -273,20 +340,21 @@ _HTML_TEMPLATE = r"""<!doctype html>
     .tag.mono { font-family: var(--mono); font-weight: 500; }
 
     /* ---------- inspector ---------- */
-    .inspector { position: relative; border-left: 1px solid var(--line); background: var(--panel); overflow: auto; min-height: 0; }
-    .insp-toolbar { position: sticky; top: 0; z-index: 3; display: flex; justify-content: flex-end; gap: 6px; padding: 8px 10px; background: linear-gradient(var(--panel), var(--panel) 70%, transparent); }
+    .inspector {
+      position: absolute; top: 0; right: 0; bottom: 0; width: var(--insp-w);
+      background: var(--panel); border-left: 1px solid var(--line); overflow: auto;
+      z-index: 30; box-shadow: var(--shadow-lg);
+      transform: translateX(101%); transition: transform .26s cubic-bezier(.4, 0, .2, 1), width .18s ease;
+    }
+    .split.panel-open .inspector { transform: none; }
+    .split.maxed .inspector { width: min(88vw, 1320px); }
+    .insp-toolbar { position: sticky; top: 0; z-index: 3; display: flex; justify-content: flex-end; gap: 6px; padding: 9px 12px; background: linear-gradient(var(--panel), var(--panel) 72%, transparent); }
     .icon-btn { width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-soft); color: var(--ink-soft); font-size: 14px; line-height: 1; display: grid; place-items: center; }
     .icon-btn:hover { border-color: var(--accent); color: var(--accent); }
-    .insp-pad { padding: 4px 20px 48px; }
-    .insp-backdrop { position: fixed; inset: 0; background: rgba(24, 21, 16, .34); z-index: 40; backdrop-filter: blur(1px); }
-    .inspector.max {
-      position: fixed; top: 0; right: 0; bottom: 0;
-      left: auto; width: min(1080px, 80vw); z-index: 50;
-      box-shadow: -18px 0 50px rgba(24, 21, 16, .22);
-      border-left: 1px solid var(--line);
-    }
-    .inspector.max .insp-pad { padding: 4px 32px 56px; }
-    .inspector.max .code-scroll { max-height: 66vh; }
+    .insp-pad { padding: 2px 22px 48px; }
+    .insp-backdrop { position: absolute; inset: 0; background: rgba(24, 21, 16, .28); z-index: 29; }
+    .split.maxed .insp-pad { padding: 2px 32px 56px; }
+    .split.maxed .code-scroll { max-height: 70vh; }
     /* In the expanded view a section reads as a full lineage, three columns. */
     .trace3 { display: grid; grid-template-columns: minmax(0,0.9fr) minmax(0,1.1fr) minmax(0,1.1fr); gap: 18px; align-items: start; }
     .trace3 .col > h4 { margin: 0 0 9px; font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-soft); }
@@ -309,7 +377,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
       border: 1px solid var(--line); background: var(--panel-soft); border-radius: 999px;
       padding: 4px 10px; font-size: 12px; color: var(--ink-soft); transition: border-color .12s, background .12s;
     }
-    .nodelink:hover { border-color: var(--accent); background: #fff; color: var(--accent); }
+    .nodelink:hover { border-color: var(--accent); background: var(--panel); color: var(--accent); }
     .nodelink .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .nodelink .d { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
 
@@ -319,11 +387,11 @@ _HTML_TEMPLATE = r"""<!doctype html>
     }
     .code-scroll { max-height: 46vh; overflow: auto; }
     .code-line { display: grid; grid-template-columns: 42px minmax(0,1fr); font-family: var(--mono); font-size: 11.5px; line-height: 1.55; }
-    .code-line .ln { color: #b8b2a6; text-align: right; padding: 0 9px; user-select: none; border-right: 1px solid var(--line-soft); background: #fbfaf6; }
+    .code-line .ln { color: #aaa49a; text-align: right; padding: 0 9px; user-select: none; border-right: 1px solid var(--line-soft); background: #f4f1e9; }
     .code-line .lc { padding: 0 11px; white-space: pre; overflow-wrap: normal; }
-    .code-line.hl { background: #fff7e6; }
-    .code-line.hl .ln { background: #fdeccb; color: #9a6a12; }
-    .code-cap { display: flex; justify-content: space-between; align-items: center; padding: 7px 11px; border-bottom: 1px solid var(--line); font-size: 11px; color: var(--muted); background: #fff; }
+    .code-line.hl { background: #f3ead7; }
+    .code-line.hl .ln { background: #eadbbf; color: #765735; }
+    .code-cap { display: flex; justify-content: space-between; align-items: center; padding: 7px 11px; border-bottom: 1px solid var(--line); font-size: 11px; color: var(--muted); background: var(--panel); }
 
     .gap-list { display: flex; flex-direction: column; gap: 8px; }
     .gap {
@@ -331,7 +399,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
       border-radius: var(--r-sm); background: var(--panel-soft); padding: 10px 12px;
       display: grid; gap: 3px; transition: border-color .12s, background .12s, transform .1s;
     }
-    .gap:hover { background: #fff; transform: translateX(2px); }
+    .gap:hover { background: var(--panel); transform: translateX(2px); }
     .gap .gh { display: flex; align-items: center; gap: 8px; }
     .gap .gid { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
     .gap .gobj { font-weight: 650; font-size: 13px; }
@@ -360,11 +428,12 @@ _HTML_TEMPLATE = r"""<!doctype html>
     .wf-num { width: 18px; height: 18px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 700; display: grid; place-items: center; flex: 0 0 auto; }
 
     @media (max-width: 1080px) {
-      .split { grid-template-columns: 1fr; }
-      .inspector { border-left: 0; border-top: 1px solid var(--line); max-height: 60vh; }
+      .split { --insp-w: 100vw; }
+      .split.maxed .inspector { width: 100vw; }
       .lanes { grid-template-columns: 1fr; gap: 22px; }
       .links-svg { display: none; }
-      .metrics { display: none; }
+      .counts { display: none; }
+      .crumbs { display: none; }
     }
   </style>
 </head>
@@ -400,13 +469,19 @@ _HTML_TEMPLATE = r"""<!doctype html>
       <button class="chip toggle" id="changed-only" aria-pressed="false" hidden>只看改动</button>
       <div class="spacer"></div>
       <div class="counts" id="counts"></div>
+      <button class="ghost-btn" id="overview-btn" title="审计总览 / 健康度">总览</button>
       <button class="ghost-btn" id="reset-view">重置</button>
     </div>
 
-    <div class="split">
+    <div class="split" id="split">
       <div class="canvas-wrap" id="canvas">
         <div class="lanes" id="lanes">
           <svg class="links-svg" id="links"></svg>
+          <div class="edge-chips" id="edge-chips"></div>
+          <div class="hover-card" id="hover-card" hidden></div>
+          <section class="lane" id="lane-external" hidden>
+            <div class="lane-head"><h2>External Input · 导入</h2><span class="count" id="cnt-external"></span></div>
+          </section>
           <section class="lane" id="lane-sources">
             <div class="lane-head"><h2>Canonical Source · 按架构层</h2><span class="count" id="cnt-sources"></span></div>
           </section>
@@ -418,15 +493,16 @@ _HTML_TEMPLATE = r"""<!doctype html>
           </section>
         </div>
       </div>
+      <div class="insp-backdrop" id="insp-backdrop" hidden></div>
       <div class="divider" id="divider" title="拖拽调整宽度（双击复位）"></div>
       <aside class="inspector" id="inspector">
         <div class="insp-toolbar">
-          <button class="icon-btn" id="insp-expand" title="展开 / 收起详情（E）" aria-label="展开详情">⤢</button>
+          <button class="icon-btn" id="insp-expand" title="最大化（E）" aria-label="最大化">⤢</button>
+          <button class="icon-btn" id="insp-close" title="收起（Esc）" aria-label="收起">✕</button>
         </div>
         <div class="insp-pad" id="insp-body"></div>
       </aside>
     </div>
-    <div class="insp-backdrop" id="insp-backdrop" hidden></div>
   </div>
 
   <script id="audit-data" type="application/json">__AUDIT_DATA__</script>
@@ -439,15 +515,20 @@ _HTML_TEMPLATE = r"""<!doctype html>
     const STATUS_COLOR = {
       exact: "var(--exact)", derived: "var(--derived)", declared: "var(--declared)",
       uncertain: "var(--uncertain)", missing: "var(--missing)", wrapper: "var(--wrapper)",
+      imported: "var(--exact)", pending: "var(--uncertain)",
     };
-    const KIND_COLOR = { source: "#0ea5a4", capture: "#d97706", memory: "#7c3aed", project: "#2563eb" };
+    const KIND_COLOR = { source: "#5f7d7a", capture: "#9a7448", memory: "#73677d", project: "#5c7189" };
     const KIND_LABEL = { source: "Source", capture: "Capture", memory: "Memory", project: "Project" };
+    const externals = graph.externals || [];
 
     // ---- indices ----
     const byId = new Map();
-    [...graph.sources, ...graph.sections, ...graph.runtimes].forEach(n => byId.set(n.id, n));
+    [...externals, ...graph.sources, ...graph.sections, ...graph.runtimes].forEach(n => byId.set(n.id, n));
     const srcEdges = graph.edges.filter(e => e.relation === "source_to_section");
     const rtEdges = graph.edges.filter(e => e.relation === "section_to_runtime");
+    const importEdges = graph.edges.filter(e => e.relation === "external_to_source");
+    const importEdgesTo = (id) => importEdges.filter(e => e.to_id === id);
+    const importEdgesFrom = (id) => importEdges.filter(e => e.from_id === id);
     const outAdj = new Map(), inAdj = new Map();
     graph.edges.forEach(e => {
       (outAdj.get(e.from_id) || outAdj.set(e.from_id, []).get(e.from_id)).push(e.to_id);
@@ -508,6 +589,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
     };
     // node primary status used for the status dot + filtering
     const nodeStatus = (n) => {
+      if (n.kind === "external") return n.status || "imported";
       if (graph.sources.includes(n)) {
         if (n.status === "missing") return "missing";
         const e = srcEdgesFrom(n.id)[0];
@@ -586,9 +668,11 @@ _HTML_TEMPLATE = r"""<!doctype html>
       project: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l9-4 9 4-9 4z"/><path d="M3 7v10l9 4 9-4V7"/></svg>',
       section: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
       runtime: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v12H4z"/><path d="M8 21h8M9 9l2 2-2 2M13 13h3"/></svg>',
+      external: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3l-9 9"/><path d="M15 3h6v6"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg>',
     };
 
     // ---- DOM render: lanes ----
+    const laneExternal = document.getElementById("lane-external");
     const laneSources = document.getElementById("lane-sources");
     const laneSections = document.getElementById("lane-sections");
     const laneRuntimes = document.getElementById("lane-runtimes");
@@ -608,9 +692,9 @@ _HTML_TEMPLATE = r"""<!doctype html>
       el.dataset.change = chg || "unchanged";
       el.dataset.search = (n.name || n.label || "") + " " + (n.pointer || n.path || "") + " " + (n.config || "");
       el.innerHTML = inner;
-      el.addEventListener("click", () => select(n.id));
-      el.addEventListener("mouseenter", () => hover(n.id));
-      el.addEventListener("mouseleave", () => hover(null));
+      el.addEventListener("click", () => { cancelHoverPreview(); hideHoverCard(); select(n.id); });
+      el.addEventListener("mouseenter", () => { hover(n.id); scheduleHoverPreview(() => showNodePreview(n.id, el)); });
+      el.addEventListener("mouseleave", () => { hover(null); cancelHoverPreview(); scheduleHideHoverCard(); });
       return el;
     }
     function statusDot(s) { return '<span class="sdot" style="background:' + (STATUS_COLOR[s] || "var(--muted)") + '"></span>'; }
@@ -643,11 +727,11 @@ _HTML_TEMPLATE = r"""<!doctype html>
           const st = nodeStatus(s);
           laneSources.appendChild(nodeEl(s, "source",
             '<div class="row">' +
-              '<span class="kind-ic" style="background:' + (KIND_COLOR[s.kind] || "#94a3b8") + '">' + (ICONS[s.kind] || ICONS.source) + "</span>" +
+              '<span class="kind-ic" style="background:' + (KIND_COLOR[s.kind] || "#8f969e") + '">' + (ICONS[s.kind] || ICONS.source) + "</span>" +
               '<span class="name">' + esc(s.label) + "</span>" + statusDot(st) +
             "</div>" +
             '<div class="ptr">' + esc(s.pointer) + "</div>" +
-            (s.status === "missing" ? '<div class="tags">' + tag("未解析 missing", "var(--missing)") + "</div>" : "")
+            (s.status === "missing" ? '<div class="submeta" style="color:var(--missing)">未解析 · missing</div>' : "")
           ));
         });
       });
@@ -658,16 +742,15 @@ _HTML_TEMPLATE = r"""<!doctype html>
         items.forEach(s => {
           const rs = s.relation_state;
           const cstat = sectionCompile(s.id);
+          const rtMark = rtEdgesFrom(s.id).length
+            ? '<span class="meta-mark" style="color:' + (cstat === "exact" ? "var(--exact)" : "var(--uncertain)") + '">' + (cstat === "exact" ? "→ exact" : "→ runtime?") + "</span>"
+            : "";
           laneSections.appendChild(nodeEl(s, "section",
             '<div class="row">' +
-              '<span class="kind-ic" style="background:#475569">' + ICONS.section + "</span>" +
+              '<span class="kind-ic" style="background:#5f6670">' + ICONS.section + "</span>" +
               '<span class="name">' + esc(s.name) + "</span>" + statusDot(rs) +
             "</div>" +
-            '<div class="tags">' +
-              tag(rs, STATUS_COLOR[rs]) +
-              ((s.type && s.type !== rs) ? tag(s.type) : "") +
-              (rtEdgesFrom(s.id).length ? tag((cstat === "exact" ? "exact→runtime" : "runtime?"), STATUS_COLOR[cstat]) : "") +
-            "</div>"
+            '<div class="submeta">' + esc(rs) + (rtMark ? '<span class="dotsep">·</span>' + rtMark : "") + "</div>"
           ));
         });
       });
@@ -678,25 +761,44 @@ _HTML_TEMPLATE = r"""<!doctype html>
         const mc = (r.mirrors || []).length;
         const el = nodeEl(r, "runtime",
           '<div class="row">' +
-            '<span class="kind-ic" style="background:#0f766e">' + ICONS.runtime + "</span>" +
+            '<span class="kind-ic" style="background:#5f7d7a">' + ICONS.runtime + "</span>" +
             '<span class="name">' + esc(r.config) + "</span>" + statusDot(st) +
           "</div>" +
           '<div class="ptr">' + esc(r.path) + "</div>" +
-          '<div class="tags">' + tag(r.target, "var(--exact)") + (mc ? tag(mc + " mirror") : "") + "</div>"
+          '<div class="submeta"><span class="meta-mark" style="color:var(--exact)">' + esc(r.target) + "</span>" + (mc ? '<span class="dotsep">·</span>' + mc + " mirror" : "") + "</div>"
         );
         laneRuntimes.appendChild(el);
+      });
+    }
+    function renderExternals() {
+      externals.forEach(x => {
+        const into = importEdgesFrom(x.id).length;
+        const el = nodeEl(x, "external",
+          '<div class="row">' +
+            '<span class="kind-ic" style="background:#73677d">' + ICONS.external + "</span>" +
+            '<span class="name">' + esc(x.label) + "</span>" + statusDot(x.status) +
+          "</div>" +
+          '<div class="submeta"><span class="meta-mark" style="color:' + STATUS_COLOR[x.status] + '">' + (x.status === "pending" ? "待导入" : "已导入") + "</span><span class=\"dotsep\">·</span>" + (x.file_count || into) + " capture</div>"
+        );
+        laneExternal.appendChild(el);
       });
     }
 
     // ---- SVG links ----
     const svg = document.getElementById("links");
+    const chips = document.getElementById("edge-chips");
     const lanes = document.getElementById("lanes");
     let pathByEdge = new Map();
     function elFor(id) { return lanes.querySelector('.node[data-id="' + cssEsc(id) + '"]'); }
     function cssEsc(s) { return (window.CSS && CSS.escape) ? CSS.escape(s) : String(s).replace(/"/g, '\\"'); }
+    function edgeBrief(e) {
+      if (e.relation === "external_to_source") return e.status === "pending" ? "待导入" : "导入";
+      return e.status || "—";
+    }
 
     function drawLinks() {
       svg.innerHTML = "";
+      chips.innerHTML = "";
       pathByEdge = new Map();
       const wrap = lanes.getBoundingClientRect();
       const NS = "http://www.w3.org/2000/svg";
@@ -714,12 +816,41 @@ _HTML_TEMPLATE = r"""<!doctype html>
         p.setAttribute("stroke", "var(--line)");
         p.setAttribute("stroke-width", "1.5");
         p.setAttribute("stroke-linecap", "round");
-        if (e.status === "uncertain" || e.status === "missing") p.setAttribute("stroke-dasharray", "4 4");
-        if (e.change === "removed") p.setAttribute("stroke-dasharray", "2 4");
+        const baseDash = e.change === "removed" ? "2 4" : ((e.status === "uncertain" || e.status === "missing") ? "4 4" : "");
+        if (baseDash) p.setAttribute("stroke-dasharray", baseDash);
+        p.dataset.dash = baseDash;
         p.dataset.from = e.from_id;
         p.dataset.to = e.to_id;
         p.dataset.status = e.status;
+        p.dataset.edge = e.id;
         svg.appendChild(p);
+        // Transparent wide hit-path so the edge itself is an easy click/hover target.
+        const hit = document.createElementNS(NS, "path");
+        hit.setAttribute("d", d);
+        hit.setAttribute("fill", "none");
+        hit.setAttribute("stroke", "transparent");
+        hit.setAttribute("stroke-width", "24");
+        hit.setAttribute("pointer-events", "stroke");
+        hit.dataset.hit = e.id;
+        hit.style.cursor = "pointer";
+        hit.addEventListener("click", (ev) => { ev.stopPropagation(); cancelHoverPreview(); hideHoverCard(); selectEdge(e.id); });
+        hit.addEventListener("mouseenter", () => { hoverEdgeId = e.id; applyHighlight(); scheduleHoverPreview(() => showEdgePreview(e.id, hit)); });
+        hit.addEventListener("mouseleave", () => { hoverEdgeId = null; applyHighlight(); cancelHoverPreview(); scheduleHideHoverCard(); });
+        svg.appendChild(hit);
+        // Midpoint chip: a small, info-carrying handle on the edge.
+        const chip = document.createElement("div");
+        chip.className = "edge-chip";
+        chip.dataset.edge = e.id;
+        chip.dataset.from = e.from_id;
+        chip.dataset.to = e.to_id;
+        chip.style.left = ((x1 + x2) / 2) + "px";
+        chip.style.top = ((y1 + y2) / 2) + "px";
+        chip.title = (e.relation === "section_to_runtime" ? "Section→Runtime" : e.relation === "external_to_source" ? "Import" : "Source→Section") + " · " + (e.evidence || "");
+        chip.innerHTML = '<span class="d" style="background:' + (STATUS_COLOR[e.status] || "var(--muted)") + '"></span>' + esc(edgeBrief(e));
+        chip.addEventListener("click", (ev) => { ev.stopPropagation(); cancelHoverPreview(); hideHoverCard(); selectEdge(e.id); });
+        chip.addEventListener("mouseenter", () => { hoverEdgeId = e.id; applyHighlight(); scheduleHoverPreview(() => showEdgePreview(e.id, chip)); });
+        chip.addEventListener("mouseleave", () => { hoverEdgeId = null; applyHighlight(); cancelHoverPreview(); scheduleHideHoverCard(); });
+        chips.appendChild(chip);
         const key = e.from_id + "|" + e.to_id;
         (pathByEdge.get(key) || pathByEdge.set(key, []).get(key)).push(p);
       });
@@ -727,7 +858,9 @@ _HTML_TEMPLATE = r"""<!doctype html>
     }
 
     // ---- highlight / selection ----
-    let selectedId = null, hoverId = null, inspectorMax = false, activeTab = 0;
+    let selectedId = null, hoverId = null, keyboardFocusId = null, inspectorMax = false, activeTab = 0, panelOpen = false;
+    let selectedEdgeId = null, hoverEdgeId = null;
+    const edgeById = new Map(graph.edges.map(e => [e.id, e]));
 
     // Detail panel as tabs: [label, paneHTML] pairs; first is active by default.
     function tabbed(tabs) {
@@ -745,34 +878,331 @@ _HTML_TEMPLATE = r"""<!doctype html>
       return set;
     }
     function applyHighlight() {
-      const focusId = hoverId || selectedId;
-      const focus = focusId ? lineage(focusId) : null;
+      const edge = hoverEdgeId ? edgeById.get(hoverEdgeId) : (selectedEdgeId ? edgeById.get(selectedEdgeId) : null);
+      let focus = null;
+      if (edge) focus = new Set([edge.from_id, edge.to_id]);
+      else { const focusId = hoverId || keyboardFocusId || selectedId; focus = focusId ? lineage(focusId) : null; }
       lanes.querySelectorAll(".node").forEach(el => {
-        el.classList.toggle("sel", el.dataset.id === selectedId);
-        el.classList.toggle("hit", !!focus && focus.has(el.dataset.id) && el.dataset.id !== selectedId);
+        el.classList.toggle("sel", !edge && el.dataset.id === selectedId);
+        el.classList.toggle("kbd", !edge && el.dataset.id === keyboardFocusId && el.dataset.id !== selectedId);
+        el.classList.toggle("hit", !!focus && focus.has(el.dataset.id) && (edge || el.dataset.id !== selectedId));
       });
-      svg.querySelectorAll("path").forEach(p => {
-        const on = focus && focus.has(p.dataset.from) && focus.has(p.dataset.to);
-        if (on) {
+      svg.querySelectorAll("path[data-edge]").forEach(p => {
+        const isSel = edge && p.dataset.edge === edge.id;
+        const on = isSel || (focus && focus.has(p.dataset.from) && focus.has(p.dataset.to) && !edge);
+        p.classList.toggle("flow", !!isSel);
+        const baseDash = p.dataset.dash || "";
+        if (isSel) {
+          p.setAttribute("stroke", "var(--accent)");
+          p.setAttribute("stroke-width", "3");
+          p.setAttribute("stroke-dasharray", "7 6");
+          p.setAttribute("opacity", "1");
+        } else if (on) {
           p.setAttribute("stroke", STATUS_COLOR[p.dataset.status] || "var(--accent)");
           p.setAttribute("stroke-width", "2.4");
+          p.setAttribute("stroke-dasharray", baseDash);
           p.setAttribute("opacity", "1");
         } else {
-          p.setAttribute("stroke", "var(--line)");
-          p.setAttribute("stroke-width", "1.5");
-          p.setAttribute("opacity", focus ? "0.35" : "1");
+          p.setAttribute("stroke", "var(--border-strong)");
+          p.setAttribute("stroke-width", "2.25");
+          p.setAttribute("stroke-dasharray", baseDash);
+          p.setAttribute("opacity", focus ? "0.22" : "0.85");
         }
+      });
+      chips.querySelectorAll(".edge-chip").forEach(c => {
+        const isSel = edge && c.dataset.edge === edge.id;
+        const on = isSel || (focus && focus.has(c.dataset.from) && focus.has(c.dataset.to) && !edge);
+        c.classList.toggle("on", !!isSel);
+        c.classList.toggle("dim", !!focus && !on);
       });
     }
     function hover(id) { hoverId = id; applyHighlight(); }
+    // Hover is a local preview; click pins full detail into the right drawer.
+    // This keeps the dense graph scannable and avoids throwing the user's eye
+    // across the monitor for every incidental hover.
+    let hoverTimer = null, hoverHideTimer = null;
+    function scheduleHoverPreview(fn) { clearTimeout(hoverTimer); hoverTimer = setTimeout(fn, 130); }
+    function cancelHoverPreview() { clearTimeout(hoverTimer); }
+    function scheduleHideHoverCard() {
+      clearTimeout(hoverHideTimer);
+      hoverHideTimer = setTimeout(hideHoverCard, 180);
+    }
+    function cancelHideHoverCard() { clearTimeout(hoverHideTimer); }
+    function previewCode(text, startLine, caption, maxLines, extraClass) {
+      const all = String(text || "").split("\n");
+      const lines = all.slice(0, maxLines || 10);
+      const start = startLine || 1;
+      const rows = lines.map((ln, i) =>
+        '<div class="preview-line"><span class="ln">' + (start + i) + '</span><span class="lc">' + esc(ln || " ") + "</span></div>"
+      ).join("");
+      const more = all.length > lines.length ? '<div class="preview-more">完整内容在右侧详情</div>' : "";
+      return '<div class="preview-code' + (extraClass ? " " + extraClass : "") + '">' + (caption ? '<div class="preview-cap">' + esc(caption) + "</div>" : "") + rows + more + "</div>";
+    }
+    function previewDiff(oldText, newText, caption, maxRows) {
+      const raw = lineDiff(oldText, newText);
+      const changed = raw.filter(([t, l]) => t !== "ctx" || String(l || "").trim());
+      const rows = changed.slice(0, maxRows || 14)
+        .map(([t, l]) => {
+          const cls = t === "add" ? " d-add" : t === "del" ? " d-del" : "";
+          const sign = t === "add" ? "+" : t === "del" ? "−" : " ";
+          return '<div class="preview-line' + cls + '"><span class="ln">' + sign + '</span><span class="lc">' + esc(l || " ") + "</span></div>";
+        }).join("");
+      const more = changed.length > (maxRows || 14) ? '<div class="preview-more">完整 diff 在右侧详情</div>' : "";
+      return '<div class="preview-code preview-diff">' + (caption ? '<div class="preview-cap">' + esc(caption) + " · diff</div>" : "") + rows + more + "</div>";
+    }
+    function previewHeader(kind, title, subtitle, status) {
+      return '<div class="preview-head">' +
+        '<p class="preview-eyebrow">' + (status ? statusDot(status) : "") + esc(kind) + "</p>" +
+        '<h3 class="preview-title">' + esc(title || "—") + "</h3>" +
+        (subtitle ? '<p class="preview-sub">' + esc(subtitle) + "</p>" : "") +
+      "</div>";
+    }
+    function previewGrid(rows) {
+      return '<div class="preview-grid">' + rows.filter(Boolean).map(([k, v]) =>
+        '<div class="preview-row"><span class="preview-k">' + esc(k) + '</span><span class="preview-v">' + v + "</span></div>"
+      ).join("") + "</div>";
+    }
+    function previewMeta(items) {
+      return '<div class="preview-meta">' + items.filter(Boolean).map(([k, v, color]) =>
+        '<span class="preview-chip">' + (color ? '<span class="d" style="width:7px;height:7px;border-radius:50%;background:' + color + '"></span>' : "") +
+        '<b>' + esc(k) + "</b>" + esc(v == null ? "" : String(v)) + "</span>"
+      ).join("") + "</div>";
+    }
+    function previewFlow(nodes) {
+      const links = nodes.filter(Boolean).map(n => nodelink(n, nodeStatus(n))).join('<span class="lin-arrow">→</span>');
+      return links ? '<div class="preview-flow">' + links + "</div>" : "";
+    }
+    function previewCompare(fromTitle, fromText, fromStart, toTitle, toText, toStart, maxLines) {
+      return '<div class="preview-compare">' +
+        '<div class="preview-pane"><p class="preview-pane-title"><span>From</span><span>' + esc(fromTitle || "") + "</span></p>" +
+          (fromText ? previewCode(fromText, fromStart || 1, "", maxLines || 10, "compact") : '<div class="empty">无可用原文。</div>') + "</div>" +
+        '<div class="preview-pane"><p class="preview-pane-title"><span>To</span><span>' + esc(toTitle || "") + "</span></p>" +
+          (toText ? previewCode(toText, toStart || 1, "", maxLines || 10, "compact") : '<div class="empty">无可用产物。</div>') + "</div>" +
+      "</div>";
+    }
+    function changePreview(node, text, startLine, caption) {
+      if (node && node.change === "modified" && node.prev_content != null) return previewDiff(node.prev_content, text, caption, 16);
+      const isRemoved = node && node.change === "removed";
+      return previewCode(isRemoved ? (node.prev_content || text || "") : text, startLine, caption, 12);
+    }
+    function sourcePreviewHTML(s) {
+      const consumers = srcEdgesFrom(s.id).map(e => byId.get(e.to_id));
+      return previewHeader((KIND_LABEL[s.kind] || s.kind || "Source") + " Source", s.label, s.pointer, nodeStatus(s)) +
+        previewMeta([
+          ["change ", s.change && s.change !== "unchanged" ? (CHG_LABEL[s.change] || s.change) : "—", STATUS_COLOR[nodeStatus(s)]],
+          ["status ", s.status === "missing" ? "missing" : "resolved"],
+          ["to ", consumers.length + " section"],
+          ["layer ", s.layer || "core"],
+        ]) +
+        '<div class="preview-section"><h4>' + (s.change && s.change !== "unchanged" ? "Review diff / 内容变化" : "内容摘录") + "</h4>" +
+          changePreview(s, s.content_excerpt || "", s.position && s.position.start_line, s.pointer) + "</div>" +
+        previewFlow([s, consumers[0]]);
+    }
+    function sectionPreviewHTML(s) {
+      const sources = srcEdgesTo(s.id).map(e => byId.get(e.from_id));
+      const runtimes = rtEdgesFrom(s.id).map(e => byId.get(e.to_id));
+      return previewHeader((s.type || "Section") + " Section", s.name, s.relation_note || "", s.relation_state) +
+        previewMeta([
+          ["change ", s.change && s.change !== "unchanged" ? (CHG_LABEL[s.change] || s.change) : "—", STATUS_COLOR[s.relation_state]],
+          ["relation ", s.relation_state || "—"],
+          ["from ", sources.length + " source"],
+          ["to ", runtimes.length + " runtime"],
+        ]) +
+        '<div class="preview-section"><h4>' + (s.change && s.change !== "unchanged" ? "Review diff / Section 变化" : "Section 内容") + "</h4>" +
+          changePreview(s, s.content, s.position && s.position.start_line, s.name) + "</div>" +
+        previewFlow([sources[0], s, runtimes[0]]);
+    }
+    function runtimePreviewHTML(r) {
+      const maps = rtEdgesTo(r.id).slice().sort((a, b) =>
+        ((a.runtime_range && a.runtime_range.start_line) || 1e9) - ((b.runtime_range && b.runtime_range.start_line) || 1e9));
+      const firstSection = maps[0] ? byId.get(maps[0].from_id) : null;
+      return previewHeader((r.target || "Runtime").toUpperCase() + " Runtime", r.config, r.path, nodeStatus(r)) +
+        previewMeta([
+          ["change ", r.change && r.change !== "unchanged" ? (CHG_LABEL[r.change] || r.change) : "—", STATUS_COLOR[nodeStatus(r)]],
+          ["status ", nodeStatus(r)],
+          ["mapped ", maps.length + " section"],
+          ["mirror ", ((r.mirrors || []).length || 0) + ""],
+        ]) +
+        '<div class="preview-section"><h4>' + (r.change && r.change !== "unchanged" ? "Review diff / Runtime 变化" : "Runtime 摘录") + "</h4>" +
+          changePreview(r, r.content, 1, r.path) + "</div>" +
+        previewFlow([firstSection, r]);
+    }
+    function externalPreviewHTML(x) {
+      const imports = importEdgesFrom(x.id);
+      const first = imports[0] ? byId.get(imports[0].to_id) : null;
+      return previewHeader("External Input", x.label, "capture → review → import", x.status) +
+        previewMeta([
+          ["status ", x.status || "—", STATUS_COLOR[x.status]],
+          ["files ", (x.file_count || imports.length) + " capture"],
+        ]) +
+        previewFlow([x, first]) +
+        '<div class="preview-section"><h4>导入说明</h4><p class="preview-sub" style="font-family:var(--font)">只展示 capture frontmatter 记录的来源，不直接读取外部语料原文。</p></div>';
+    }
+    function edgePreviewHTML(e) {
+      const from = byId.get(e.from_id), to = byId.get(e.to_id);
+      const isRt = e.relation === "section_to_runtime";
+      const rel = isRt ? "Section → Runtime" : e.relation === "external_to_source" ? "External Input → Capture" : "Source → Section";
+      let fromText = "", toText = "", fromStart = 1, toStart = 1, fromTitle = "", toTitle = "", method;
+      if (e.relation === "section_to_runtime") {
+        const rng = e.runtime_range;
+        fromText = (from && from.content) || "";
+        fromStart = (from && from.position && from.position.start_line) || 1;
+        fromTitle = (from && from.name) || "section";
+        toText = (rng && rng.start_line && to) ? String(to.content || "").split("\n").slice(rng.start_line - 1, rng.end_line).join("\n") : "";
+        toStart = (rng && rng.start_line) || 1;
+        toTitle = (to && to.config ? to.config : "runtime") + (rng && rng.start_line ? " lines " + rng.start_line + (rng.end_line !== rng.start_line ? "-" + rng.end_line : "") : "");
+        method = { kind: "compiler exact copy", color: "var(--exact)", note: "section block → runtime 命中行" };
+      } else {
+        fromText = (from && (from.content_excerpt || from.content)) || "";
+        fromStart = (from && from.position && from.position.start_line) || 1;
+        fromTitle = (from && (from.pointer || from.name || from.label)) || "from";
+        toText = (to && (to.content || to.content_excerpt)) || "";
+        toStart = (to && to.position && to.position.start_line) || 1;
+        toTitle = (to && (to.name || to.pointer || to.label)) || "to";
+        method = e.relation === "external_to_source"
+          ? { kind: "capture import", color: "var(--declared)", note: "frontmatter 记录外部来源；不读取外部原文" }
+          : classifyExtraction(fromText, toText);
+      }
+      return previewHeader(rel, (from && (from.name || from.label || from.config)) + " → " + (to && (to.name || to.label || to.config)), e.evidence || "", e.status) +
+        previewMeta([
+          ["method ", method.kind, method.color],
+          ["status ", e.status || "—", STATUS_COLOR[e.status]],
+          ["confidence ", e.confidence || "—"],
+        ]) +
+        '<p class="preview-sub" style="font-family:var(--font);margin-top:6px">' + esc(method.note || "") + "</p>" +
+        previewCompare(fromTitle, fromText, fromStart, toTitle, toText, toStart, isRt ? 10 : 11) +
+        previewFlow([from, to]);
+    }
+    function nodePreviewHTML(n) {
+      if (!n) return '<div class="empty">节点不存在。</div>';
+      if (n.kind === "external") return externalPreviewHTML(n);
+      if (graph.sources.includes(n)) return sourcePreviewHTML(n);
+      if (graph.runtimes.includes(n)) return runtimePreviewHTML(n);
+      return sectionPreviewHTML(n);
+    }
+    function showNodePreview(id, anchor) {
+      const n = byId.get(id);
+      if (!n) return;
+      showHoverCard(anchor, nodePreviewHTML(n));
+    }
+    function showEdgePreview(eid, anchor) {
+      const e = edgeById.get(eid);
+      if (!e) return;
+      showHoverCard(anchor, edgePreviewHTML(e));
+    }
+    function showHoverCard(anchor, html) {
+      cancelHideHoverCard();
+      hoverCard.innerHTML = html + '<p class="hover-hint">Hover 一屏预览关键内容；Enter/单击固定到右侧完整详情。</p>';
+      hoverCard.hidden = false;
+      hoverCard.style.left = "0px";
+      hoverCard.style.top = "0px";
+      const splitRect = splitEl.getBoundingClientRect();
+      const anchorRect = anchor.getBoundingClientRect();
+      const cardRect = hoverCard.getBoundingClientRect();
+      const gap = 12;
+      let left = anchorRect.right - splitRect.left + gap;
+      if (left + cardRect.width > splitRect.width - gap) {
+        left = anchorRect.left - splitRect.left - cardRect.width - gap;
+      }
+      if (left < gap) {
+        left = Math.min(Math.max(gap, anchorRect.left - splitRect.left), Math.max(gap, splitRect.width - cardRect.width - gap));
+      }
+      let top = anchorRect.top - splitRect.top + Math.min(10, Math.max(0, anchorRect.height / 2 - 12));
+      if (top + cardRect.height > splitRect.height - gap) top = splitRect.height - cardRect.height - gap;
+      if (top < gap) top = gap;
+      hoverCard.style.left = Math.round(left) + "px";
+      hoverCard.style.top = Math.round(top) + "px";
+      bindHoverCard();
+    }
+    function hideHoverCard() {
+      cancelHideHoverCard();
+      hoverCard.hidden = true;
+      hoverCard.innerHTML = "";
+    }
+    function bindHoverCard() {
+      hoverCard.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
+        hoverCard.querySelectorAll(".tab").forEach(x => x.classList.toggle("active", x === t));
+        hoverCard.querySelectorAll(".tabpane").forEach(p => { p.hidden = Number(p.dataset.pane) !== Number(t.dataset.tab); });
+      }));
+      hoverCard.querySelectorAll("[data-goto]").forEach(b => {
+        const id = b.dataset.goto;
+        if (!id) return;
+        b.addEventListener("click", () => { hideHoverCard(); select(id); });
+      });
+    }
     function select(id) {
-      const changed = selectedId !== id;
-      selectedId = (selectedId === id) ? null : id;
-      if (changed) activeTab = 0;
+      if (selectedId === id && !selectedEdgeId && panelOpen) return;
+      activeTab = 0;
+      selectedId = id;
+      selectedEdgeId = null;
+      keyboardFocusId = null;
       applyHighlight();
       renderInspector();
-      const el = selectedId ? elFor(selectedId) : null;
-      if (el) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      setPanel(true);
+    }
+    function selectEdge(eid) {
+      if (selectedEdgeId === eid && panelOpen) return;
+      activeTab = 0;
+      selectedEdgeId = eid;
+      selectedId = null;
+      keyboardFocusId = null;
+      applyHighlight();
+      renderInspector();
+      setPanel(true);
+    }
+    function visibleNodeEls() {
+      return [...lanes.querySelectorAll(".node")].filter(el => !el.classList.contains("dim") && el.offsetParent !== null);
+    }
+    function visibleLaneGroups() {
+      return [...lanes.querySelectorAll(".lane")]
+        .filter(lane => !lane.hidden && lane.offsetParent !== null)
+        .map(lane => ({
+          lane,
+          nodes: [...lane.querySelectorAll(".node")].filter(el => !el.classList.contains("dim") && el.offsetParent !== null)
+        }))
+        .filter(g => g.nodes.length);
+    }
+    function centerY(el) {
+      const r = el.getBoundingClientRect();
+      return r.top + r.height / 2;
+    }
+    function pickClosestY(nodes, y) {
+      return nodes.slice().sort((a, b) => {
+        const da = Math.abs(centerY(a) - y);
+        const db = Math.abs(centerY(b) - y);
+        if (da !== db) return da - db;
+        return a.getBoundingClientRect().top - b.getBoundingClientRect().top;
+      })[0];
+    }
+    function moveKeyboardFocus(dir) {
+      const nodes = visibleNodeEls();
+      if (!nodes.length) return;
+      const rawCurrent = elFor(keyboardFocusId || selectedId || hoverId);
+      const current = rawCurrent && nodes.includes(rawCurrent) ? rawCurrent : nodes[0];
+      let next = current;
+      const groups = visibleLaneGroups();
+      const currentLane = current.closest(".lane");
+      const groupIndex = groups.findIndex(g => g.lane === currentLane);
+      if (dir === "up" || dir === "down") {
+        const sameLane = groupIndex >= 0 ? groups[groupIndex].nodes : nodes;
+        const ordered = sameLane.slice().sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+        const i = ordered.indexOf(current);
+        const j = i + (dir === "down" ? 1 : -1);
+        if (j >= 0 && j < ordered.length) next = ordered[j];
+      } else if (groupIndex >= 0) {
+        const j = groupIndex + (dir === "right" ? 1 : -1);
+        if (j >= 0 && j < groups.length) next = pickClosestY(groups[j].nodes, centerY(current));
+      }
+      keyboardFocusId = next.dataset.id;
+      selectedEdgeId = null;
+      hoverEdgeId = null;
+      hoverId = keyboardFocusId;
+      applyHighlight();
+      next.scrollIntoView({ block: "nearest", inline: "nearest" });
+      showNodePreview(keyboardFocusId, next);
+    }
+    function pinKeyboardFocus() {
+      if (keyboardFocusId) select(keyboardFocusId);
     }
 
     // ---- inspector ----
@@ -811,14 +1241,134 @@ _HTML_TEMPLATE = r"""<!doctype html>
     const inspectorEl = document.getElementById("inspector");
     let wideLayout = false;
     function isWide() { return inspectorMax || inspectorEl.getBoundingClientRect().width >= 820; }
+    function replayPanelIn() {
+      inspBody.classList.remove("anim"); void inspBody.offsetWidth; inspBody.classList.add("anim");
+    }
     function renderInspector() {
       wideLayout = isWide();
-      const n = selectedId ? byId.get(selectedId) : null;
-      if (!n) inspBody.innerHTML = overviewHTML();
-      else if (graph.sources.includes(n)) inspBody.innerHTML = sourceHTML(n);
-      else if (graph.runtimes.includes(n)) inspBody.innerHTML = runtimeHTML(n);
-      else inspBody.innerHTML = sectionHTML(n);
+      if (selectedEdgeId) inspBody.innerHTML = edgeHTML(edgeById.get(selectedEdgeId));
+      else {
+        const n = selectedId ? byId.get(selectedId) : null;
+        if (!n) inspBody.innerHTML = overviewHTML();
+        else if (n.kind === "external") inspBody.innerHTML = externalHTML(n);
+        else if (graph.sources.includes(n)) inspBody.innerHTML = sourceHTML(n);
+        else if (graph.runtimes.includes(n)) inspBody.innerHTML = runtimeHTML(n);
+        else inspBody.innerHTML = sectionHTML(n);
+      }
       bindInspector();
+      replayPanelIn();
+    }
+    function externalHTML(x) {
+      const imports = importEdgesFrom(x.id);
+      return eyebrow("External Input · 导入", x.status) +
+        '<h2 class="insp-title">' + esc(x.label) + "</h2>" +
+        '<p class="insp-sub" style="font-family:var(--font)">外部语料经 forge 的 capture → review → import 流水线进入 canonical source。</p>' +
+        '<div class="insp-section"><div class="kv">' +
+          '<span class="k">类型</span><span class="v">' + tag("external input", "var(--declared)") + "</span>" +
+          '<span class="k">状态</span><span class="v">' + tag(x.status === "pending" ? "待导入 pending" : "已导入 imported", STATUS_COLOR[x.status]) + "</span>" +
+          '<span class="k">导入文件</span><span class="v">' + (x.file_count || imports.length) + "</span>" +
+        "</div></div>" +
+        '<div class="insp-section"><h4>导入成的 capture（' + imports.length + "）</h4>" +
+          (imports.length ? '<div class="lineage">' + imports.map(e => '<div class="lin-row">' + nodelink(byId.get(e.to_id), e.status) + '<span class="lin-arrow">· ' + esc(e.status) + "</span></div>").join("") + "</div>"
+            : '<div class="empty">没有关联的 capture。</div>') +
+        "</div>" +
+        '<p class="note">这层只展示 capture frontmatter 记录的导入来源,不直接读取外部语料原文。原始语料经 review 后才落入 canonical source。</p>';
+    }
+
+    // Classify how a source's text became a section's text (no derive record in
+    // the data, so this is a computed, honest approximation — not a claim of
+    // exact span mapping).
+    function classifyExtraction(fromText, toText) {
+      const from = String(fromText || ""), to = String(toText || "");
+      if (!from || !to) return { kind: "—", note: "缺一侧文本，无法比对" };
+      const norm = (s) => s.replace(/\s+/g, " ").trim();
+      const nf = norm(from), nt = norm(to);
+      if (nf.includes(nt)) return { kind: "逐字拷贝", color: "var(--exact)", note: "section 文本在 source 中逐字出现" };
+      const toLines = to.split("\n").map(l => l.trim()).filter(l => l.length > 4);
+      const hit = toLines.filter(l => nf.includes(norm(l))).length;
+      if (toLines.length && hit / toLines.length >= 0.5) return { kind: "部分摘录", color: "var(--declared)", note: hit + "/" + toLines.length + " 行在 source 中可逐字定位" };
+      if (hit > 0) return { kind: "改写 + 少量摘录", color: "var(--uncertain)", note: "仅 " + hit + " 行可逐字定位，其余为转写" };
+      return { kind: "转写 / 蒸馏", color: "var(--uncertain)", note: "section 文本未在 source 中逐字出现（声明级关系，无精确 derive record）" };
+    }
+
+    function edgeHTML(e) {
+      if (!e) return '<div class="empty">边不存在。</div>';
+      const from = byId.get(e.from_id), to = byId.get(e.to_id);
+      if (e.relation === "external_to_source") {
+        const head = eyebrow("External Input → Capture · " + (e.status || ""), e.status) +
+          '<h2 class="insp-title" style="font-size:17px">' + esc(from && (from.name || from.label || from.config)) +
+          ' <span style="color:var(--muted-2)">→</span> ' + esc(to && (to.name || to.label || to.config)) + "</h2>" +
+          '<p class="insp-sub" style="font-family:var(--font)">capture frontmatter 记录外部来源；Portal 不直接读取外部语料原文。</p>';
+        const methodCard =
+          '<div class="kv">' +
+            '<span class="k">关系</span><span class="v">' + statusTag(e.status) + "</span>" +
+            '<span class="k">记录方式</span><span class="v">' + tag("capture frontmatter", "var(--declared)") + "</span>" +
+            '<span class="k">外部来源</span><span class="v">' + esc((from && from.label) || "—") + "</span>" +
+            '<span class="k">导入文件</span><span class="v">' + esc((to && to.pointer) || "—") + "</span>" +
+            '<span class="k">证据</span><span class="v" style="font-family:var(--mono);font-size:12px">' + esc(e.evidence || "—") + "</span>" +
+          "</div>";
+        const flow =
+          '<div class="insp-section"><h4>外部来源（From）</h4>' +
+            '<div class="kv">' +
+              '<span class="k">名称</span><span class="v">' + esc((from && from.label) || "—") + "</span>" +
+              '<span class="k">状态</span><span class="v">' + tag(from && from.status === "pending" ? "待导入 pending" : "已导入 imported", STATUS_COLOR[from && from.status]) + "</span>" +
+              '<span class="k">文件数</span><span class="v">' + ((from && from.file_count) || 0) + "</span>" +
+            "</div>" +
+          "</div>" +
+          '<div class="insp-section"><h4>导入产物（Capture）</h4>' +
+            (to && to.content_excerpt ? codeBlock(to.content_excerpt, to.position && to.position.start_line, esc(to.pointer))
+              : '<div class="empty">capture 摘录不可用。</div>') +
+          "</div>";
+        return head +
+          '<div class="insp-section">' + methodCard + "</div>" +
+          '<div class="insp-section" style="display:flex;gap:8px;flex-wrap:wrap">' + nodelink(from, e.status) + '<span class="lin-arrow">→</span>' + nodelink(to, e.status) + "</div>" +
+          flow;
+      }
+      const isRt = e.relation === "section_to_runtime";
+      const relLabel = isRt ? "Section → Runtime" : "Source → Section";
+      const head = eyebrow(relLabel + " · " + (e.status || ""), e.status) +
+        '<h2 class="insp-title" style="font-size:17px">' + esc(from && (from.name || from.label || from.config)) +
+        ' <span style="color:var(--muted-2)">→</span> ' + esc(to && (to.name || to.label || to.config)) + "</h2>" +
+        (isRt
+          ? '<p class="insp-sub" style="font-family:var(--font)">编译器把 section block 逐字渲染进 runtime；命中行范围是精确的。</p>'
+          : '<p class="insp-sub" style="font-family:var(--font)">声明级血缘：' + esc(e.evidence || "") + "</p>");
+      // Original info (from) and product (to)
+      let fromText, fromCap, toText, toCap, toStart = 1, hlRange = null, method;
+      if (isRt) {
+        fromText = to ? "" : ""; // placeholder, set below
+        const rng = e.runtime_range;
+        fromText = (from && from.content) || "";
+        fromCap = esc((from && from.name) || "section");
+        toText = (rng && rng.start_line && to) ? String(to.content || "").split("\n").slice(rng.start_line - 1, rng.end_line).join("\n") : "";
+        toStart = (rng && rng.start_line) || 1;
+        toCap = esc((to && to.config) || "runtime") + " · lines " + (rng && rng.start_line ? rng.start_line + (rng.end_line !== rng.start_line ? "-" + rng.end_line : "") : "—");
+        method = { kind: "compiler 逐字渲染", color: "var(--exact)", note: "section block 渲染后在 runtime 文本逐字命中" };
+      } else {
+        fromText = (from && from.content_excerpt) || "";
+        fromCap = esc((from && from.pointer) || "source");
+        toText = (to && to.content) || "";
+        toStart = (to && to.position && to.position.start_line) || 1;
+        toCap = esc((to && to.name) || "section");
+        method = classifyExtraction(fromText, toText);
+      }
+      const methodCard =
+        '<div class="kv">' +
+          '<span class="k">关系</span><span class="v">' + statusTag(e.status) + "</span>" +
+          '<span class="k">提取方式</span><span class="v"><span class="tag"><span class="d" style="background:' + (method.color || "var(--muted)") + '"></span>' + esc(method.kind) + "</span></span>" +
+          '<span class="k">说明</span><span class="v">' + esc(method.note) + "</span>" +
+          '<span class="k">证据</span><span class="v" style="font-family:var(--mono);font-size:12px">' + esc(e.evidence || "—") + "</span>" +
+        "</div>";
+      const flow =
+        '<div class="insp-section"><h4>原信息（From）</h4>' +
+          (fromText ? codeBlock(fromText, isRt ? ((from && from.position && from.position.start_line) || 1) : ((from && from.position && from.position.start_line) || 1), fromCap) : '<div class="empty">无可用原文。</div>') +
+        "</div>" +
+        '<div class="insp-section"><h4>提取产物（To）' + (isRt ? " · 命中行" : "") + "</h4>" +
+          (toText ? codeBlock(toText, toStart, toCap) : '<div class="empty">无可用产物文本。</div>') +
+        "</div>";
+      return head +
+        '<div class="insp-section">' + methodCard + "</div>" +
+        '<div class="insp-section" style="display:flex;gap:8px;flex-wrap:wrap">' + nodelink(from, e.status) + '<span class="lin-arrow">→</span>' + nodelink(to, e.status) + "</div>" +
+        flow;
     }
 
     function changedNodes() {
@@ -1005,7 +1555,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
       inspBody.querySelectorAll("[data-goto]").forEach(b => {
         const id = b.dataset.goto;
         if (!id) return;
-        b.addEventListener("click", () => { selectedId = id; activeTab = 0; applyHighlight(); renderInspector();
+        b.addEventListener("click", () => { selectedId = id; selectedEdgeId = null; activeTab = 0; applyHighlight(); renderInspector();
           const el = elFor(id); if (el) el.scrollIntoView({ block: "nearest", behavior: "smooth" }); });
         if (b.dataset.hlrange) {
           const [a, c] = b.dataset.hlrange.split(",").map(Number);
@@ -1080,6 +1630,11 @@ _HTML_TEMPLATE = r"""<!doctype html>
     document.getElementById("cnt-sources").textContent = graph.sources.length;
     document.getElementById("cnt-sections").textContent = graph.sections.length;
     document.getElementById("cnt-runtimes").textContent = graph.runtimes.length;
+    if (externals.length) {
+      laneExternal.hidden = false;
+      lanes.classList.add("has-external");
+      document.getElementById("cnt-external").textContent = externals.length;
+    }
     mountCounts();
     // ---- Audit / Review mode toggle ----
     let reviewView = diffMode;
@@ -1097,14 +1652,14 @@ _HTML_TEMPLATE = r"""<!doctype html>
       applyMode();
     }));
     applyMode();
-    renderSources(); renderSections(); renderRuntimes();
+    renderExternals(); renderSources(); renderSections(); renderRuntimes();
     renderInspector();
     requestAnimationFrame(drawLinks);
 
     // ---- events ----
     const input = document.getElementById("search");
     input.addEventListener("input", () => { query = input.value.trim().toLowerCase(); applyFilters(); });
-    document.querySelectorAll(".chip.filter").forEach(btn => btn.addEventListener("click", () => {
+    document.querySelectorAll(".filter").forEach(btn => btn.addEventListener("click", () => {
       const st = btn.dataset.status;
       const on = btn.getAttribute("aria-pressed") === "true";
       btn.setAttribute("aria-pressed", String(!on));
@@ -1116,46 +1671,52 @@ _HTML_TEMPLATE = r"""<!doctype html>
     const changedBtn = document.getElementById("changed-only");
     if (diffMode) {
       changedBtn.hidden = false;
-      const d = graph.diff;
-      const pill = document.getElementById("diff-pill");
-      pill.hidden = false;
-      pill.innerHTML = "改动评审 base=" + esc(d.base_ref) + " · <b>+" + d.added + "</b> ~" + d.modified + " −" + d.removed;
       changedBtn.addEventListener("click", () => { changedOnly = !changedOnly; changedBtn.setAttribute("aria-pressed", String(changedOnly)); applyFilters(); });
     }
     document.getElementById("reset-view").addEventListener("click", () => {
-      selectedId = null; hoverId = null; query = ""; input.value = ""; gapsOnly = false; changedOnly = false;
+      hoverId = null; keyboardFocusId = null; query = ""; input.value = ""; gapsOnly = false; changedOnly = false;
+      cancelHoverPreview(); hideHoverCard();
       gapsBtn.setAttribute("aria-pressed", "false");
       changedBtn.setAttribute("aria-pressed", "false");
       activeStatus.clear(); ["exact", "derived", "declared", "uncertain", "missing", "wrapper"].forEach(s => activeStatus.add(s));
-      document.querySelectorAll(".chip.filter").forEach(b => b.setAttribute("aria-pressed", "true"));
-      applyFilters(); applyHighlight(); renderInspector();
+      document.querySelectorAll(".filter").forEach(b => b.setAttribute("aria-pressed", "true"));
+      applyFilters(); closePanel();
     });
     document.getElementById("canvas").addEventListener("click", (e) => {
       if (e.target.closest(".node")) return;
-      if (selectedId) { selectedId = null; applyHighlight(); renderInspector(); }
+      hideHoverCard();
+      if (panelOpen) closePanel();
     });
-    // ---- inspector expand / collapse ----
+    // ---- floating detail drawer: open / close / maximize ----
     const inspector = document.getElementById("inspector");
     const backdrop = document.getElementById("insp-backdrop");
     const expandBtn = document.getElementById("insp-expand");
+    const splitEl = document.getElementById("split");
+    const divider = document.getElementById("divider");
+    const hoverCard = document.getElementById("hover-card");
+    hoverCard.addEventListener("mouseenter", cancelHideHoverCard);
+    hoverCard.addEventListener("mouseleave", scheduleHideHoverCard);
+    function setPanel(v) {
+      panelOpen = v;
+      splitEl.classList.toggle("panel-open", v);
+    }
     function setMax(v) {
       inspectorMax = v;
-      inspector.classList.toggle("max", v);
+      splitEl.classList.toggle("maxed", v);
       backdrop.hidden = !v;
       expandBtn.textContent = v ? "⤡" : "⤢";
-      expandBtn.title = v ? "收起详情（E / Esc）" : "展开详情（E）";
-      renderInspector();
+      expandBtn.title = v ? "还原（E）" : "最大化（E）";
     }
+    function closePanel() { hideHoverCard(); setMax(false); setPanel(false); selectedId = null; selectedEdgeId = null; keyboardFocusId = null; hoverId = null; applyHighlight(); }
+    function openOverview() { hideHoverCard(); selectedId = null; selectedEdgeId = null; keyboardFocusId = null; hoverId = null; activeTab = 0; applyHighlight(); renderInspector(); setPanel(true); }
     expandBtn.addEventListener("click", () => setMax(!inspectorMax));
+    document.getElementById("insp-close").addEventListener("click", closePanel);
+    document.getElementById("overview-btn").addEventListener("click", () => panelOpen && !selectedId ? closePanel() : openOverview());
     backdrop.addEventListener("click", () => setMax(false));
-
-    // ---- divider drag (resize the docked inspector) ----
-    const splitEl = document.querySelector(".split");
-    const divider = document.getElementById("divider");
+    // ---- divider drag (resize the drawer) ----
     const WKEY = "forge-audit-insp-w";
     function setInspW(px, persist) {
-      const max = Math.min(window.innerWidth * 0.72, 1120);
-      const w = Math.max(360, Math.min(px, max));
+      const w = Math.max(400, Math.min(px, window.innerWidth * 0.85));
       splitEl.style.setProperty("--insp-w", w + "px");
       if (persist) { try { localStorage.setItem(WKEY, String(Math.round(w))); } catch (e) {} }
     }
@@ -1168,27 +1729,38 @@ _HTML_TEMPLATE = r"""<!doctype html>
     divider.addEventListener("pointermove", (e) => {
       if (!dragging) return;
       setInspW(splitEl.getBoundingClientRect().right - e.clientX, false);
-      drawLinks();
     });
     divider.addEventListener("pointerup", () => {
       if (!dragging) return;
       dragging = false; divider.classList.remove("drag"); document.body.classList.remove("dragging");
-      setInspW(inspectorEl.getBoundingClientRect().width, true);
-      renderInspector(); drawLinks();
+      setInspW(inspector.getBoundingClientRect().width, true);
     });
-    divider.addEventListener("dblclick", () => { setInspW(620, true); renderInspector(); drawLinks(); });
+    divider.addEventListener("dblclick", () => { splitEl.style.removeProperty("--insp-w"); try { localStorage.removeItem(WKEY); } catch (e) {} });
 
     document.addEventListener("keydown", (e) => {
       if (e.key === "/" && document.activeElement !== input) { e.preventDefault(); input.focus(); input.select(); }
-      if ((e.key === "e" || e.key === "E") && document.activeElement !== input) { e.preventDefault(); setMax(!inspectorMax); }
+      if ((e.key === "e" || e.key === "E") && document.activeElement !== input && panelOpen) { e.preventDefault(); setMax(!inspectorMax); }
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key) && document.activeElement !== input) {
+        e.preventDefault();
+        const dir = e.key.replace("Arrow", "").toLowerCase();
+        moveKeyboardFocus(dir);
+      }
+      if (e.key === "Enter" && document.activeElement !== input && keyboardFocusId) {
+        e.preventDefault();
+        pinKeyboardFocus();
+      }
       if (e.key === "Escape") {
         if (document.activeElement === input) { input.blur(); }
+        else if (!hoverCard.hidden) { hideHoverCard(); keyboardFocusId = null; hoverId = null; applyHighlight(); }
         else if (inspectorMax) { setMax(false); }
-        else if (selectedId) { selectedId = null; applyHighlight(); renderInspector(); }
+        else if (panelOpen) { closePanel(); }
       }
     });
     let rt;
-    window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { renderInspector(); drawLinks(); }, 120); });
+    const scheduleDraw = () => { clearTimeout(rt); rt = setTimeout(drawLinks, 100); };
+    window.addEventListener("resize", scheduleDraw);
+    // Any reflow of the lanes (font load, filter dim, 3↔4 columns) re-aligns edges.
+    if (window.ResizeObserver) new ResizeObserver(scheduleDraw).observe(lanes);
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => drawLinks());
   })();
   </script>

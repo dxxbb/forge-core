@@ -70,6 +70,68 @@ def test_audit_graph_marks_missing_source_and_uncertain_section(tmp_path: Path) 
     assert any(item["type"] == "unresolved_source_pointer" for item in graph["unexplained"])
 
 
+def test_external_input_nodes_from_capture_frontmatter(tmp_path: Path) -> None:
+    root = tmp_path
+    sd = root / "context build" / "sections"
+    cd = root / "context build" / "config"
+    cap = root / "capture" / "codex-memory"
+    for d in (sd, cd, cap):
+        d.mkdir(parents=True)
+    (cap / "task-group.md").write_text(
+        "---\nsource: Codex memory\n---\n\n# Task group\n\ndistilled.\n", encoding="utf-8"
+    )
+    (sd / "_preface.md").write_text(
+        "---\nname: _preface\ntype: wrapper\n---\n\nCompiled.\n", encoding="utf-8"
+    )
+    (sd / "kb.md").write_text(
+        "---\nname: kb\nupstream:\n  - capture/codex-memory/task-group.md\n---\n\nbody\n",
+        encoding="utf-8",
+    )
+    (cd / "agents.md").write_text(
+        "---\nname: AGENTS\ntarget: agents-md\nsections:\n  - _preface\n  - kb\n---\n",
+        encoding="utf-8",
+    )
+
+    graph = build_audit_graph(root).to_dict()
+    ext = next(e for e in graph["externals"] if e["label"] == "Codex memory")
+    assert ext["kind"] == "external"
+    assert ext["file_count"] == 1
+    # An import edge connects the external origin to the capture source it landed in.
+    imp = next(e for e in graph["edges"] if e["relation"] == "external_to_source")
+    assert imp["from_id"] == ext["id"]
+    assert imp["status"] == "imported"
+
+
+def test_portal_has_external_import_edge_inspector_copy(tmp_path: Path) -> None:
+    root = tmp_path
+    sd = root / "context build" / "sections"
+    cd = root / "context build" / "config"
+    cap = root / "capture" / "codex-memory"
+    for d in (sd, cd, cap):
+        d.mkdir(parents=True)
+    (cap / "task-group.md").write_text(
+        "---\nsource: Codex memory\n---\n\n# Task group\n\ndistilled.\n", encoding="utf-8"
+    )
+    (sd / "_preface.md").write_text(
+        "---\nname: _preface\ntype: wrapper\n---\n\nCompiled.\n", encoding="utf-8"
+    )
+    (sd / "kb.md").write_text(
+        "---\nname: kb\nupstream:\n  - capture/codex-memory/task-group.md\n---\n\nbody\n",
+        encoding="utf-8",
+    )
+    (cd / "agents.md").write_text(
+        "---\nname: AGENTS\ntarget: agents-md\nsections:\n  - _preface\n  - kb\n---\n",
+        encoding="utf-8",
+    )
+
+    html_path, _ = write_portal(root, tmp_path / "audit")
+    html = html_path.read_text(encoding="utf-8")
+
+    assert "External Input → Capture" in html
+    assert "Portal 不直接读取外部语料原文" in html
+    assert "导入产物（Capture）" in html
+
+
 def test_wrapper_section_is_not_flagged_as_missing_source(tmp_path: Path) -> None:
     workspace = _audit_workspace(tmp_path)
     graph = build_audit_graph(workspace).to_dict()
@@ -184,6 +246,12 @@ def test_write_portal_outputs_html_and_json(tmp_path: Path) -> None:
     assert "Canonical Source · 按架构层" in html
     assert "Canonical Section · 按架构层" in html
     assert "Runtime（Agent 实际读到）" in html
+    assert 'id="hover-card"' in html
+    assert "Hover 一屏预览关键内容；Enter/单击固定到右侧完整详情" in html
+    assert "preview-compare" in html
+    assert "method " in html
+    assert "moveKeyboardFocus" in html
+    assert "ArrowRight" in html
 
     # The review-gate framing is part of the product contract, not decoration:
     # the portal exposes gaps and an owner workflow, it does not edit truth.

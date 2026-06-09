@@ -2,6 +2,24 @@
 
 记录 `forge-core` 的所有显著变动。
 
+## Unreleased (context audit portal review lens) — 2026-06-09
+
+Context Audit Portal 从静态 provenance 图推进到可审阅的 desktop review surface: 目标不是在 Portal 里编辑 truth,而是让 owner 能快速判断一段 context 从哪来、怎么进入 section、如何被编译进 runtime,以及本次 diff/PR 到底改了什么。
+
+### Added
+
+- **External Input lane**: audit graph 新增 `ExternalNode` 与 `external_to_source` 边,把 capture / memory source frontmatter 中的 `source:` / `origin:` / `imported_from:` 显式画成 upstream import 节点。Portal 现在能展示 `External Input → Capture → Section → Runtime` 四层链路。
+- **Floating review drawer**: 节点 / 边点击后固定到右侧详情 drawer,支持拖拽宽度、最大化、关闭和 overview。长正文、长 diff、runtime hit 全量内容保留在 drawer 内滚动。
+- **Hover review lens**: hover 不再打开完整 drawer,而是展示一屏预览。节点优先显示本次 change diff;边优先显示 `From / To` 双栏,直接对照"把什么拷贝 / 摘录 / 摘要成了什么",并标出 `method` / `status` / `confidence`。
+- **Edge chips + direct edge inspector**: 图上的边有可点击 / hover 的 chip,不必猜曲线路径。`Source → Section`、`Section → Runtime`、`External Input → Capture` 三类边都有对应详情文案。
+- **Keyboard navigation**: 方向键按 lane 导航;左右跨 provenance lane 并选择相近高度节点,上下只在当前 lane 内移动。`Enter` 固定当前节点到详情 drawer,`Esc` 关闭 hover / drawer。
+- **Review mode filters**: diff mode 下支持只看改动,并在 overview 中集中列出 changed nodes 和 review gaps。
+
+### Tests
+
+- `tests/test_audit_portal.py` 覆盖 external input graph 节点、import edge inspector copy、hover card / keyboard contract、review lens HTML contract。
+- 当前验证: `550 passed, 3 skipped`。
+
 ## 0.9.1 (remove _import_updates memory overlap) — 2026-05-10
 
 修一个 v0.9.0 没顺手清理掉的设计 leftover: 老 v0.2 era `_import_updates` 路径仍然用 whole-corpus digest 跟踪 Claude auto-memory drift, 跟 v0.9.0 新的 per-file `.forge/agent_memory_state.json` baseline + diff 机制重叠, 同一源用两套机制以两种 scope (legacy: 跨 project 所有文件 concat; v0.9.0: 仅当前 workspace 对应 slug, per-file) 报, monitor 输出出现 duplicate signal: 用户看到 `import source updates: 1, Claude Code memory (changed, 23 files)` 同时 `agent-memory: initialized baseline (1 file tracked)`, 信号噪音高。

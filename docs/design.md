@@ -127,6 +127,25 @@ v0.1 ship 最小 harness：
 
 **这给你的价值：** 当你 refactor 你的 section，你可以验证 compiled output 是按你意图变的，没胖没掉内容。
 
+### Context Audit Portal
+
+`forge audit portal` 是 evaluation / governance 之间的可视化验收面。它不编辑 canonical truth,只把当前 workspace 的 provenance 展开成 owner 可以审阅的图:
+
+```
+External Input → Canonical Source → Canonical Section → Runtime
+```
+
+Portal 的设计契约:
+
+- **Desktop-first**: 这是信息密度高的审阅界面,默认给显示器使用,不是移动端读物。
+- **Graph = 溯源地图**: 节点表示 source / section / runtime / external import;边表示 import、declared/derived upstream、compiler exact runtime mapping。
+- **Hover = review lens**: hover 只展示一屏关键预览。节点优先显示本次 change diff;边优先显示 `From / To` 对照,让 reviewer 直接判断"把什么拷贝 / 摘录 / 摘要成了什么"。
+- **Click / Enter = full detail**: 完整正文、长 diff、runtime hit、method note 固定到右侧 drawer,drawer 可以滚动和最大化。
+- **Direction keys = lane navigation**: 左右跨 provenance lane,上下在同一 lane 内移动;用键盘也能逐节点 review。
+- **No in-portal mutation**: Portal 只展示 compiler exact mapping、frontmatter 声明和 computed approximation。关系修正必须落回 source / derive record / proposal,不在 Portal 里直接改事实。
+
+这个界面把 forge 的一句话目标落到可验收表面: owner 不只知道 "compiled context 变了",还要能看清"它为什么变、从哪来、进了哪个 runtime"。
+
 ---
 
 ## 5. Target adapter

@@ -14,6 +14,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from forge.compiler.config import Config
 from forge.compiler.loader import load_all_configs, load_sections
 from forge.compiler.renderer import _apply_section_view, render
@@ -82,6 +84,23 @@ class AuditEdge:
 
 
 @dataclass
+class ExternalNode:
+    """An external input that was *imported* into a canonical source.
+
+    e.g. a coding agent's memory/history (Codex, Claude) or a web clipping.
+    These sit upstream of canonical sources: forge ingests them through the
+    review-gated capture -> import pipeline, and the capture file records the
+    origin in its ``source:`` frontmatter.
+    """
+
+    id: str
+    label: str
+    kind: str  # external
+    file_count: int = 0
+    status: str = "imported"  # imported | pending
+
+
+@dataclass
 class AuditGraph:
     schema_version: str
     workspace_root: str
@@ -91,6 +110,7 @@ class AuditGraph:
     runtimes: list[RuntimeNode]
     edges: list[AuditEdge]
     unexplained: list[dict[str, Any]]
+    externals: list[ExternalNode] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -216,6 +236,35 @@ def build_audit_graph(root: Path) -> AuditGraph:
                 )
             )
 
+    # External inputs: things imported INTO canonical sources (agent memory /
+    # history, web clippings). The capture file records its origin in
+    # `source:`/`origin:` frontmatter; we surface those as upstream nodes.
+    externals_by_label: dict[str, ExternalNode] = {}
+    for source in source_nodes_by_pointer.values():
+        if source.kind not in ("capture", "memory"):
+            continue
+        for origin in _import_origins(root, source):
+            ext = externals_by_label.get(origin)
+            if ext is None:
+                ext = ExternalNode(
+                    id="external:" + hashlib.sha1(origin.encode("utf-8")).hexdigest()[:16],
+                    label=origin,
+                    kind="external",
+                )
+                externals_by_label[origin] = ext
+            ext.file_count += 1
+            edges.append(
+                AuditEdge(
+                    id=_edge_id(ext.id, source.id, "import"),
+                    from_id=ext.id,
+                    to_id=source.id,
+                    relation="external_to_source",
+                    status="imported",
+                    evidence=f"capture frontmatter records source: {origin}",
+                    confidence="capture-declared",
+                )
+            )
+
     return AuditGraph(
         schema_version="forge.audit.v1",
         workspace_root=str(root),
@@ -225,6 +274,7 @@ def build_audit_graph(root: Path) -> AuditGraph:
         runtimes=runtime_nodes,
         edges=edges,
         unexplained=unexplained,
+        externals=sorted(externals_by_label.values(), key=lambda n: n.label),
     )
 
 
@@ -358,6 +408,43 @@ def _iter_candidate_runtime_md(root: Path):
         if any(part in ignored_dirs for part in path.relative_to(root).parts):
             continue
         yield path
+
+
+def _import_origins(root: Path, source: SourceNode) -> list[str]:
+    """External origin label(s) recorded in a capture/memory file's frontmatter.
+
+    Captures written by the agent-memory / web-clipping monitors carry a
+    ``source:`` (or ``origin:``) field naming where the corpus came from
+    (e.g. ``Codex memory``). Falls back to a kind-derived label so an imported
+    capture still shows an upstream node.
+    """
+    resolved = _resolve_pointer(root, source.pointer)
+    if not resolved or not resolved.is_file():
+        return []
+    try:
+        text = resolved.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return []
+    fm = _frontmatter(text)
+    raw = fm.get("source") or fm.get("origin") or fm.get("imported_from")
+    if not raw:
+        return [source.kind.capitalize() + " import"]
+    if isinstance(raw, str):
+        raw = [raw]
+    return [str(x).strip() for x in raw if str(x).strip()]
+
+
+def _frontmatter(text: str) -> dict[str, Any]:
+    if not text.startswith("---"):
+        return {}
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        return {}
+    try:
+        data = yaml.safe_load(parts[1])
+    except yaml.YAMLError:
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def _layer_for_pointer(root: Path, pointer: str) -> str:
