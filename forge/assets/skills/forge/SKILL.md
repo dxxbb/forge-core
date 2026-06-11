@@ -1,6 +1,6 @@
 ---
 name: forge
-version: 0.9.1
+version: 0.10.0
 description: "Initialize and operate a personalOS workspace with forge. Use when the user says they want to create/setup/build a forge or personalOS workspace, manage agent context, import existing CLAUDE.md/AGENTS.md/memory, review context changes, or approve/reject context updates. This skill is personalOS-layout-first and must not use legacy `forge new` / `sp` onboarding."
 metadata:
   requires:
@@ -24,6 +24,7 @@ capture -> system/inbox -> system/pr -> review -> assets/context build -> runtim
 
 Use this skill when the user says things like:
 
+- `做一次 forge` / `forge run` / `结算一下` / `有什么待审的`
 - `安装 forge` / `install forge`
 - `forge建一个工作区`
 - `创建 personalOS 工作区`
@@ -53,14 +54,64 @@ If the user explicitly says "安装 forge" or "install forge", run the bootstrap
 
 First inspect the current working directory and user wording.
 
+- If the user says `做一次 forge` / `forge run` / `结算`, run **Forge Run**(主工作流).
+- If the user asks `有什么待审的` / `队列里有什么`, run `forge run status` and report — do not open a run unless asked.
 - If there is no personalOS framework, run **Initialize Workspace**.
 - If the user says `import`, run **Import To Capture**.
-- If there are inbox items, run **Process Inbox To Proposal**.
-- If there are proposals, run **Review Proposal**.
-- If the user says approve/reject while reviewing a proposal, run **Review Proposal**.
-- If the user says a vague maintenance phrase such as `forge一下`, `过一下`, or `跑一下 forge`, run **Workspace Triage**.
+- If the user says a vague maintenance phrase such as `forge一下`, `过一下`, or `跑一下 forge`, run **Forge Run**.
+- Legacy(workspace 尚未启用 zones/run 时才用): inbox items → **Process Inbox To Proposal**;proposals → **Review Proposal**.
 
 Do not skip layers. Import never writes directly to `context build/sections`.
+
+## Forge Run(主工作流)
+
+The run is the only governance workflow once zones are initialized: an
+owner-initiated settlement conversation. Between runs, never raise governance
+topics proactively in work sessions.
+
+### One-time setup(workspace 还没有 zones.yaml 时)
+
+1. Draft `context build/zones.yaml`(rule zone = 偏好/边界/行为规则类 sections),
+   present to owner for approval — zone membership is an owner decision.
+2. After approval: `forge zone init`(activates the compile gate),then
+   `forge migrate amnesty` to settle any historical workbench backlog.
+3. Report what amnesty did; rule candidates will surface in the next run's ask list.
+
+### The run
+
+```
+1. forge run status          → 开场白:距上次 N 天、待问几条、状态新鲜度
+2. forge run open            → 新输入清单(capture 指纹去重,自动续接未关闭 run)
+3. 蒸馏落账(语义工作,在会话内做):
+   - 逐个读 inputs 里的 capture,拆成原子事实(一笔一个事实)
+   - 状态类:经 forge.ledger.apply_write 写入——
+     每笔带 origin=run:<run-id>、evidence=capture 路径
+     ※ 写入返回 held(冲突)是正常结果,留给问单,绝不绕过
+   - 规则候选:直接编辑规则区文件(gate 会扣住,自动成为待问项)
+   - 拿不准落点的:不写,如实告诉 owner
+4. forge run ask --budget 5  → 逐条用人话呈现:一句话讲清
+   为什么改 / 改成什么 / 影响谁;证据和 diff 念重点,不倾倒原文
+5. owner 一句话裁决 → forge run decide <id> --approve|--reject [--note]
+   立即报执行结果(commit / 回退 / stale)
+6. 认证项:owner 说"念重点"→ 念 uncertified diff;说"盖章/转正"→ decide approve
+7. forge run close           → 复述报告:落账 N · 裁决 M · 顺延 K
+```
+
+### Run 铁律
+
+- 预算神圣:owner 说"只有 1 分钟"→ `--budget 0`(只剩冲突);顺延项一句话带过。
+- 冲突先行,问序固定,不重排。
+- 不硬凑:没有待问项就说"没有"——空 run 是合法结果。
+- 裁决即执行,立刻报结果,不留"稍后处理"。
+- 规则区与冲突项,任何"显然该批"的判断只能以建议语气出现,决策永远是 owner 的。
+- close 之后不留尾巴;顺延项属于下一次 run。
+- decide 报 stale/failed → 如实报错,标记下次重备,继续下一项;run 中断 → 下次 open 自动续接。
+
+### 随时可答的只读问题(不需要 run)
+
+- "这条规则哪来的" → `forge ledger blame <path> --line N`
+- "这个文件最近改了什么" → `forge state show <path>`
+- "上次结算是什么时候" → `forge run status`
 
 ## Workspace Triage
 
@@ -771,6 +822,8 @@ Only approve a proposal after the user explicitly says approve/同意/可以/确
 
 ## Safety Rules
 
+- Never raise governance topics proactively in a work session; the forge run is owner-initiated only.
+- Never expect rule-zone edits to take effect without an owner decision — the compile gate holds them, by design.
 - Do not call `forge new`.
 - Do not create `sp/` or `output/` during onboarding.
 - Do not read private/secret paths.
