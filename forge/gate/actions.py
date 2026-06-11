@@ -257,8 +257,14 @@ def _ensure_manifest(state: GateState) -> None:
 
 
 def _rebuild_outputs(state: GateState) -> list[Path]:
-    """Render all configs in the active layout and write runtime artifacts."""
-    sections = load_sections(state.root)
+    """Render all configs in the active layout and write runtime artifacts.
+
+    Sections pass through the compile gate: rule-zone drift compiles from the
+    verified snapshot, never from unapproved disk content (AC-GATE-1).
+    """
+    from forge.zone import gated_sections
+
+    sections, _drifts = gated_sections(state.root)
     configs = load_all_configs(state.root)
     layout = state.layout
     state.output_dir.mkdir(parents=True, exist_ok=True)

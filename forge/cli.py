@@ -339,6 +339,242 @@ def doctor(root: str | None) -> None:
         sys.exit(1)
 
 
+# ---------- zone ----------
+
+@main.group()
+def zone() -> None:
+    """Asset zoning: rule zone vs state zone, and the compile gate."""
+
+
+@zone.command("init")
+@click.option("--root", type=click.Path(), default=None, help="Workspace root (default: cwd).")
+def zone_init_cmd(root: str | None) -> None:
+    """Certify current rule-zone content as the verified baseline (activates the gate)."""
+    from forge.zone import zone_init
+
+    baselined = zone_init(_root(root))
+    if not baselined:
+        click.echo("no rule-zone files found — declare them in zones.yaml first")
+        return
+    click.echo(f"verified baseline for {len(baselined)} file(s):")
+    for relpath in baselined:
+        click.echo(f"  {relpath}")
+
+
+# ---------- run / certify / state ----------
+
+@main.group("run")
+def run_group() -> None:
+    """The forge run: settle accumulated context in one owner-driven session."""
+
+
+@run_group.command("status")
+@click.option("--root", type=click.Path(), default=None)
+def run_status(root: str | None) -> None:
+    """Days since last run, pending ask items, state freshness."""
+    from forge.run import status as run_status_fn
+
+    click.echo(json.dumps(run_status_fn(_root(root)), indent=2, ensure_ascii=False))
+
+
+@run_group.command("open")
+@click.option("--root", type=click.Path(), default=None)
+def run_open(root: str | None) -> None:
+    """Open (or resume) the run; list new inputs since the last run."""
+    from forge.run import open_run
+
+    record = open_run(_root(root))
+    click.echo(f"run {record.id} open · {len(record.inputs)} new input(s)")
+    for item in record.inputs:
+        click.echo(f"  {item['path']}")
+
+
+@run_group.command("ask")
+@click.option("--budget", type=int, default=5, show_default=True)
+@click.option("--root", type=click.Path(), default=None)
+def run_ask(budget: int, root: str | None) -> None:
+    """The budgeted question list: conflicts -> rule changes -> certifications."""
+    from forge.run import ask
+
+    items = ask(_root(root), budget=budget)
+    if not items:
+        click.echo("没有待问项。")
+        return
+    for item in items:
+        mark = "(顺延)" if item.deferred else ""
+        click.echo(f"[{item.type}] {item.id} {mark}")
+        click.echo(f"  {item.title}")
+        for line in item.detail.splitlines()[:12]:
+            click.echo(f"    {line}")
+
+
+@run_group.command("decide")
+@click.argument("ask_id")
+@click.option("--approve", "decision", flag_value="approve")
+@click.option("--reject", "decision", flag_value="reject")
+@click.option("--note", default="")
+@click.option("--root", type=click.Path(), default=None)
+def run_decide(ask_id: str, decision: str | None, note: str, root: str | None) -> None:
+    """Execute one owner decision immediately."""
+    from forge.run import decide
+
+    if not decision:
+        click.echo("error: pass --approve or --reject", err=True)
+        sys.exit(1)
+    outcome = decide(_root(root), ask_id, decision, note)
+    click.echo(json.dumps(outcome, ensure_ascii=False))
+
+
+@run_group.command("close")
+@click.option("--root", type=click.Path(), default=None)
+def run_close(root: str | None) -> None:
+    """Rebuild, verify, write the run report, mark closed."""
+    from forge.run import close_run
+
+    report = close_run(_root(root))
+    click.echo(
+        f"结算完毕:落账 {report['settled']} · 裁决 {report['decisions']} "
+        f"· 顺延 {report['deferred']}"
+    )
+
+
+@main.command("certify")
+@click.argument("relpath")
+@click.option("--root", type=click.Path(), default=None)
+def certify_cmd(relpath: str, root: str | None) -> None:
+    """Stamp a state file's current content as owner-confirmed (committed)."""
+    from forge.gate import _git
+    from forge.zone import certify
+
+    workspace = _root(root)
+    info = certify(workspace, relpath)
+    try:
+        _git.add(
+            workspace,
+            [str(info.snapshot_path.relative_to(workspace)), "system/certified/index.yaml"],
+        )
+        _git.commit(workspace, f"certify: {info.relpath}")
+    except Exception:  # noqa: BLE001 — certification holds without git
+        pass
+    click.echo(f"certified {info.relpath} @ {info.date}")
+
+
+@main.group("state")
+def state_group() -> None:
+    """State-zone files: read with provenance, certify by reading."""
+
+
+@state_group.command("show")
+@click.argument("relpath")
+@click.option("--root", type=click.Path(), default=None)
+def state_show(relpath: str, root: str | None) -> None:
+    """Render a state file, highlighting changes since certification."""
+    from forge.zone import certified_info, uncertified_diff
+
+    workspace = _root(root)
+    info = certified_info(workspace, relpath)
+    changed = uncertified_diff(workspace, relpath)
+    header = f"== {relpath} · " + (
+        f"certified {info.date}" if info else "never certified"
+    )
+    click.echo(header)
+    if not changed:
+        click.echo("无未认证变更。")
+    else:
+        click.echo(f"{len(changed)} 处未认证变更:")
+        for line in changed:
+            click.echo(f"  {line}")
+    click.echo("--")
+    click.echo((workspace / relpath).read_text(encoding="utf-8"))
+
+
+@main.command("amnesty")
+@click.option("--root", type=click.Path(), default=None)
+def migrate_amnesty_cmd(root: str | None) -> None:
+    """Settle the historical workbench backlog once; never rebuild the queue."""
+    from forge.migrate import migrate_amnesty
+
+    report = migrate_amnesty(_root(root))
+    click.echo(
+        f"amnesty:落账 {report.applied} · 规则候选 {report.rule_candidates} "
+        f"· 冲突扣留 {report.held_conflicts} · 缺 patch {report.skipped_no_patch} "
+        f"· 未分诊 {report.skipped_untriaged}"
+    )
+    for failure in report.failed:
+        click.echo(f"  failed: {failure}", err=True)
+    for wb in report.archived:
+        click.echo(f"  archived: {wb}")
+
+
+# ---------- ledger ----------
+
+@main.group("ledger")
+def ledger_group() -> None:
+    """The write ledger: every canonical write recorded, revertible, blameable."""
+
+
+@ledger_group.command("list")
+@click.option("--root", type=click.Path(), default=None)
+def ledger_list(root: str | None) -> None:
+    """List ledger entries (newest last)."""
+    from forge.ledger import list_entries
+
+    entries = list_entries(_root(root))
+    if not entries:
+        click.echo("ledger is empty")
+        return
+    for e in entries:
+        click.echo(f"{e.id}  [{e.state}]  {e.target}  · {e.title}  · {e.origin}")
+
+
+@ledger_group.command("revert")
+@click.argument("entry_id")
+@click.option("--root", type=click.Path(), default=None)
+def ledger_revert(entry_id: str, root: str | None) -> None:
+    """Reverse one applied entry with its own scoped commit."""
+    from forge.ledger import revert
+
+    result = revert(_root(root), entry_id)
+    if result.state == "applied":
+        click.echo(f"reverted {entry_id} -> {result.entry_id} ({result.commit})")
+    else:
+        click.echo(f"error: {result.error}", err=True)
+        sys.exit(1)
+
+
+@ledger_group.command("blame")
+@click.argument("target")
+@click.option("--line", type=int, required=True)
+@click.option("--root", type=click.Path(), default=None)
+def ledger_blame(target: str, line: int, root: str | None) -> None:
+    """Which write produced this line, based on the ledger."""
+    from forge.ledger import blame
+
+    entry = blame(_root(root), target, line)
+    if entry is None:
+        click.echo("no ledger entry covers this line (pre-ledger content or out of range)")
+        return
+    click.echo(f"{entry.id}  {entry.created_at}  origin={entry.origin}")
+    click.echo(f"title: {entry.title}")
+    for ev in entry.evidence:
+        click.echo(f"evidence: {ev}")
+
+
+@ledger_group.command("reconcile")
+@click.option("--root", type=click.Path(), default=None)
+def ledger_reconcile(root: str | None) -> None:
+    """Book out-of-band state-zone edits; report rule-zone drift."""
+    from forge.ledger import reconcile
+
+    report = reconcile(_root(root))
+    for p in report.ledgered:
+        click.echo(f"booked  {p}")
+    for p in report.rule_drifts:
+        click.echo(f"DRIFT   {p}  (rule zone — decide in a forge run)")
+    if not report.ledgered and not report.rule_drifts:
+        click.echo("clean: no out-of-band edits")
+
+
 # ---------- audit ----------
 
 @main.group()

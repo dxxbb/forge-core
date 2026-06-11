@@ -163,7 +163,46 @@ def run(root: Path) -> DoctorReport:
     for line in _skill_projection_lines(root):
         report.warnings.append(line)
 
+    _zone_checks(root, report)
+
     return report
+
+
+def _zone_checks(root: Path, report: DoctorReport) -> None:
+    """Gate health (AC-ZONE-3/4): never silently pretend protection."""
+    from forge.zone import (
+        gate_drifts,
+        gate_initialized,
+        load_zones,
+        rule_budget_usage,
+        rule_zone_files,
+    )
+
+    zones = load_zones(root)
+    if not zones.exists:
+        return
+    if not gate_initialized(root):
+        report.warnings.append(
+            "zone gate has no verified baseline — rule zone is NOT protected; "
+            "run `forge zone init` to activate"
+        )
+        return
+    drifts = gate_drifts(root)
+    for d in drifts:
+        report.warnings.append(
+            f"rule-zone drift: {d.relpath} differs from verified snapshot "
+            f"(compiled from snapshot until decided in a forge run)"
+        )
+    used, budget = rule_budget_usage(root)
+    if used > budget:
+        report.warnings.append(
+            f"rule zone budget exceeded: {used} lines > {budget} — "
+            f"every rule costs permanent agent attention; consider pruning"
+        )
+    report.info.append(
+        f"rule zone: {len(rule_zone_files(root))} files, {used}/{budget} lines, "
+        f"drift {len(drifts)}"
+    )
 
 
 def _project_onepage_lines(root: Path) -> list[str]:
