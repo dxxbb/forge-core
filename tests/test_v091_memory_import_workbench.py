@@ -91,3 +91,9 @@ def test_proposal_workbench_scaffolds_resumable_item_list(tmp_path: Path) -> Non
     assert "`canonical_sink_status`" in text
     assert "`live_verify_required`" in text
     assert "Cross-review" in text
+    # The diffable-proposal contract: APPLY items must carry a concrete patch,
+    # not only prose, so the review portal can render before -> after.
+    assert "`proposed_patch_target`" in text
+    assert "- proposed_patch_target:" in text
+    assert "- proposed_patch_anchor:" in text
+    assert "- proposed_patch_text:" in text

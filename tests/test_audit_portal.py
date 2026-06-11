@@ -103,6 +103,180 @@ def test_external_input_nodes_from_capture_frontmatter(tmp_path: Path) -> None:
     assert imp["status"] == "imported"
 
 
+def test_audit_graph_extracts_memory_import_workbench(tmp_path: Path) -> None:
+    workspace = _audit_workspace(tmp_path)
+    capture = workspace / "capture" / "import" / "20260609-212343" / "codex-memory-history.md"
+    capture.parent.mkdir(parents=True)
+    capture.write_text(
+        "# Imported codex memory\n\npreamble line\n\n"
+        "## anchor-geo-market-viability\n\nGEO evidence line one.\nGEO evidence line two.\n",
+        encoding="utf-8",
+    )
+    workbench = workspace / "system" / "pr" / "20260609-212428-memory-import" / "workbench.md"
+    workbench.parent.mkdir(parents=True)
+    workbench.write_text(
+        "---\n"
+        "kind: memory-import-workbench\n"
+        "status: batch-A-user-review-required\n"
+        "workbench_id: 20260609-212428-memory-import\n"
+        "inbox_sources:\n"
+        "  - system/inbox/20260609-212343-import-context.md\n"
+        "capture_sources:\n"
+        "  - capture/import/20260609-212343/codex-memory-history.md\n"
+        "current_batch: A\n"
+        "final_pr_ready: false\n"
+        "---\n\n"
+        "# Memory import workbench\n\n"
+        "## Step 1: Information Items\n\n"
+        "| id | item | initial domain | batch | status |\n"
+        "|---:|---|---|---|---|\n"
+        "| 01 | forge-core audit portal design | forge workflow | A | triaged-awaiting-user |\n"
+        "| 02 | spare untriaged item | misc | B | untriaged |\n\n"
+        "## Batch A Triage\n\n"
+        "### Item 01: forge-core audit portal design\n\n"
+        "- source_evidence: `capture/import/20260609-212343/codex-memory-history.md` "
+        "lines around `anchor-geo-market-viability`\n"
+        "- existing_canonical_sink: workbench/project/demo/onepage.md\n"
+        "- canonical_sink_status: missing / stale\n"
+        "- proposed_disposition: NEEDS-LIVE-VERIFY, then APPLY\n"
+        "- apply_scope: canonical-source\n"
+        "- proposed_change: update Forge onepage with Context Audit Portal as the review UI.\n"
+        "- proposed_patch_target: workbench/project/demo/onepage.md\n"
+        "- proposed_patch_anchor: Demo project source.\n"
+        "- proposed_patch_text:\n"
+        "  Demo project source.\n"
+        "  Context Audit Portal is the review UI.\n"
+        "- propagation_chain: forge onepage -> workspace section -> runtime AGENTS.\n"
+        "- self_check: do not update repo numbers without fresh test output.\n",
+        encoding="utf-8",
+    )
+    empty_wb = workspace / "system" / "pr" / "20260610-000000-drifted" / "workbench.md"
+    empty_wb.parent.mkdir(parents=True)
+    empty_wb.write_text(
+        "---\nkind: memory-import-workbench\nworkbench_id: 20260610-000000-drifted\n---\n\n"
+        "# Items live in a renamed heading the parser does not know\n",
+        encoding="utf-8",
+    )
+
+    graph = build_audit_graph(workspace).to_dict()
+    wb = graph["workbenches"][0]
+    item = wb["items"][0]
+
+    assert wb["id"] == "20260609-212428-memory-import"
+    assert wb["current_batch"] == "A"
+    assert wb["final_pr_ready"] is False
+    assert item["id"] == "01"
+    assert item["initial_domain"] == "forge workflow"
+    assert item["fields"]["proposed_disposition"] == "NEEDS-LIVE-VERIFY, then APPLY"
+    assert "Context Audit Portal" in item["fields"]["proposed_change"]
+
+    # Free-text fields are resolved to graph node ids: the ingest-review
+    # surface links into the provenance graph instead of dead-ending.
+    onepage = next(
+        s for s in graph["sources"] if s["pointer"] == "workbench/project/demo/onepage.md"
+    )
+    linked_ids = {link["node_id"] for link in item["links"]}
+    assert onepage["id"] in linked_ids
+    assert "runtime:AGENTS" in linked_ids
+
+    # The reviewer judges against the imported corpus itself: source_evidence
+    # resolves to an excerpt around the anchor, not just a path.
+    evidence = item["evidence"][0]
+    assert evidence["found"] is True
+    assert evidence["anchor"] == "anchor-geo-market-viability"
+    assert "GEO evidence line one." in evidence["excerpt"]
+    assert evidence["start_line"] is not None and evidence["start_line"] >= 1
+
+    # The claimed canonical sink is reality-checked against disk.
+    sink = item["sinks"][0]
+    assert sink["path"] == "workbench/project/demo/onepage.md"
+    assert sink["exists"] is True
+    assert "Demo project source." in sink["excerpt"]
+
+    # Untriaged items stay in the data but are grouped out of the review flow.
+    untriaged = next(i for i in wb["items"] if i["id"] == "02")
+    assert untriaged["status"] == "untriaged"
+    assert untriaged["fields"] == {}
+
+    # proposed_patch_* resolves to a concrete before -> after diff source:
+    # the anchored block as it exists on disk vs the proposed replacement.
+    patch = item["patch"]
+    assert patch["mode"] == "replace"
+    assert patch["anchor_found"] is True
+    assert patch["start_line"] == 1
+    assert patch["current_text"] == "Demo project source."
+    assert "Context Audit Portal is the review UI." in patch["proposed_text"]
+    assert untriaged["patch"] is None
+
+    # A workbench that parses to zero items surfaces as a gap, not a blank view.
+    assert any(u["type"] == "workbench_parse_empty" for u in graph["unexplained"])
+    drift_gap = next(g for g in graph["gaps"] if g["type"] == "workbench_parse_empty")
+    assert drift_gap["object"] == "20260610-000000-drifted"
+    assert drift_gap["severity"] == "med"
+
+    html_path, _ = write_portal(workspace, tmp_path / "audit")
+    html = html_path.read_text(encoding="utf-8")
+    assert "Workbench Review" in html
+    assert "mode-workbench" in html
+    assert "staged memory item" in html
+    assert "forge-core audit portal design" in html
+    # Bidirectional jump: workbench card -> graph node, node -> workbench card.
+    assert "data-graph-goto" in html
+    assert "Workbench 关联" in html
+    # The card is a decision unit: evidence, change, blast radius, decision.
+    assert "证据原文" in html
+    assert "GEO evidence line one." in html
+    assert "影响链" in html
+    assert "wb-decide" in html
+    assert "未分诊" in html
+    # A concrete patch renders as before -> after, not prose.
+    assert "before → after" in html
+    # Workbench mode must actually hide the graph lanes.
+    assert ".lanes[hidden]" in html
+
+
+def test_gap_audits_and_extraction_classification_live_in_graph_data(tmp_path: Path) -> None:
+    workspace = _audit_workspace(tmp_path)
+    (workspace / "source" / "gamma-source.md").write_text(
+        "intro line.\n\nGamma canonical line one.\nGamma line two longer.\n",
+        encoding="utf-8",
+    )
+    (workspace / "context build" / "sections" / "gamma.md").write_text(
+        "---\nname: gamma\ntype: test\nupstream:\n  - source/gamma-source.md\n---\n\n"
+        "Gamma canonical line one.\nGamma line two longer.\n",
+        encoding="utf-8",
+    )
+
+    graph = build_audit_graph(workspace).to_dict()
+
+    # Extraction classification is computed at build time and carried on the edge.
+    gamma_edge = next(
+        e
+        for e in graph["edges"]
+        if e["relation"] == "source_to_section" and e["to_id"] == "section:gamma"
+    )
+    assert gamma_edge["extraction"]["kind"] == "verbatim"
+    alpha_source = next(s for s in graph["sources"] if s["pointer"] == "source/alpha-source.md")
+    alpha_edge = next(
+        e
+        for e in graph["edges"]
+        if e["relation"] == "source_to_section"
+        and e["to_id"] == "section:alpha"
+        and e["from_id"] == alpha_source["id"]
+    )
+    assert alpha_edge["extraction"]["kind"] == "paraphrase"
+
+    # Gaps are severity-ranked with stable, content-derived ids.
+    gaps = graph["gaps"]
+    severities = [g["severity"] for g in gaps]
+    assert severities == sorted(severities, key={"high": 0, "med": 1, "low": 2}.get)
+    gamma_gap = next(g for g in gaps if g["type"] == "declared_without_derive_record")
+    assert gamma_gap["object"] == "gamma"
+    assert gamma_gap["target_id"] == "section:gamma"
+    rebuilt = build_audit_graph(workspace).to_dict()
+    assert [g["id"] for g in rebuilt["gaps"]] == [g["id"] for g in gaps]
+
+
 def test_portal_has_external_import_edge_inspector_copy(tmp_path: Path) -> None:
     root = tmp_path
     sd = root / "context build" / "sections"
@@ -301,10 +475,12 @@ def test_write_portal_outputs_html_and_json(tmp_path: Path) -> None:
     # The review-gate framing is part of the product contract, not decoration:
     # the portal exposes gaps and an owner workflow, it does not edit truth.
     assert "Review Gaps" in html
-    assert "declared_without_derive_record" in html
     assert "Owner 审核工作流" in html
     for step in ("propose", "review", "approve", "rejected"):
         assert step in html
+    # Review is a linear task: the portal walks changes/gaps as a queue.
+    assert "queue-bar" in html
+    assert "queueStep" in html
 
     # Provenance content rides in the embedded JSON, not in escaped markup, so
     # source/runtime text appears verbatim (not double-escaped).
@@ -322,6 +498,13 @@ def test_write_portal_outputs_html_and_json(tmp_path: Path) -> None:
     parsed = json.loads(embedded.group(1))
     assert parsed["schema_version"] == "forge.audit.v1"
     assert {n["name"] for n in parsed["sections"]} >= {"alpha", "beta", "missing"}
+    # Gaps ride in the data with stable ids, not synthesized per page load.
+    assert parsed["gaps"]
+    assert all(g["id"].startswith("GAP-") for g in parsed["gaps"])
+    assert {g["type"] for g in parsed["gaps"]} >= {
+        "missing_source_relation",
+        "unresolved_source_pointer",
+    }
     payload = json.loads(json_path.read_text(encoding="utf-8"))
     assert payload["schema_version"] == "forge.audit.v1"
 

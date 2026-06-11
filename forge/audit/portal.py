@@ -240,6 +240,85 @@ _HTML_TEMPLATE = r"""<!doctype html>
     .graph-empty[hidden] { display: none; }
     .graph-empty b { display: block; color: var(--ink); font-size: 14px; margin-bottom: 5px; }
     .graph-empty span { font-size: 12px; line-height: 1.45; }
+    .workbench-view {
+      min-height: 100%;
+      padding: 8px 0 64px;
+      display: grid;
+      gap: 18px;
+    }
+    .workbench-view[hidden] { display: none; }
+    .wb-head {
+      max-width: 1180px;
+      display: grid;
+      gap: 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--r-md);
+      background: rgba(251,250,247,.96);
+      box-shadow: var(--shadow-sm);
+      padding: 16px 18px;
+    }
+    .wb-eyebrow { margin: 0; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+    .wb-title { margin: 0; font-size: 18px; font-weight: 750; letter-spacing: -.01em; }
+    .wb-sub { margin: 0; color: var(--ink-soft); font-size: 12.5px; font-family: var(--mono); overflow-wrap: anywhere; }
+    .wb-summary { display: flex; flex-wrap: wrap; gap: 8px; }
+    .wb-group { display: grid; gap: 10px; max-width: 920px; }
+    .wb-group-title { margin: 14px 0 0; display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-soft); }
+    .wb-group-title .d { width: 8px; height: 8px; border-radius: 2px; flex: 0 0 auto; }
+    .wb-group-title .grp-count { margin-left: 0; }
+    .wb-card {
+      border: 1px solid var(--line);
+      border-radius: var(--r-md);
+      background: var(--panel);
+      box-shadow: var(--shadow-sm);
+      padding: 14px 16px;
+      display: grid;
+      gap: 12px;
+    }
+    .wb-card.triaged { border-color: #c6aa82; }
+    .wb-card.apply { border-left: 3px solid var(--added); }
+    .wb-card.covered { border-left: 3px solid var(--exact); }
+    .wb-card.verify { border-left: 3px solid var(--uncertain); }
+    .wb-card h3 { margin: 0; font-size: 14px; line-height: 1.3; font-weight: 700; overflow-wrap: anywhere; }
+    .wb-meta { display: flex; flex-wrap: wrap; gap: 5px; }
+    .wb-fields { display: grid; gap: 7px; }
+    .wb-field { display: grid; grid-template-columns: 118px minmax(0,1fr); gap: 8px; font-size: 12px; align-items: start; }
+    .wb-field .k { color: var(--muted); }
+    .wb-field .v { color: var(--ink-soft); overflow-wrap: anywhere; white-space: pre-wrap; }
+    .wb-links { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .wb-links .lbl-inline { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+    .wb-card.flash, .wb-card.current { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring), var(--shadow-md); }
+    .wb-sec { display: grid; gap: 6px; }
+    .wb-sec > h4 { margin: 0; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-soft); }
+    .wb-sec > h4 .q { color: var(--accent); margin-right: 4px; }
+    .wb-sec .para { margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--ink-soft); white-space: pre-wrap; overflow-wrap: anywhere; }
+    .wb-proposed { border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: var(--r-sm); padding: 8px 11px; font-size: 12.5px; line-height: 1.55; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+    .wb-sink-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; }
+    .wb-sink-row .path { font-family: var(--mono); font-size: 11.5px; color: var(--ink-soft); overflow-wrap: anywhere; }
+    .wb-more summary { cursor: pointer; font-size: 11.5px; color: var(--muted); user-select: none; }
+    .wb-more summary:hover { color: var(--accent); }
+    .wb-more[open] summary { margin-bottom: 7px; }
+    .wb-decide-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .wb-decide { border: 1px solid var(--line); background: var(--panel); border-radius: var(--r-sm); padding: 6px 12px; font-size: 12px; color: var(--ink-soft); transition: border-color .12s, color .12s; }
+    .wb-decide:hover { border-color: var(--accent); color: var(--accent); }
+    .wb-decide.ok { border-color: var(--added); color: var(--added); }
+    .wb-decide-hint { font-size: 11px; color: var(--muted); }
+    .wb-untriaged { border: 1px dashed var(--line-2); border-radius: var(--r-md); background: var(--panel-soft); padding: 10px 14px; font-size: 12.5px; color: var(--ink-soft); max-width: 920px; }
+    .wb-untriaged summary { cursor: pointer; }
+    .wb-untriaged ul { margin: 8px 0 0; padding-left: 18px; font-size: 12px; color: var(--muted); }
+    /* lanes carry display:grid, which beats the [hidden] UA rule — make the
+       workbench mode actually hide the graph instead of bleeding nodes through. */
+    .lanes[hidden] { display: none; }
+    /* ---------- review / gap queue ---------- */
+    .queue-bar {
+      display: flex; align-items: center; gap: 10px; margin: 0 0 16px;
+      padding: 8px 11px; border: 1px solid var(--line); border-radius: var(--r-md);
+      background: var(--panel-soft); font-size: 12px; color: var(--ink-soft);
+    }
+    .queue-bar .queue-pos { font-weight: 650; color: var(--ink); }
+    .queue-bar .queue-hint { margin-left: auto; color: var(--muted-2); font-family: var(--mono); font-size: 10.5px; }
+    .queue-bar button:disabled { opacity: .4; cursor: not-allowed; }
+    .gap .gdone { margin-left: auto; color: var(--added); font-size: 11px; font-weight: 700; }
+    .gap.seen { opacity: .62; }
     /* ---------- motion / polish ---------- */
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     @keyframes panelIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
@@ -469,6 +548,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
         <div class="seg" id="mode-seg" role="group" aria-label="视图模式">
           <button class="seg-btn" data-mode="audit" type="button">Audit</button>
           <button class="seg-btn" data-mode="review" id="mode-review" type="button">Review</button>
+          <button class="seg-btn" data-mode="workbench" id="mode-workbench" type="button">Workbench</button>
         </div>
       </div>
     </header>
@@ -512,6 +592,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
             <div class="lane-head"><h2>Runtime（Agent 实际读到）</h2><span class="count" id="cnt-runtimes"></span></div>
           </section>
         </div>
+        <section class="workbench-view" id="workbench-view" hidden></section>
       </div>
       <div class="insp-backdrop" id="insp-backdrop" hidden></div>
       <div class="divider" id="divider" title="拖拽调整宽度（双击复位）"></div>
@@ -540,6 +621,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
     const KIND_COLOR = { source: "#5f7d7a", capture: "#9a7448", memory: "#73677d", project: "#5c7189", "unlinked-change": "#8a6f5a" };
     const KIND_LABEL = { source: "Source", capture: "Capture", memory: "Memory", project: "Project", "unlinked-change": "Review Change" };
     const externals = graph.externals || [];
+    const workbenches = graph.workbenches || [];
 
     // ---- indices ----
     const byId = new Map();
@@ -561,6 +643,13 @@ _HTML_TEMPLATE = r"""<!doctype html>
     const srcEdgesFrom = (id) => srcEdges.filter(e => e.from_id === id);
     const rtEdgesFrom = (id) => rtEdges.filter(e => e.from_id === id);
     const rtEdgesTo = (id) => rtEdges.filter(e => e.to_id === id);
+    // Workbench items carry builder-resolved links to graph nodes; index the
+    // reverse direction so a node can show which staged items reference it.
+    const wbRefsByNode = new Map();
+    workbenches.forEach(wb => (wb.items || []).forEach(item => (item.links || []).forEach(l => {
+      (wbRefsByNode.get(l.node_id) || wbRefsByNode.set(l.node_id, []).get(l.node_id))
+        .push({ wb, item, field: l.field });
+    })));
 
     // ---- change-review (diff) mode ----
     const diffMode = !!(graph.diff && graph.diff.available);
@@ -647,37 +736,15 @@ _HTML_TEMPLATE = r"""<!doctype html>
     const captureSources = orderedSources.filter(isCaptureInput);
     const canonicalSources = orderedSources.filter(s => !isCaptureInput(s));
 
-    // ---- gap model (deduped, severity-ranked) ----
-    function gaps() {
-      const out = [];
-      // Sections already named by a compiler-emitted gap should not be
-      // double-counted by the synthesized relation gaps below.
-      const flaggedSections = new Set(graph.unexplained.map(u => u.section).filter(Boolean));
-      graph.unexplained.forEach(u => {
-        const sev = (u.type === "missing_source_relation" || u.type === "unresolved_source_pointer"
-          || u.type === "missing_compile_mapping") ? "high" : "med";
-        out.push({
-          type: u.type, sev,
-          object: u.section || u.config || u.source || "workspace",
-          target: nodeForName(u.section) || nodeForRuntime(u.config),
-          msg: u.message || JSON.stringify(u),
-        });
-      });
-      graph.sections.filter(s => s.relation_state === "uncertain" && !flaggedSections.has(s.name)).forEach(s => {
-        out.push({ type: "uncertain_relation", sev: "med", object: s.name, target: s,
-          msg: s.relation_note || "section source relation is uncertain" });
-      });
-      graph.sections.filter(s => s.relation_state === "declared" && !flaggedSections.has(s.name)).forEach(s => {
-        out.push({ type: "declared_without_derive_record", sev: "low", object: s.name, target: s,
-          msg: s.relation_note || "declares upstream pointers, but no exact derive record exists" });
-      });
-      const rank = { high: 0, med: 1, low: 2 };
-      out.sort((a, b) => rank[a.sev] - rank[b.sev]);
-      out.forEach((g, i) => g.id = "GAP-" + String(i + 1).padStart(3, "0"));
-      return out;
-    }
-    const nodeForName = (name) => name ? graph.sections.find(s => s.name === name) : null;
-    const nodeForRuntime = (cfg) => cfg ? graph.runtimes.find(r => r.config === cfg) : null;
+    // ---- gap model ----
+    // Gaps are synthesized in the graph builder (stable ids, severity-ranked,
+    // agent-consumable); the portal only resolves target ids to nodes.
+    const gapItems = (graph.gaps || []).map(g => ({
+      id: g.id, type: g.type, sev: g.severity, object: g.object,
+      target: g.target_id ? byId.get(g.target_id) : null,
+      msg: g.message || "",
+    }));
+    function gaps() { return gapItems; }
 
     // ---- metrics ----
     function metrics() {
@@ -755,17 +822,29 @@ _HTML_TEMPLATE = r"""<!doctype html>
       lane.appendChild(lab);
     }
 
+    function zoneBadge(s) {
+      if (s.zone === "rule") return '<span class="meta-mark" style="color:var(--declared)">规则区</span>';
+      if (s.certified) {
+        const fresh = s.uncertified_changes
+          ? '认证后 ' + s.uncertified_changes + ' 处未认证'
+          : '已认证';
+        return '<span class="meta-mark" style="color:' + (s.uncertified_changes ? "var(--uncertain)" : "var(--exact)") + '">' + fresh + "</span>";
+      }
+      return "";
+    }
     function renderSources() {
       groupByLayer(canonicalSources).forEach(([layer, items]) => {
         groupLabel(laneSources, layer, items.length);
         items.forEach(s => {
           const st = nodeStatus(s);
+          const zb = zoneBadge(s);
           laneSources.appendChild(nodeEl(s, "source",
             '<div class="row">' +
               '<span class="kind-ic" style="background:' + (KIND_COLOR[s.kind] || "#8f969e") + '">' + (ICONS[s.kind] || ICONS.source) + "</span>" +
               '<span class="name">' + esc(s.label) + "</span>" + statusDot(st) +
             "</div>" +
             '<div class="ptr">' + esc(s.pointer) + "</div>" +
+            (zb ? '<div class="submeta">' + zb + "</div>" : "") +
             (s.status === "missing" ? '<div class="submeta" style="color:var(--missing)">未解析 · missing</div>' : "")
           ));
         });
@@ -841,6 +920,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
     const svg = document.getElementById("links");
     const chips = document.getElementById("edge-chips");
     const lanes = document.getElementById("lanes");
+    const workbenchPanel = document.getElementById("workbench-view");
     const graphEmpty = document.getElementById("graph-empty");
     const canvasEl = document.getElementById("canvas");
     let pathByEdge = new Map();
@@ -939,6 +1019,83 @@ _HTML_TEMPLATE = r"""<!doctype html>
     let selectedId = null, hoverId = null, keyboardFocusId = null, inspectorMax = false, activeTab = 0, panelOpen = false;
     let selectedEdgeId = null, hoverEdgeId = null;
     const edgeById = new Map(graph.edges.map(e => [e.id, e]));
+
+    // ---- review / gap queue ----
+    // Reviewing N changes (or gaps) is a linear task: prev/next + J/K walk the
+    // queue in a stable order, and visited changes are remembered locally.
+    const REVIEWED_KEY = "forge-audit-reviewed:" + (graph.workspace_root || "") + ":" +
+      ((graph.diff && graph.diff.base_ref) || "");
+    let reviewedIds = new Set();
+    try { reviewedIds = new Set(JSON.parse(localStorage.getItem(REVIEWED_KEY) || "[]")); } catch (e) {}
+    function persistReviewed() {
+      try { localStorage.setItem(REVIEWED_KEY, JSON.stringify([...reviewedIds])); } catch (e) {}
+    }
+    function changedQueueIds() {
+      const ord = { added: 0, modified: 1, removed: 2 };
+      return changedNodes().slice().sort((a, b) =>
+        ord[a.change] - ord[b.change] ||
+        String(a.name || a.label || a.config || "").localeCompare(String(b.name || b.label || b.config || ""))
+      ).map(n => n.id);
+    }
+    function gapQueueIds() {
+      const seen = new Set(); const out = [];
+      gaps().forEach(g => { if (g.target && !seen.has(g.target.id)) { seen.add(g.target.id); out.push(g.target.id); } });
+      return out;
+    }
+    function activeQueue() {
+      if (diffMode && reviewView) return { label: "改动", ids: changedQueueIds(), tracked: true };
+      if (!workbenchView) {
+        const ids = gapQueueIds();
+        if (ids.length) return { label: "缺口", ids, tracked: false };
+      }
+      return null;
+    }
+    function markReviewed(id) {
+      if (!(diffMode && reviewView)) return;
+      if (!changedQueueIds().includes(id)) return;
+      if (!reviewedIds.has(id)) { reviewedIds.add(id); persistReviewed(); }
+    }
+    let wbQueuePos = -1;
+    function wbQueueStep(delta) {
+      const cards = [...workbenchPanel.querySelectorAll(".wb-card")];
+      if (!cards.length) return;
+      wbQueuePos = wbQueuePos < 0
+        ? (delta > 0 ? 0 : cards.length - 1)
+        : Math.min(cards.length - 1, Math.max(0, wbQueuePos + delta));
+      cards.forEach((c, i) => c.classList.toggle("current", i === wbQueuePos));
+      cards[wbQueuePos].scrollIntoView({ block: "start", behavior: "smooth" });
+    }
+    function queueStep(delta) {
+      if (workbenchView) { wbQueueStep(delta); return; }
+      const q = activeQueue();
+      if (!q || !q.ids.length) return;
+      let i = q.ids.indexOf(selectedId);
+      if (i === -1) {
+        const firstUnseen = q.ids.findIndex(id => !reviewedIds.has(id));
+        i = delta > 0 ? (firstUnseen >= 0 ? firstUnseen : 0) : q.ids.length - 1;
+      } else {
+        i = Math.min(q.ids.length - 1, Math.max(0, i + delta));
+      }
+      const id = q.ids[i];
+      cancelHoverPreview(); hideHoverCard();
+      select(id);
+      const el = elFor(id);
+      if (el) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+    function queueBarHTML() {
+      const q = activeQueue();
+      if (!q || !selectedId) return "";
+      const i = q.ids.indexOf(selectedId);
+      if (i === -1) return "";
+      const seen = q.tracked ? q.ids.filter(id => reviewedIds.has(id)).length : 0;
+      const seenLabel = q.tracked ? " · 已看 " + seen + "/" + q.ids.length : "";
+      return '<div class="queue-bar">' +
+        '<button class="ghost-btn" data-qnav="-1"' + (i === 0 ? " disabled" : "") + '>← 上一个</button>' +
+        '<span class="queue-pos">' + esc(q.label) + " " + (i + 1) + " / " + q.ids.length + seenLabel + "</span>" +
+        '<button class="ghost-btn" data-qnav="1"' + (i === q.ids.length - 1 ? " disabled" : "") + '>下一个 →</button>' +
+        '<span class="queue-hint">J / K</span>' +
+      "</div>";
+    }
 
     // Detail panel as tabs: [label, paneHTML] pairs; first is active by default.
     function tabbed(tabs) {
@@ -1156,7 +1313,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
           ? { kind: "capture import", color: "var(--declared)", note: "frontmatter 记录外部来源；不读取外部原文" }
           : e.relation === "input_to_source"
           ? { kind: "KB source declaration", color: "var(--declared)", note: "KB frontmatter 声明该 clipping/capture 被整合进这份知识库" }
-          : classifyExtraction(fromText, toText);
+          : extractionInfo(e);
       }
       return previewHeader(rel, (from && (from.name || from.label || from.config)) + " → " + (to && (to.name || to.label || to.config)), e.evidence || "", e.status) +
         previewMeta([
@@ -1231,6 +1388,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
       selectedId = id;
       selectedEdgeId = null;
       keyboardFocusId = null;
+      markReviewed(id);
       applyHighlight();
       renderInspector();
       setPanel(true);
@@ -1345,10 +1503,14 @@ _HTML_TEMPLATE = r"""<!doctype html>
       else {
         const n = selectedId ? byId.get(selectedId) : null;
         if (!n) inspBody.innerHTML = overviewHTML();
-        else if (n.kind === "external") inspBody.innerHTML = externalHTML(n);
-        else if (graph.sources.includes(n)) inspBody.innerHTML = sourceHTML(n);
-        else if (graph.runtimes.includes(n)) inspBody.innerHTML = runtimeHTML(n);
-        else inspBody.innerHTML = sectionHTML(n);
+        else {
+          let html;
+          if (n.kind === "external") html = externalHTML(n);
+          else if (graph.sources.includes(n)) html = sourceHTML(n);
+          else if (graph.runtimes.includes(n)) html = runtimeHTML(n);
+          else html = sectionHTML(n);
+          inspBody.innerHTML = queueBarHTML() + html;
+        }
       }
       bindInspector();
       replayPanelIn();
@@ -1370,20 +1532,20 @@ _HTML_TEMPLATE = r"""<!doctype html>
         '<p class="note">这层只展示 capture frontmatter 记录的导入来源,不直接读取外部语料原文。原始语料经 review 后才落入 canonical source。</p>';
     }
 
-    // Classify how a source's text became a section's text (no derive record in
-    // the data, so this is a computed, honest approximation — not a claim of
-    // exact span mapping).
-    function classifyExtraction(fromText, toText) {
-      const from = String(fromText || ""), to = String(toText || "");
-      if (!from || !to) return { kind: "—", note: "缺一侧文本，无法比对" };
-      const norm = (s) => s.replace(/\s+/g, " ").trim();
-      const nf = norm(from), nt = norm(to);
-      if (nf.includes(nt)) return { kind: "逐字拷贝", color: "var(--exact)", note: "section 文本在 source 中逐字出现" };
-      const toLines = to.split("\n").map(l => l.trim()).filter(l => l.length > 4);
-      const hit = toLines.filter(l => nf.includes(norm(l))).length;
-      if (toLines.length && hit / toLines.length >= 0.5) return { kind: "部分摘录", color: "var(--declared)", note: hit + "/" + toLines.length + " 行在 source 中可逐字定位" };
-      if (hit > 0) return { kind: "改写 + 少量摘录", color: "var(--uncertain)", note: "仅 " + hit + " 行可逐字定位，其余为转写" };
-      return { kind: "转写 / 蒸馏", color: "var(--uncertain)", note: "section 文本未在 source 中逐字出现（声明级关系，无精确 derive record）" };
+    // Extraction classification is computed in the graph builder and carried
+    // on the edge (e.extraction); the portal only maps kinds to labels.
+    const EXTRACTION_LABEL = {
+      verbatim: ["逐字拷贝", "var(--exact)"],
+      partial: ["部分摘录", "var(--declared)"],
+      sparse: ["改写 + 少量摘录", "var(--uncertain)"],
+      paraphrase: ["转写 / 蒸馏", "var(--uncertain)"],
+      unknown: ["—", "var(--muted)"],
+    };
+    function extractionInfo(e) {
+      const x = e && e.extraction;
+      if (!x) return { kind: "—", color: "var(--muted)", note: "缺一侧文本，无法比对" };
+      const m = EXTRACTION_LABEL[x.kind] || EXTRACTION_LABEL.unknown;
+      return { kind: m[0], color: m[1], note: x.detail || "" };
     }
 
     function edgeHTML(e) {
@@ -1433,7 +1595,6 @@ _HTML_TEMPLATE = r"""<!doctype html>
       // Original info (from) and product (to)
       let fromText, fromCap, toText, toCap, toStart = 1, hlRange = null, method;
       if (isRt) {
-        fromText = to ? "" : ""; // placeholder, set below
         const rng = e.runtime_range;
         fromText = (from && from.content) || "";
         fromCap = esc((from && from.name) || "section");
@@ -1449,7 +1610,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
         toCap = esc((to && (to.name || to.pointer)) || (isInput ? "canonical source" : "section"));
         method = isInput
           ? { kind: "KB frontmatter 声明", color: "var(--declared)", note: "这是 review graph 中的 source-to-source 关系，不替代 section/runtime provenance" }
-          : classifyExtraction(fromText, toText);
+          : extractionInfo(e);
       }
       const methodCard =
         '<div class="kv">' +
@@ -1477,16 +1638,15 @@ _HTML_TEMPLATE = r"""<!doctype html>
     }
     function diffOverviewHTML() {
       const d = graph.diff;
-      const items = changedNodes().sort((a, b) => {
-        const ord = { added: 0, modified: 1, removed: 2 };
-        return ord[a.change] - ord[b.change];
-      });
+      const items = changedQueueIds().map(id => byId.get(id)).filter(Boolean);
+      const seenCount = items.filter(n => reviewedIds.has(n.id)).length;
       const list = items.length ? items.map(n => {
         const kind = graph.runtimes.includes(n) ? "runtime" : graph.sections.includes(n) ? "section" : "source";
-        return '<button class="gap sev-' + (n.change === "removed" ? "high" : n.change === "modified" ? "med" : "low") + '" data-goto="' + esc(n.id) + '">' +
+        const seen = reviewedIds.has(n.id);
+        return '<button class="gap sev-' + (n.change === "removed" ? "high" : n.change === "modified" ? "med" : "low") + (seen ? " seen" : "") + '" data-goto="' + esc(n.id) + '">' +
           '<div class="gh"><span class="chg chg-' + n.change + '" style="position:static;box-shadow:none">' + CHG_SIGN[n.change] + "</span>" +
           tag(CHG_LABEL[n.change], STATUS_COLOR[n.change === "removed" ? "missing" : n.change === "modified" ? "uncertain" : "exact"]) +
-          '<span class="gid">' + esc(kind) + "</span></div>" +
+          '<span class="gid">' + esc(kind) + "</span>" + (seen ? '<span class="gdone">✓ 已看</span>' : "") + "</div>" +
           '<div class="gobj">' + esc(n.name || n.label || n.config) + "</div></button>";
       }).join("") : '<div class="empty">工作树与 base 相比没有改动。</div>';
       return '<div class="insp-section">' +
@@ -1494,6 +1654,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
           '<span class="diff-pill"><span class="d" style="width:8px;height:8px;border-radius:50%;background:var(--exact)"></span>新增 <b>' + d.added + "</b></span>" +
           '<span class="diff-pill"><span class="d" style="width:8px;height:8px;border-radius:50%;background:var(--uncertain)"></span>修改 <b>' + d.modified + "</b></span>" +
           '<span class="diff-pill"><span class="d" style="width:8px;height:8px;border-radius:50%;background:var(--missing)"></span>删除 <b>' + d.removed + "</b></span>" +
+          (items.length ? '<span class="diff-pill">已看 <b>' + seenCount + " / " + items.length + "</b></span>" : "") +
         "</div>" +
         '<h4>改动节点 · ' + items.length + "</h4><div class=\"gap-list\">" + list + "</div></div>";
     }
@@ -1526,6 +1687,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
           '<div class="distro">' + distro.map(d => '<i style="width:' + (d.count / totalDistro * 100) + '%;background:' + STATUS_COLOR[d.st] + '"></i>').join("") + "</div>" +
           '<div class="distro-legend">' + distro.map(d => '<span class="li"><span class="d" style="background:' + STATUS_COLOR[d.st] + '"></span>' + d.st + " · " + d.count + "</span>").join("") + "</div>" +
         "</div>" +
+        askItemsHTML() +
         '<div class="insp-section"><h4>Review Gaps · ' + gp.length + "</h4>" +
           '<div class="gap-list">' + gapList + "</div></div>" +
         workflowHTML() +
@@ -1544,6 +1706,21 @@ _HTML_TEMPLATE = r"""<!doctype html>
       return '<div class="hbar"><div class="hbar-top"><span class="label">' + esc(label) + '</span><span class="pct" style="color:' + color + '">' + pct + '%</span></div>' +
         '<div class="track"><i style="width:' + pct + '%;background:' + color + '"></i></div>' +
         (sub ? '<div class="insp-sub" style="font-family:var(--font);margin-top:6px">' + esc(sub) + "</div>" : "") + "</div>";
+    }
+    const ASK_TYPE_LABEL = { "conflict": ["冲突", "var(--missing)"], "rule-change": ["规则区变更", "var(--declared)"], "certification-due": ["待认证", "var(--uncertain)"] };
+    function askItemsHTML() {
+      const items = graph.ask_items || [];
+      if (!items.length) return "";
+      const list = items.map(i => {
+        const meta = ASK_TYPE_LABEL[i.type] || [i.type, "var(--muted)"];
+        return '<div class="gap sev-' + (i.type === "conflict" ? "high" : i.type === "rule-change" ? "med" : "low") + '" style="cursor:default">' +
+          '<div class="gh">' + tag(meta[0], meta[1]) + '<span class="gid">' + esc(i.id) + "</span></div>" +
+          '<div class="gobj">' + esc(i.title) + "</div>" +
+        "</div>";
+      }).join("");
+      return '<div class="insp-section"><h4>Run 待问项 · ' + items.length + "</h4>" +
+        '<div class="gap-list">' + list + "</div>" +
+        '<p class="note" style="margin-top:10px;padding-top:0;border-top:0">裁决在 forge run 中进行;portal 是只读审计面。</p></div>';
     }
     function workflowHTML() {
       const steps = [["1", "propose", "Agent 提案补 derive record 或 source pointer"],
@@ -1565,6 +1742,9 @@ _HTML_TEMPLATE = r"""<!doctype html>
       const content =
         '<div class="kv">' +
           '<span class="k">架构层</span><span class="v">' + tag(s.layer || "core", "var(--accent)") + "</span>" +
+          '<span class="k">区属</span><span class="v">' + (s.zone === "rule"
+            ? tag("规则区 · 编译器 gate 保护", "var(--declared)")
+            : tag("状态区" + (s.certified ? " · 认证于 " + s.certified.slice(0, 10) + (s.uncertified_changes ? " · " + s.uncertified_changes + " 处未认证" : "") : " · 未认证过"), s.uncertified_changes ? "var(--uncertain)" : "var(--exact)")) + "</span>" +
           '<span class="k">kind</span><span class="v">' + esc(KIND_LABEL[s.kind] || s.kind || "") + "</span>" +
           '<span class="k">位置</span><span class="v">' + esc(pos(s.position)) + "</span>" +
           '<span class="k">状态</span><span class="v">' + (s.status === "missing" ? tag("未解析 missing", "var(--missing)") : s.status === "unlinked" ? tag("review-only unlinked", "var(--uncertain)") : tag("已解析 resolved", "var(--exact)")) + "</span>" +
@@ -1579,7 +1759,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
       const inputs = upstreamInputs.length
         ? '<div class="lineage">' + upstreamInputs.map(e => '<div class="lin-row">' + nodelink(byId.get(e.from_id), e.status) + '<span class="lin-arrow">→</span>' + nodelink(s) + "</div>").join("") + "</div>"
         : '<div class="empty">没有上游 clipping/capture 声明。</div>';
-      return head + tabbed([["Content", content], ["上游输入", inputs, upstreamInputs.length], ["下游", lineage, consumers.length]]);
+      return head + tabbed([["Content", content], ["上游输入", inputs, upstreamInputs.length], ["下游", lineage, consumers.length]]) + wbRefsHTML(s.id);
     }
 
     function sectionHTML(s) {
@@ -1623,7 +1803,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
         ["Content", content],
         ["Lineage", lineage, sources.length],
         ["Runtime hits", runtimeBlocks, runtimes.length],
-      ]);
+      ]) + wbRefsHTML(s.id);
     }
 
     function runtimeHTML(r) {
@@ -1651,9 +1831,22 @@ _HTML_TEMPLATE = r"""<!doctype html>
       const sections =
         '<p class="insp-sub" style="font-family:var(--font);margin:0 0 10px">hover 一个 section 高亮它命中的行范围。</p>' +
         '<div class="lineage"><div class="lin-row">' + (chips || '<div class="empty">无映射</div>') + "</div></div>";
-      return head + tabbed([["Content", content], ["映射的 Section", sections, maps.length]]);
+      return head + tabbed([["Content", content], ["映射的 Section", sections, maps.length]]) + wbRefsHTML(r.id);
     }
     function statusTag(s) { return '<span class="tag"><span class="d" style="background:' + (STATUS_COLOR[s] || "var(--muted)") + '"></span>' + esc(s) + "</span>"; }
+
+    function wbRefsHTML(nodeId) {
+      const refs = wbRefsByNode.get(nodeId);
+      if (!refs || !refs.length) return "";
+      return '<div class="insp-section"><h4>Workbench 关联 · ' + refs.length + "</h4><div class=\"lineage\">" +
+        refs.map(r =>
+          '<div class="lin-row"><button class="nodelink" data-wb-goto="' + esc(r.wb.id + "-" + r.item.id) + '">' +
+            '<span class="d" style="background:var(--declared)"></span>' +
+            '<span class="name">Item ' + esc(r.item.id) + " · " + esc(r.item.title || "Untitled") + "</span>" +
+          '</button><span class="lin-arrow">' + esc(r.field) + "</span></div>"
+        ).join("") +
+      "</div></div>";
+    }
 
     function bindInspector() {
       inspBody.querySelectorAll("[data-goto]").forEach(b => {
@@ -1671,6 +1864,20 @@ _HTML_TEMPLATE = r"""<!doctype html>
         activeTab = Number(t.dataset.tab);
         inspBody.querySelectorAll(".tab").forEach(x => x.classList.toggle("active", x === t));
         inspBody.querySelectorAll(".tabpane").forEach(p => { p.hidden = Number(p.dataset.pane) !== activeTab; });
+      }));
+      inspBody.querySelectorAll("[data-qnav]").forEach(b =>
+        b.addEventListener("click", () => queueStep(Number(b.dataset.qnav))));
+      inspBody.querySelectorAll("[data-wb-goto]").forEach(b => b.addEventListener("click", () => {
+        const ref = b.dataset.wbGoto;
+        closePanel();
+        viewMode = "workbench";
+        applyMode();
+        const card = document.getElementById("wb-item-" + ref);
+        if (card) {
+          card.scrollIntoView({ block: "center" });
+          card.classList.add("flash");
+          setTimeout(() => card.classList.remove("flash"), 1600);
+        }
       }));
     }
     function hlRuntimeLines(a, c) {
@@ -1690,6 +1897,10 @@ _HTML_TEMPLATE = r"""<!doctype html>
     let changedOnly = diffMode;
     let query = "";
     function applyFilters() {
+      if (workbenchView) {
+        graphEmpty.hidden = true;
+        return;
+      }
       const gapTargets = gapsOnly ? gapNodeSet() : null;
       const changedTargets = changedOnly ? changedNodeSet() : null;
       lanes.querySelectorAll(".node").forEach(el => {
@@ -1742,6 +1953,251 @@ _HTML_TEMPLATE = r"""<!doctype html>
       return set;
     }
 
+    // ---- Workbench review surface ----
+    // Each card is a decision unit ordered by the reviewer's four questions:
+    // ① is it true (evidence excerpt) ② agent's reading ③ what would change
+    // (sink reality check + proposed change) ④ blast radius ⑤ decision.
+    // Grouping is by proposed disposition (decision-first); batch is a tag.
+    const WB_MORE_FIELDS = [
+      ["source_evidence", "source (raw)"],
+      ["apply_scope", "scope"],
+      ["covered_by", "covered by"],
+      ["propagation_chain", "propagation (raw)"],
+      ["why", "why"],
+      ["self_check", "self-check"],
+      ["user_decision", "user decision"],
+      ["final_action", "final action"],
+    ];
+    const WB_GROUPS = [
+      ["apply", "建议 APPLY · 待你批准", "var(--added)"],
+      ["verify", "需 LIVE-VERIFY · 先核实再批", "var(--uncertain)"],
+      ["covered", "已覆盖 COVERED · 快速确认", "var(--exact)"],
+      ["other", "其他已分诊", "var(--declared)"],
+    ];
+    function wbField(item, key) { return (item.fields && item.fields[key]) || ""; }
+    function wbDisposition(item) { return wbField(item, "proposed_disposition") || item.status || "untriaged"; }
+    function wbGroupKey(item) {
+      const st = String(item.status || "").toLowerCase();
+      const hasFields = item.fields && Object.keys(item.fields).length;
+      if (!hasFields && (!st || st.includes("untriaged"))) return "untriaged";
+      const d = wbDisposition(item).toUpperCase();
+      if (d.includes("NEEDS-LIVE-VERIFY")) return "verify";
+      if (d.includes("APPLY")) return "apply";
+      if (d.includes("COVERED")) return "covered";
+      return st.includes("untriaged") ? "untriaged" : "other";
+    }
+    function downstreamRuntimes(id) {
+      const seen = new Set([id]); const stack = [id]; const out = [];
+      while (stack.length) {
+        const cur = stack.pop();
+        (outAdj.get(cur) || []).forEach(n => {
+          if (seen.has(n)) return;
+          seen.add(n);
+          if (n.indexOf("runtime:") === 0) { const node = byId.get(n); if (node) out.push(node); }
+          else stack.push(n);
+        });
+      }
+      return out;
+    }
+    function wbCode(text, startLine, caption, maxLines) {
+      const all = String(text || "").split("\n");
+      const lines = all.slice(0, maxLines || 14);
+      const start = startLine || 1;
+      const rows = lines.map((ln, i) =>
+        '<div class="preview-line"><span class="ln">' + (start + i) + '</span><span class="lc">' + esc(ln || " ") + "</span></div>").join("");
+      const more = all.length > lines.length ? '<div class="preview-more">… 共 ' + all.length + " 行，已截取片段</div>" : "";
+      return '<div class="preview-code">' + (caption ? '<div class="preview-cap">' + esc(caption) + "</div>" : "") + rows + more + "</div>";
+    }
+    function wbDiff(oldText, newText, caption) {
+      const raw = lineDiffRows(oldText || "", newText || "");
+      const limit = 24;
+      let start = 0;
+      const firstChange = raw.findIndex(r => r.type !== "ctx");
+      if (firstChange > 2) start = firstChange - 2;
+      const end = Math.min(raw.length, start + limit);
+      const rows = raw.slice(start, end).map(row => {
+        const cls = row.type === "add" ? " d-add" : row.type === "del" ? " d-del" : "";
+        return '<div class="preview-line' + cls + '"><span class="ln">' + esc(diffLineLabel(row)) + '</span><span class="lc">' + esc(row.text || " ") + "</span></div>";
+      }).join("");
+      const more = (start > 0 || end < raw.length) ? '<div class="preview-more">… 已截取 diff 片段（共 ' + raw.length + " 行）</div>" : "";
+      return '<div class="preview-code preview-diff">' + (caption ? '<div class="preview-cap">' + esc(caption) + " · before → after</div>" : "") + rows + more + "</div>";
+    }
+    const WB_PATCH_MODE = {
+      replace: ["patch · 替换锚点段落", "var(--exact)"],
+      append: ["patch · 文件末尾追加", "var(--declared)"],
+      create: ["patch · 新建文件", "var(--declared)"],
+      unlocated: ["patch · 锚点未定位", "var(--missing)"],
+    };
+    function wbNodeChip(id, label, fieldTitle) {
+      const node = byId.get(id);
+      const st = node ? nodeStatus(node) : "";
+      return '<button class="nodelink" data-graph-goto="' + esc(id) + '"' + (fieldTitle ? ' title="' + esc(fieldTitle) + '"' : "") + '>' +
+        '<span class="d" style="background:' + (STATUS_COLOR[st] || "var(--muted)") + '"></span>' +
+        '<span class="name">' + esc(label || (node && (node.name || node.label || node.config)) || id) + "</span></button>";
+    }
+    function wbChainHTML(item) {
+      const links = (item.links || []).filter(l => byId.has(l.node_id));
+      const prose = wbField(item, "propagation_chain");
+      if (!links.length) {
+        return '<div class="empty">没有解析到图节点；批准后的影响面需要人工确认。</div>' +
+          (prose ? '<p class="para" style="font-size:11.5px;color:var(--muted)">agent 声明: ' + esc(prose) + "</p>" : "");
+      }
+      const rows = links.map(l => {
+        const down = downstreamRuntimes(l.node_id);
+        const tail = down.length
+          ? '<span class="lin-arrow">→</span>' + down.map(r => wbNodeChip(r.id, r.config)).join("")
+          : (l.node_id.indexOf("runtime:") === 0 ? "" : '<span class="lin-arrow">· 不直达任何 runtime</span>');
+        return '<div class="lin-row">' + wbNodeChip(l.node_id, l.label, l.field) + tail + "</div>";
+      }).join("");
+      return '<div class="lineage">' + rows + "</div>" +
+        (prose ? '<p class="para" style="font-size:11.5px;color:var(--muted)">agent 声明: ' + esc(prose) + "</p>" : "");
+    }
+    function wbDecisionText(wbObj, itemId, title, decision) {
+      const action = decision === "approve" ? "approve——按 proposed_change 落地"
+        : decision === "reject" ? "reject——不采纳，记录原因"
+        : "needs-revision——按我的备注修改后再提";
+      return "workbench " + wbObj.id + " · Item " + itemId + (title ? "（" + title + "）" : "") +
+        "：用户决策 = " + action + "。请更新 " + (wbObj.path || "workbench.md") +
+        " 中该 item 的 user_decision / final_action，并按 review 流程执行。";
+    }
+    function fallbackCopy(text, done) {
+      const ta = document.createElement("textarea");
+      ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); } catch (e) {}
+      document.body.removeChild(ta); done();
+    }
+    function copyText(text, btn) {
+      const old = btn.textContent;
+      const done = () => { btn.classList.add("ok"); btn.textContent = "已复制 ✓"; setTimeout(() => { btn.classList.remove("ok"); btn.textContent = old; }, 1600); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, () => fallbackCopy(text, done));
+      else fallbackCopy(text, done);
+    }
+    function renderWorkbenchView() {
+      if (!workbenches.length) {
+        workbenchPanel.innerHTML =
+          '<div class="wb-head"><p class="wb-eyebrow">Workbench Review</p>' +
+          '<h2 class="wb-title">No staged workbench</h2>' +
+          '<p class="wb-sub">system/pr/*/workbench.md 中没有可解析的 review workbench。</p></div>';
+        return;
+      }
+      const wbById = new Map(workbenches.map(w => [w.id, w]));
+      workbenchPanel.innerHTML = workbenches.map(wb => {
+        const groups = new Map();
+        (wb.items || []).forEach(item => {
+          const key = wbGroupKey(item);
+          (groups.get(key) || groups.set(key, []).get(key)).push(item);
+        });
+        const untriaged = groups.get("untriaged") || [];
+        const decisionCount = (wb.items || []).length - untriaged.length;
+        const summary = [["待决策", decisionCount]]
+          .concat(WB_GROUPS.filter(([k]) => (groups.get(k) || []).length)
+            .map(([k]) => [k.toUpperCase(), groups.get(k).length]))
+          .concat([
+            ["untriaged", untriaged.length],
+            ["status", wb.status || "—"],
+            ["batch", wb.current_batch || "—"],
+            ["final PR", wb.final_pr_ready ? "ready" : "not ready"],
+          ]);
+        const groupSections = WB_GROUPS.map(([key, label, color]) => {
+          const items = groups.get(key) || [];
+          if (!items.length) return "";
+          return '<div class="wb-group-title"><span class="d" style="background:' + color + '"></span>' + esc(label) +
+            ' <span class="grp-count">' + items.length + "</span></div>" +
+            '<div class="wb-group">' + items.map(item => workbenchItemHTML(wb, item)).join("") + "</div>";
+        }).join("");
+        const untriagedRow = untriaged.length
+          ? '<details class="wb-untriaged"><summary>untriaged · ' + untriaged.length +
+            " 条未分诊 — agent 还没给出解释与处置提案，不进入本轮 review</summary><ul>" +
+            untriaged.map(i => "<li>" + esc(i.id) + " · " + esc(i.title || "Untitled") + (i.batch ? " (Batch " + esc(i.batch) + ")" : "") + "</li>").join("") +
+            "</ul></details>"
+          : "";
+        return '<section class="wb-head">' +
+          '<p class="wb-eyebrow">Workbench Review</p>' +
+          '<h2 class="wb-title">' + esc(wb.id || "workbench") + "</h2>" +
+          '<p class="wb-sub">' + esc(wb.path || "") + "</p>" +
+          '<div class="wb-summary">' + summary.map(([k, v]) => '<span class="diff-pill"><b>' + esc(k) + "</b> " + esc(v) + "</span>").join("") + "</div>" +
+          '<p class="note" style="margin-top:4px">这里审的是 staged memory item 的解释、去向和传播链；它不表示 canonical source 或 runtime 已经改变。J / K 在卡片间移动。</p>' +
+        "</section>" + groupSections + untriagedRow;
+      }).join("");
+      workbenchPanel.querySelectorAll("[data-graph-goto]").forEach(b => b.addEventListener("click", () => {
+        const id = b.dataset.graphGoto;
+        viewMode = "audit";
+        applyMode();
+        select(id);
+        const el = elFor(id);
+        if (el) el.scrollIntoView({ block: "center" });
+      }));
+      workbenchPanel.querySelectorAll(".wb-decide").forEach(b => b.addEventListener("click", () => {
+        const wbObj = wbById.get(b.dataset.wb);
+        if (!wbObj) return;
+        copyText(wbDecisionText(wbObj, b.dataset.item, b.dataset.title || "", b.dataset.decide), b);
+      }));
+    }
+    function workbenchItemHTML(wb, item) {
+      const disp = wbDisposition(item);
+      const dUpper = disp.toUpperCase();
+      const dispColor = dUpper.includes("VERIFY") ? "var(--uncertain)"
+        : dUpper.includes("APPLY") ? "var(--added)"
+        : dUpper.includes("COVERED") ? "var(--exact)" : "var(--uncertain)";
+      const evidence = (item.evidence || []).map(ev =>
+        (ev.note ? '<p class="para" style="font-size:11px;color:var(--uncertain)">' + esc(ev.note) + "</p>" : "") +
+        wbCode(ev.excerpt, ev.start_line || 1, ev.path + (ev.anchor ? " @ " + ev.anchor : ""), 14)
+      ).join("");
+      const evidenceHTML = evidence ||
+        '<div class="empty">未能从 source_evidence 解析出证据原文' + (wbField(item, "source_evidence") ? "（原始字段见「更多字段」）" : "（无 source_evidence 字段）") + "</div>";
+      const interp = wbField(item, "notable_content") || wbField(item, "interpretation");
+      const claim = wbField(item, "canonical_sink_status");
+      const sinks = (item.sinks || []).map(s =>
+        '<div class="wb-sink-row"><span class="path">' + esc(s.path) + "</span>" +
+        tag(s.exists ? "磁盘存在" : "磁盘缺失", s.exists ? "var(--exact)" : "var(--missing)") + "</div>" +
+        (s.exists && s.excerpt ? '<details class="wb-more"><summary>现状摘录（文件头部）</summary>' + wbCode(s.excerpt, 1, s.path, 14) + "</details>" : "")
+      ).join("");
+      const proposed = wbField(item, "proposed_change");
+      const patch = item.patch;
+      let proposedHTML;
+      if (patch) {
+        const mode = WB_PATCH_MODE[patch.mode] || ["patch", "var(--muted)"];
+        const cap = patch.target + (patch.anchor ? " @ " + patch.anchor : "") +
+          (patch.start_line ? "（第 " + patch.start_line + " 行起）" : "");
+        proposedHTML =
+          '<div class="wb-sink-row">' + tag(mode[0], mode[1]) +
+            (patch.note ? '<span class="wb-decide-hint">' + esc(patch.note) + "</span>" : "") + "</div>" +
+          wbDiff(patch.current_text, patch.proposed_text, cap) +
+          (proposed ? '<p class="para" style="font-size:11.5px;color:var(--muted)">' + esc(proposed) + "</p>" : "");
+      } else if (proposed) {
+        proposedHTML = '<div class="wb-proposed">' + esc(proposed) +
+          '</div><p class="wb-decide-hint">提议目前是 prose，未含 proposed_patch_* 字段；批准的是意图，不是具体变更。</p>';
+      } else {
+        proposedHTML = '<div class="empty">无 proposed_change。</div>';
+      }
+      const decisions = [["approve", "批准"], ["reject", "驳回"], ["needs-revision", "需修改"]].map(([d, label]) =>
+        '<button class="wb-decide" data-decide="' + d + '" data-wb="' + esc(wb.id) + '" data-item="' + esc(item.id) + '" data-title="' + esc(item.title || "") + '">' + label + "</button>").join("");
+      const more = WB_MORE_FIELDS.map(([key, label]) => [label, wbField(item, key)])
+        .filter(([, v]) => String(v || "").trim())
+        .map(([label, v]) => '<div class="wb-field"><span class="k">' + esc(label) + '</span><span class="v">' + esc(v) + "</span></div>").join("");
+      return '<article class="wb-card ' + wbGroupKey(item) + '" id="wb-item-' + esc(wb.id + "-" + item.id) + '">' +
+        '<h3>' + esc(item.id) + " · " + esc(item.title || "Untitled item") + "</h3>" +
+        '<div class="wb-meta">' +
+          tag(disp, dispColor) +
+          (item.batch ? tag("Batch " + item.batch) : "") +
+          (item.initial_domain ? tag(item.initial_domain, "var(--declared)") : "") +
+          tag(item.status || "untriaged") +
+        "</div>" +
+        '<div class="wb-sec"><h4><span class="q">①</span>证据原文 · import 语料</h4>' + evidenceHTML + "</div>" +
+        (interp ? '<div class="wb-sec"><h4><span class="q">②</span>Agent 解释</h4><p class="para">' + esc(interp) + "</p></div>" : "") +
+        '<div class="wb-sec"><h4><span class="q">③</span>改动 · 现状 → 提议</h4>' +
+          (claim ? '<div class="wb-sink-row"><span style="color:var(--muted);font-size:11.5px">agent 判断 sink 状态</span>' + tag(claim, "var(--uncertain)") + "</div>" : "") +
+          (sinks || '<div class="empty">未声明 existing_canonical_sink。</div>') +
+          proposedHTML +
+        "</div>" +
+        '<div class="wb-sec"><h4><span class="q">④</span>影响链 · 批准后波及</h4>' + wbChainHTML(item) + "</div>" +
+        '<div class="wb-sec"><h4><span class="q">⑤</span>决策</h4><div class="wb-decide-row">' + decisions +
+          '<span class="wb-decide-hint">点击复制决策指令，粘给 agent 执行并回写 workbench</span></div></div>' +
+        (more ? '<details class="wb-more"><summary>更多字段（scope / why / self-check…）</summary><div class="wb-fields">' + more + "</div></details>" : "") +
+      "</article>";
+    }
+
     // ---- mount ----
     function mountCounts() {
       const m = metrics();
@@ -1770,24 +2226,38 @@ _HTML_TEMPLATE = r"""<!doctype html>
       document.getElementById("cnt-external").textContent = externals.length;
     }
     mountCounts();
+    renderWorkbenchView();
     // ---- Audit / Review mode toggle ----
-    let reviewView = diffMode;
+    let viewMode = diffMode ? "review" : "audit";
+    let reviewView = viewMode === "review";
+    let workbenchView = viewMode === "workbench";
     const modeReview = document.getElementById("mode-review");
+    const modeWorkbench = document.getElementById("mode-workbench");
     function applyMode() {
-      document.body.classList.toggle("audit-view", !reviewView);
+      reviewView = viewMode === "review";
+      workbenchView = viewMode === "workbench";
+      document.body.classList.toggle("audit-view", !reviewView && !workbenchView);
+      document.body.classList.toggle("workbench-mode", workbenchView);
+      lanes.hidden = workbenchView;
+      workbenchPanel.hidden = !workbenchView;
       document.querySelectorAll("#mode-seg .seg-btn").forEach(b =>
-        b.classList.toggle("active", (b.dataset.mode === "review") === reviewView));
+        b.classList.toggle("active", b.dataset.mode === viewMode));
       if (diffMode) {
         changedOnly = reviewView;
         document.getElementById("changed-only").setAttribute("aria-pressed", String(changedOnly));
       }
       renderInspector();
       applyFilters();
+      if (workbenchView) {
+        svg.innerHTML = "";
+        chips.innerHTML = "";
+      }
     }
     if (!diffMode) { modeReview.disabled = true; modeReview.title = "用 forge audit portal --diff 生成以启用变更评审"; }
+    if (!workbenches.length) { modeWorkbench.title = "当前 workspace 没有 staged workbench；仍可打开空视图"; }
     document.querySelectorAll("#mode-seg .seg-btn").forEach(b => b.addEventListener("click", () => {
       if (b.dataset.mode === "review" && !diffMode) return;
-      reviewView = b.dataset.mode === "review";
+      viewMode = b.dataset.mode;
       applyMode();
     }));
     applyMode();
@@ -1883,6 +2353,8 @@ _HTML_TEMPLATE = r"""<!doctype html>
     document.addEventListener("keydown", (e) => {
       if (e.key === "/" && document.activeElement !== input) { e.preventDefault(); input.focus(); input.select(); }
       if ((e.key === "e" || e.key === "E") && document.activeElement !== input && panelOpen) { e.preventDefault(); setMax(!inspectorMax); }
+      if ((e.key === "j" || e.key === "J") && document.activeElement !== input) { e.preventDefault(); queueStep(1); }
+      if ((e.key === "k" || e.key === "K") && document.activeElement !== input) { e.preventDefault(); queueStep(-1); }
       if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key) && document.activeElement !== input) {
         e.preventDefault();
         const dir = e.key.replace("Arrow", "").toLowerCase();
