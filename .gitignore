@@ -11,3 +11,4 @@ build/
 venv/
 .DS_Store
 .forge/
+.claude/launch.json
