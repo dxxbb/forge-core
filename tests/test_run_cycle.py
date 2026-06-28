@@ -9,6 +9,8 @@ import subprocess
 from pathlib import Path
 
 from forge import ledger, run
+from forge.gate import actions as gate
+from forge.gate.sync import install_target
 from forge.zone import certify, gate_drifts, zone_init
 
 
@@ -159,6 +161,50 @@ def test_run_decide_conflict_approve_applies_held_write(tmp_path: Path) -> None:
     assert decided.state == "decided-approved"
     applied = next(e for e in ledger.list_entries(ws) if e.id == outcome["entry"])
     assert applied.origin == f"run:{record.id}"
+
+
+def test_run_decide_rule_approve_refreshes_bound_targets(tmp_path: Path) -> None:
+    """Regression (2026-06-11): target bindings refreshed only on legacy
+    `forge approve` — a bound external file stayed stale after a rule change
+    was approved through `forge run decide` and the run closed."""
+    ws = _workspace(tmp_path)
+    gate.build(ws)
+    external = tmp_path / "external" / "AGENTS.md"
+    install_target(ws, "agents-md", external, mode="copy")
+
+    run.open_run(ws)
+    (ws / "context build" / "sections" / "preference.md").write_text(
+        "---\nname: preference\ntype: rule\n---\n\n- 沟通直接高效。\n- 交付前跑 security-review。\n",
+        encoding="utf-8",
+    )
+    outcome = run.decide(ws, "rule:context build/sections/preference.md", "approve")
+
+    assert outcome["state"] == "approved"
+    assert "security-review" in external.read_text(encoding="utf-8")
+
+    run.close_run(ws)
+    assert "security-review" in external.read_text(encoding="utf-8")
+
+
+def test_ledger_apply_write_refreshes_bound_targets(tmp_path: Path) -> None:
+    """Same bug class as the run-decide regression: the ledger's rebuild must
+    push to bound external targets, not just rewrite workspace runtime."""
+    ws = _workspace(tmp_path)
+    gate.build(ws)
+    external = tmp_path / "external" / "AGENTS.md"
+    install_target(ws, "agents-md", external, mode="copy")
+
+    result = ledger.apply_write(
+        ws,
+        target="context build/sections/alpha.md",
+        anchor="## 当前状态",
+        mode="replace",
+        proposed_text="## 当前状态\n\nAlpha 项目状态:已验收。",
+        origin="run:test",
+    )
+
+    assert result.state == "applied"
+    assert "已验收" in external.read_text(encoding="utf-8")
 
 
 def test_run_close_reports_and_run_status_counts(tmp_path: Path) -> None:

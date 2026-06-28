@@ -203,11 +203,17 @@ def build(root: Path) -> list[Path]:
 
     Use this in CI / fresh clones / regenerating output when the file got
     deleted but you don't want to commit a no-op.
+
+    Also refreshes external target bindings: the run-era paths (run decide /
+    close, ledger apply/revert/reconcile) all rebuild through here, and a
+    bound ~/.claude/CLAUDE.md must not go stale while runtime moves ahead.
     """
     state = GateState(root)
     state.migrate_layout()
     state.output_dir.mkdir(parents=True, exist_ok=True)
-    return _rebuild_outputs(state)
+    written = _rebuild_outputs(state)
+    sync_targets(state)
+    return written
 
 
 def status(root: Path) -> dict:

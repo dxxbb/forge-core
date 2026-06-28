@@ -1,9 +1,10 @@
 """External target sync: bind a compiled output to a path outside the workspace.
 
 The use case: `~/.claude/CLAUDE.md` is what Claude Code reads at session start,
-but `forge approve` writes to `<workspace>/output/CLAUDE.md`. Without bridging,
-the user has to `cp` or `ln -sf` after every approve. `forge target install`
-records the binding in manifest.json; `forge approve` then pushes automatically.
+but forge writes to `<workspace>/output/CLAUDE.md`. Without bridging, the user
+has to `cp` or `ln -sf` after every approve. `forge target install` records
+the binding in manifest.json; every runtime rebuild (`forge approve`, `forge
+build`, run decide/close, ledger writes) then pushes automatically.
 
 Bindings live in manifest.json under `targets`:
     {
@@ -138,8 +139,10 @@ def list_targets(root: Path) -> list[dict]:
 def sync_targets(state: GateState) -> list[tuple[str, Path]]:
     """Push current output/ to all configured external targets.
 
-    Called from `gate.approve`. Symlink-mode targets need no work (they
-    already point at output/); copy-mode targets get refreshed.
+    Called from every path that rebuilds runtime (`gate.approve`,
+    `gate.build` — which run decide/close and ledger writes go through).
+    Symlink-mode targets need no work (they already point at output/);
+    copy-mode targets get refreshed.
 
     Returns [(adapter, path), ...] of synced targets.
     """
