@@ -302,9 +302,14 @@ demote_section_headings: true
 @click.option("--root", type=click.Path(), default=None, help="Workspace root (default: cwd).")
 def build(root: str | None) -> None:
     """Render context source to runtime output (no gate)."""
+    from forge.budget import output_budget_checks
+
     written = gate.build(_root(root))
     for p in written:
         click.echo(f"wrote {p}")
+    for check in output_budget_checks(_root(root)):
+        if check.over:
+            click.echo(f"WARN    {check.warning()}")
 
 
 @main.command()

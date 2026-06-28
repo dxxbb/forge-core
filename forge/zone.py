@@ -24,6 +24,14 @@ from forge.layout import detect
 
 ZONES_FILENAME = "zones.yaml"
 DEFAULT_RULE_BUDGET_LINES = 150
+# Early-warning ratio for the rule-zone budget: compression pressure should
+# arrive before the cap does, not when it is already hit.
+RULE_BUDGET_WARN_RATIO = 0.87
+
+
+def rule_budget_warn_threshold(budget: int) -> int:
+    """Line count at which the rule-zone budget starts warning (~87% of cap)."""
+    return int(budget * RULE_BUDGET_WARN_RATIO)
 
 
 @dataclass
@@ -32,6 +40,10 @@ class Zones:
     exists: bool
     rule_globs: list[str] = field(default_factory=list)
     budget_lines: int = DEFAULT_RULE_BUDGET_LINES
+    # Workspace-wide soft budget for compiled outputs (forge/budget.py).
+    # None = not configured; per-config `output_budget` frontmatter overrides.
+    output_budget_lines: int | None = None
+    output_budget_tokens: int | None = None
 
     @property
     def zones_relpath(self) -> str:
@@ -290,9 +302,14 @@ def load_zones(root: Path) -> Zones:
         raise ValueError(f"zones config must be a mapping: {path}")
     rule_globs = [str(p) for p in (data.get("rule_zone") or []) if str(p).strip()]
     budget = data.get("budget_lines")
+    out_budget = data.get("output_budget") or {}
+    if not isinstance(out_budget, dict):
+        raise ValueError(f"`output_budget` must be a mapping: {path}")
     return Zones(
         root=root,
         exists=True,
         rule_globs=rule_globs,
         budget_lines=int(budget) if budget else DEFAULT_RULE_BUDGET_LINES,
+        output_budget_lines=int(out_budget["lines"]) if out_budget.get("lines") else None,
+        output_budget_tokens=int(out_budget["tokens"]) if out_budget.get("tokens") else None,
     )

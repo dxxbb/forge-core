@@ -14,6 +14,9 @@
   output_frontmatter        — 产物顶部 YAML frontmatter 的控制字典
   demote_section_headings   — section body 自带 heading 时的降级策略
   section_views             — per-config extraction policy per section
+  output_budget             — 该产物的 soft budget(lines / tokens),
+                              覆盖 zones.yaml 的全局 output_budget;
+                              0 / null 表示对该产物显式关闭某一维度
 
 例：
     ---
@@ -59,6 +62,7 @@ class Config:
     output_frontmatter: dict[str, Any] = field(default_factory=dict)
     demote_section_headings: bool = False
     section_views: dict[str, dict[str, Any]] = field(default_factory=dict)
+    output_budget: dict[str, int | None] = field(default_factory=dict)
     filename: str | None = None
     meta: dict[str, Any] = field(default_factory=dict)
     path: Path | None = None
@@ -100,6 +104,21 @@ class Config:
                 raise ValueError(
                     f"{path}: `section_views.{key}` must be a mapping or string"
                 )
+        out_budget = fm.pop("output_budget", None) or {}
+        if not isinstance(out_budget, dict):
+            raise ValueError(f"{path}: `output_budget` must be a mapping")
+        output_budget: dict[str, int | None] = {}
+        for key, value in out_budget.items():
+            if key not in ("lines", "tokens"):
+                raise ValueError(
+                    f"{path}: unknown `output_budget` key `{key}` "
+                    f"(allowed: lines, tokens)"
+                )
+            if value is not None and not isinstance(value, int):
+                raise ValueError(
+                    f"{path}: `output_budget.{key}` must be an integer or null"
+                )
+            output_budget[str(key)] = value
         # 拒绝已废弃字段，避免静默丢内容
         for deprecated in ("preamble", "postamble", "body"):
             if deprecated in fm:
@@ -117,6 +136,7 @@ class Config:
             output_frontmatter=out_fm,
             demote_section_headings=demote,
             section_views=normalized_views,
+            output_budget=output_budget,
             filename=filename,
             meta=fm,
             path=path,

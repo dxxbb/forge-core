@@ -8,6 +8,8 @@ Checks (severity):
   WARNING — orphan section (not referenced by any config)
   WARNING — section.kind == 'derived' but upstream is empty
   WARNING — config target references an unregistered adapter
+  WARNING — rule-zone budget exceeded, or nearly full (early warning ~87%)
+  WARNING — compiled output exceeds its soft budget (output_budget)
   INFO    — personalOS asset coverage: per-asset-dir count of files referenced
             (in any form: inline, pointer, summary, L2 index) by some section's
             upstream, vs not. Reported, never failed — bridge form is a
@@ -165,6 +167,8 @@ def run(root: Path) -> DoctorReport:
 
     _zone_checks(root, report)
 
+    _output_budget_checks(root, report)
+
     return report
 
 
@@ -175,6 +179,7 @@ def _zone_checks(root: Path, report: DoctorReport) -> None:
         gate_initialized,
         load_zones,
         rule_budget_usage,
+        rule_budget_warn_threshold,
         rule_zone_files,
     )
 
@@ -199,10 +204,30 @@ def _zone_checks(root: Path, report: DoctorReport) -> None:
             f"rule zone budget exceeded: {used} lines > {budget} — "
             f"every rule costs permanent agent attention; consider pruning"
         )
+    elif used >= rule_budget_warn_threshold(budget):
+        report.warnings.append(
+            f"rule zone budget nearly full: {used}/{budget} lines "
+            f"(early warning at {rule_budget_warn_threshold(budget)}) — "
+            f"compress now, before the cap forces it"
+        )
     report.info.append(
         f"rule zone: {len(rule_zone_files(root))} files, {used}/{budget} lines, "
         f"drift {len(drifts)}"
     )
+
+
+def _output_budget_checks(root: Path, report: DoctorReport) -> None:
+    """Soft budget for compiled runtime outputs: warn, never fail.
+
+    Independent of the zone gate — a per-config `output_budget` works even
+    without zones.yaml, and a missing budget means no check at all.
+    """
+    from forge.budget import output_budget_checks
+
+    for check in output_budget_checks(root):
+        if check.over:
+            report.warnings.append(check.warning())
+        report.info.append(check.summary())
 
 
 def _project_onepage_lines(root: Path) -> list[str]:

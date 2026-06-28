@@ -2,6 +2,32 @@
 
 记录 `forge-core` 的所有显著变动。
 
+## Unreleased (compiled-output soft budget) — 2026-06-11
+
+此前唯一的体积约束是 rule zone 的 `budget_lines` (默认 150 行, 只覆盖规则区 section 源文件); 编译产物 (`context build/runtime/claude-code/CLAUDE.md` 等) 没有任何 size guard——产物膨胀无人察觉。
+
+### Added
+
+- **编译产物 soft budget** (`forge/budget.py`): 可选的行数 / token 软预算。全局默认写在 `zones.yaml` 的 `output_budget: {lines, tokens}`; 每个产物可在 config frontmatter 用同名 `output_budget:` 按 key 覆盖 (`0` / `null` 显式关闭某一维度)。超预算时 `forge doctor` 和 `forge build` 输出 WARN——软预算, 永不 fail。未配置 = 不检查, 完全 opt-in。
+- **token 估算 heuristic**: `estimate_tokens()` = CJK 字符 × 0.75 + 其他字符 × 0.25。是估计不是 tokenizer; 对一个 CJK-heavy 的真实 runtime 样本 (175 行 / ~17KB) 估出 4231 tokens, 与实际约 4.2K 吻合。
+- **rule zone budget 提前预警**: 用量 ≥ 预算的 ~87% (`int(budget * 0.87)`, 默认 150 行时 130 行起) 即 WARN "nearly full", 在 cap 真正命中前给 owner 压缩压力; 超预算仍是原有 "exceeded" 警告, 两者不重复出现。
+
+### Tests
+
+- 新增 `tests/test_output_budget.py` (20 条): zones.yaml / config frontmatter 预算解析与非法值拒绝、token heuristic、doctor 对超行数 / 超 token 产物的 WARN (且 `report.ok` 保持 True)、config 覆盖全局、`0` 关闭继承维度、无 zones.yaml 时 config 预算独立生效、未 build 产物跳过、`forge build` CLI 打印 WARN、87% 阈值 (130/150) 与 nearly-full / exceeded 互斥。
+- 当前验证: `605 passed, 3 skipped`。
+
+## Unreleased (run-path target sync) — 2026-06-11
+
+### Fixed
+
+- **run 路径不再让外部 target binding 过期**: `forge target install` 的承诺是 runtime 重建后外部文件自动刷新, 但 target sync 此前只挂在 legacy `forge approve` 上。run-era 路径 (`forge run decide` 的 rule approve/reject、`forge run close`、ledger `apply_write` / `revert` / `reconcile`) 经 `gate.build` 重建 runtime 后, 绑定的 `~/.claude/CLAUDE.md` / `~/.codex/AGENTS.md` 等保持 stale, 只能手动 `forge target install --force` 补救。现在 `gate.build` 重建后统一调用 `sync_targets`, 所有重建路径 (含 `forge build` / `forge migrate`) 都会刷新 manifest 里的 target bindings。
+
+### Tests
+
+- `tests/test_run_cycle.py` 新增两条回归: rule change 经 `forge run decide --approve` 后 bound external file 内容即时更新 (close 后仍一致); ledger `apply_write` 落账后同样刷新。
+- 当前验证: `585 passed, 3 skipped`。
+
 ## Unreleased (context audit portal review lens) — 2026-06-09
 
 Context Audit Portal 从静态 provenance 图推进到可审阅的 desktop review surface: 目标不是在 Portal 里编辑 truth,而是让 owner 能快速判断一段 context 从哪来、怎么进入 section、如何被编译进 runtime,以及本次 diff/PR 到底改了什么。
