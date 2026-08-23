@@ -580,6 +580,70 @@ def candidate_feedback(
 
 # ---------- run / certify / state ----------
 
+def _source_signal(kind: str, issues: list[str], actions: list[str]) -> dict[str, str]:
+    summary = "; ".join(issues)
+    detail = "\n".join(actions[:8])
+    digest = hashlib.sha1(
+        f"{kind}\n{summary}\n{detail}".encode("utf-8")
+    ).hexdigest()[:16]
+    return {
+        "path": f"source://{kind}",
+        "digest": digest,
+        "type": "source-signal",
+        "summary": summary,
+        "detail": detail,
+    }
+
+
+def _collect_run_source_signals(workspace: Path) -> list[dict[str, str]]:
+    """Collect monitor discoveries without copying their source corpus."""
+    signals: list[dict[str, str]] = []
+
+    def add(kind: str, issues: list[str], actions: list[str]) -> None:
+        if issues:
+            signals.append(_source_signal(kind, issues, actions))
+
+    pending_pr = _pending_proposals(workspace)
+    add(
+        "pending-proposal",
+        [f"pending proposals: {len(pending_pr)}"] if pending_pr else [],
+        [f"review proposal: {pending_pr[-1].relative_to(workspace).as_posix()}"]
+        if pending_pr else [],
+    )
+    pending_inbox = _pending_inbox_items(workspace)
+    add(
+        "pending-inbox",
+        [f"pending inbox: {len(pending_inbox)}"] if pending_inbox else [],
+        ["process inbox"] if pending_inbox else [],
+    )
+    add(
+        "context-drift",
+        ["context source changed"] if _context_drift(workspace) else [],
+        ["build/review runtime"],
+    )
+    import_updates = _import_updates(workspace)
+    add(
+        "import-update",
+        [f"import source updates: {len(import_updates)}"] if import_updates else [],
+        [f"import update: {item}" for item in import_updates[:5]],
+    )
+    project_updates, _ = _workspace_project_updates(workspace)
+    add(
+        "workspace-project",
+        [f"workspace-project updates: {len(project_updates)}"] if project_updates else [],
+        project_updates[:5],
+    )
+    providers = (
+        ("internal-content", _internal_content_changes),
+        ("skill-projection", _skill_projection_gaps),
+        ("agent-memory", _agent_memory_updates),
+        ("web-clipping", _web_clipping_pending),
+    )
+    for kind, provider in providers:
+        issues, actions = provider(workspace)
+        add(kind, issues, actions)
+    return signals
+
 @main.group("run")
 def run_group() -> None:
     """Owner-driven evidence disposition and asset promotion."""
@@ -591,7 +655,17 @@ def run_status(root: str | None) -> None:
     """Run age, integrity issues, promotion state, metrics, and freshness."""
     from forge.run import status as run_status_fn
 
-    click.echo(json.dumps(run_status_fn(_root(root)), indent=2, ensure_ascii=False))
+    workspace = _root(root)
+    click.echo(
+        json.dumps(
+            run_status_fn(
+                workspace,
+                source_signals=_collect_run_source_signals(workspace),
+            ),
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
 
 
 @run_group.command("open")
@@ -600,12 +674,19 @@ def run_open(root: str | None) -> None:
     """Open (or resume) the run; list new inputs since the last run."""
     from forge.run import open_run
 
-    record = open_run(_root(root))
-    click.echo(f"run {record.id} open · {len(record.inputs)} new input(s)")
+    workspace = _root(root)
+    record = open_run(
+        workspace,
+        source_signals=_collect_run_source_signals(workspace),
+    )
+    click.echo(f"run {record.id} open · {len(record.inputs)} input(s)")
     if record.expired_observations:
         click.echo(f"  {len(record.expired_observations)} observation(s) expired")
     for item in record.inputs:
-        click.echo(f"  {item['path']}")
+        if item.get("type") == "source-signal":
+            click.echo(f"  {item['path']} · {item.get('summary', '')}")
+        else:
+            click.echo(f"  {item['path']}")
 
 
 @run_group.command("ask")
@@ -649,7 +730,9 @@ def run_decide(ask_id: str, decision: str | None, note: str, root: str | None) -
 @click.option(
     "--as",
     "kind",
-    type=click.Choice(["covered", "one-off", "volatile-state", "observe", "candidate", "closed"]),
+    type=click.Choice(
+        ["covered", "one-off", "volatile-state", "observe", "candidate", "closed", "defer"]
+    ),
     required=True,
 )
 @click.option("--sink", default="")
@@ -673,15 +756,24 @@ def run_close(root: str | None) -> None:
     """Rebuild, verify, write the run report, mark closed."""
     from forge.run import close_run
 
-    report = close_run(_root(root))
+    workspace = _root(root)
+    report = close_run(
+        workspace,
+        current_source_signals=_collect_run_source_signals(workspace),
+    )
+    if report["empty"]:
+        click.echo("没有发现需要处理的输入;未生成 Run 记录或 Git 提交。")
+        return
     disposition_text = "、".join(
         f"{kind} {count}" for kind, count in report["dispositions"].items()
     ) or "无"
+    state_text = "本轮未完成" if report["unresolved_sources"] else "结算完毕"
     click.echo(
-        f"结算完毕:落账 {report['settled']} · 裁决 {report['decisions']} "
+        f"{state_text}:落账 {report['settled']} · 裁决 {report['decisions']} "
         f"· 候选待下轮 {report['pending_candidates']} "
         f"· 完整性问题 {report['integrity_issues']} · 输入去向 {disposition_text} "
-        f"· 观察到期 {report['expired_observations']}"
+        f"· 观察到期 {report['expired_observations']} "
+        f"· 顺延来源 {report['unresolved_sources']}"
     )
 
 

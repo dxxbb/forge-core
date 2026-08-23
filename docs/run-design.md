@@ -20,6 +20,8 @@ Forge 要同时满足:
 ```text
 持续产生的经历
       ↓
+Source Signal(聚合发现,不复制整库)
+      ↓ 选择性读取/捕获
 capture 原始证据(全部保留)
       ↓ Agent 查重、分类、给出 disposition
  ┌────┼───────────┬──────────────┐
@@ -40,6 +42,8 @@ capture 原始证据(全部保留)
 ```
 
 Observation 有期限,关闭不删除 capture。Candidate Asset 是唯一正常 review 对象。
+
+Source Signal 与 Evidence 不混用。前者来自 `monitor` 的 Memory、剪藏、投影和项目变化等来源,只携带摘要、计数和证据指针;后者是已经进入 `capture/` 的原始材料。Run 必须覆盖两者,否则会出现“monitor 有 attention,空 Run 却成功”的假完成。
 
 ## 3. 三层状态
 
@@ -82,7 +86,8 @@ Rule Zone / State Zone 决定“批准后怎么写和怎么保护”;Observation
 ```text
 你:“做一次 Forge”(可附“只有 1 分钟”)
 Forge:自动收集、分流、关闭到期观察
-Forge:报告摘要;若无候选直接结束
+Forge:报告 Source Signal 与 capture 摘要;若来源未处理则解决或带理由顺延
+Forge:来源和 capture 都干净时直接结束,不生成空提交
 Forge:一次展示一张候选卡
 你:“同意 / 不写 / 继续观察 / 修改 / 解释”
 Forge:当场执行或重写同一张卡
@@ -114,6 +119,8 @@ Forge 不以 imported、processed 或 promoted 数量为成功指标。首版记
 | 错误抽象获批 | 正式资产误导 runtime | ledger/revert + verified gate + real-use feedback |
 | Candidate apply 失败 | 半套状态 | ledger atomic apply;失败保持 pending |
 | Agent 绕过 Candidate 改规则 | 低质量规则进入 runtime | compile gate 使用 verified snapshot,并报 unqualified-change |
+| monitor 有变化但 Run 只看 capture | 空 Run 假称处理完 | Source Signal 进入 status/open;未分流拒绝 close |
+| 未跟踪文件不在 baseline | 旧档案被误报为“新增” | 统一称 unseen;mtime 早于 provider baseline 的文件再单列 historical backlog |
 
 ## 8. Legacy
 

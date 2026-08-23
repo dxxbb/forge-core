@@ -239,12 +239,28 @@ def test_run_close_reports_and_run_status_counts(tmp_path: Path) -> None:
     assert info["ask_counts"]["conflict"] == 0
 
 
-def test_cli_run_and_certify_smoke(tmp_path: Path) -> None:
+def test_clean_empty_run_creates_no_git_commit_or_audit_file(tmp_path: Path) -> None:
+    ws = _workspace(tmp_path)
+    before = _git(ws, "rev-parse", "HEAD").strip()
+    record = run.open_run(ws)
+    assert record.inputs == []
+
+    report = run.close_run(ws, current_source_signals=[])
+
+    assert report["empty"] is True
+    assert _git(ws, "rev-parse", "HEAD").strip() == before
+    assert not (ws / "system" / "run" / f"{record.id}.md").exists()
+
+
+def test_cli_run_and_certify_smoke(tmp_path: Path, monkeypatch) -> None:
     from click.testing import CliRunner
 
     from forge.cli import main
 
     ws = _workspace(tmp_path)
+    isolated_home = tmp_path / "home"
+    isolated_home.mkdir()
+    monkeypatch.setenv("HOME", str(isolated_home))
     runner = CliRunner()
 
     assert runner.invoke(main, ["run", "open", "--root", str(ws)]).exit_code == 0

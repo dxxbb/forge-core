@@ -1,6 +1,6 @@
 ---
 name: forge
-version: 0.11.0
+version: 0.11.1
 description: "Initialize and operate a personalOS workspace with forge. Use when the user says they want to create/setup/build a forge or personalOS workspace, manage agent context, import existing CLAUDE.md/AGENTS.md/memory, review context changes, or approve/reject context updates. This skill is personalOS-layout-first and must not use legacy `forge new` / `sp` onboarding."
 metadata:
   requires:
@@ -15,7 +15,7 @@ This skill is the user-facing operator for the personalOS + forge flow.
 Hard rule: do **not** use legacy `forge new`, `sp/`, or `output/` for onboarding. The default model is:
 
 ```text
-capture -> disposition -> observation/candidate -> owner decision -> assets -> runtime
+source signal / capture -> disposition -> observation/candidate -> owner decision -> assets -> runtime
 ```
 
 `forge-core` CLI owns durable state, admission checks, budgets, expiry, the compiler gate, ledger, and execution. You, the agent, provide the semantic capability: source discovery, evidence classification, cross-event abstraction, candidate drafting, and concise review presentation.
@@ -80,8 +80,8 @@ topics proactively in work sessions.
 ### The run
 
 ```
-1. forge run status          → 开场白:距上次 N 天、待问几条、状态新鲜度
-2. forge run open            → 新输入清单(capture 指纹去重,自动续接未关闭 run)
+1. forge run status          → 开场白:距上次 N 天、来源 attention、待问几条、状态新鲜度
+2. forge run open            → 同时收集 monitor 的聚合 Source Signal 与新 capture 指纹;自动续接未关闭 run
 3. 分流全部新 input(语义工作,在会话内做;每条必须且只能有一个 disposition):
    - 已覆盖 → `forge run disposition <input> --as covered --sink <existing-asset>`
    - 一次性缺陷 → 修代码/测试/Issue 后记 `one-off --sink <receipt>`;不建长期规则
@@ -89,6 +89,7 @@ topics proactively in work sessions.
    - 证据不足但可能复现 → `forge observation record ...`,再记 `observe --sink <obs-id>`
    - 满足晋升依据 → `forge candidate create ...`,再记 `candidate --sink <cand-id>`
    - 无价值 → `closed --note <reason>`;raw capture 仍保留
+   - Source Signal 本轮确实无法处理 → `defer --note <reason>`;报告必须称“本轮未完成”,下次 Run 重新出现
 4. forge run ask --budget 3  → 冲突/绕过候选的规则改动先行;其后最多 3 张候选卡。
    一次只呈现一张:证据、一般化问题、建议、适用/不适用范围、准确 patch、验证方法。
 5. owner 一句话裁决 →
@@ -96,18 +97,18 @@ topics proactively in work sessions.
    - 不写:`forge run decide <id> --reject [--note]`
    - 继续观察:`forge run decide <id> --observe [--note]`
    “修改范围/解释/举例”不是裁决;解释不写盘,修改用 `forge candidate revise <id> ...` 更新同一张卡后再呈现,不要创建第二张卡。
-6. forge run close           → 所有 input 有去向后才可关闭;复述 evidence 去向、观察、候选、晋升和关闭数。
+6. forge run close           → 所有 input 有去向后才可关闭;仍存在的 Source Signal 只能带理由 defer,不能假称解决;完全干净的空 Run 不写文件、不提交。
 ```
 
 ### Run 铁律
 
 - 预算神圣:owner 说"只有 1 分钟"→ `--budget 0`(只剩完整性问题);未展示候选留在系统状态,不称为 owner 欠下的待办。
 - 冲突先行,问序固定,不重排。
-- 不硬凑:没有待问项就说"没有"——空 run 是合法结果。
+- 不硬凑:来源与 capture 都干净时说“没有”,空 Run 不生成审计文件或 Git 提交。
 - 裁决即执行,立刻报结果,不留"稍后处理"。
 - 候选准入至少满足一项:两个以上独立事件、owner 明确长期要求、可确定性验证的高风险不变量。重复次数本身不能替代 scope/exclusions/verification。
 - 候选目标在 approve 前不得写入 canonical asset;规则区脱离候选卡的直接改动属于 unqualified-change。
-- close 前每条 input 必须有 disposition;观察池有期限,不是永久 backlog。
+- close 前每条 Source Signal/capture input 必须有 disposition;来源仍 actionable 时只能明确 defer,关闭报告写“本轮未完成”;观察池有期限,不是永久 backlog。
 - decide 报 stale/failed → 如实报错,标记下次重备,继续下一项;run 中断 → 下次 open 自动续接。
 
 ### 随时可答的只读问题(不需要 run)

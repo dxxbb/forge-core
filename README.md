@@ -9,7 +9,7 @@
 ```text
 经历 / Memory / 外部输入
           ↓
-      capture evidence                  全部保留
+  Source Signal(聚合指针) ──选择性读取──→ capture evidence(全部保留)
           ↓
    自动查重与明确分流
    ├─ covered / one-off / volatile-state / closed
@@ -67,6 +67,7 @@ Agent:已通过 ledger 写入 assist config,重编译 runtime 并验证。
 
 | 对象 | 位置 | 作用 |
 |---|---|---|
+| Source Signal | Run 记录中的 `source://...` | monitor 发现的聚合入口;不自动复制整个外部语料库 |
 | Evidence | `capture/` | 原始材料,全部保留、可搜索 |
 | Observation | `system/observations/` | 证据不足的主题,有期限、自动关闭 |
 | Candidate Asset | `system/candidates/` | 通过准入、等待 owner 质检的一张卡 |
@@ -90,7 +91,7 @@ forge run open
 
 forge observation record --theme "..." --evidence capture/a.md
 forge candidate create --help
-forge run disposition <input> --as covered|one-off|volatile-state|observe|candidate|closed
+forge run disposition <input> --as covered|one-off|volatile-state|observe|candidate|closed|defer
 
 forge run ask --budget 3
 forge candidate show <candidate-id>
@@ -104,6 +105,8 @@ forge candidate feedback <candidate-id> \
 ```
 
 语义查重、分类和抽象由运行 Forge 的 Agent 完成;CLI 负责确定性的持久状态、准入校验、预算、到期关闭、ledger、compile gate、commit 和统计。
+
+`run status/open` 与 `monitor` 使用同一批来源类别。来源仍待处理时必须解决或带理由 `defer`,关闭报告会写“本轮未完成”,下一次 Run 继续出现。真正没有 Source Signal、capture input 或完整性问题的空 Run 不生成记录和 Git 提交。
 
 ## 仍然保留的底座
 
@@ -142,7 +145,7 @@ forge update
 
 ## 当前状态
 
-`0.11.0` Alpha,dogfood 阶段。Evidence-to-Asset Promotion 已有确定性 CLI、测试和打包 Skill;语义分类质量与真实长期使用效果仍需连续 Run 验证。
+`0.11.1` Alpha,dogfood 阶段。Source Signal 已把 monitor 与 Run 接通并禁止假完成;语义分类质量与真实长期使用效果仍需连续 Run 验证。
 
 ## 开发
 

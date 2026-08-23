@@ -15,10 +15,12 @@ owner 只有两个主动动作:
 
 ```text
 1. forge run status
-   → 报距上次 Run、完整性问题、pending candidate 数和观察池概况。
+   → 报距上次 Run、Source Signal attention、完整性问题、pending candidate 数和观察池概况。
 
 2. forge run open
-   → 收集未见过的 capture 指纹;自动关闭已到期且无新证据的观察。
+   → 收集 monitor 的聚合 Source Signal 和未见过的 capture 指纹;
+   → Source Signal 只含摘要/计数/指针,不自动复制整个外部语料库;
+   → 自动关闭已到期且无新证据的观察。
 
 3. Agent 分流每一条 input
    covered        → 关联已有资产
@@ -27,6 +29,7 @@ owner 只有两个主动动作:
    observe        → 聚合进有期限的 Observation
    candidate      → 生成通过准入校验的 Candidate Asset
    closed         → 写明无价值原因
+   defer          → 仅 Source Signal 可用;写明本轮为何不处理,下次重新出现
 
    每条随后调用:
    forge run disposition <input> --as <kind> --sink <receipt> [--note ...]
@@ -53,7 +56,10 @@ owner 只有两个主动动作:
 
 7. forge run close
    → 有 unclassified input 时拒绝关闭;
-   → 成功时报告 dispositions、观察到期、候选裁决、晋升和仍 pending 的候选。
+   → 来源仍 actionable 且未 defer 时拒绝关闭;
+   → 有 defer 时写“本轮未完成”并报告顺延来源数;
+   → 真正干净的空 Run 不写 run 文件、不生成 Git commit;
+   → 其余情况报告 dispositions、观察到期、候选裁决、晋升和仍 pending 的候选。
 ```
 
 ## 候选准入
@@ -73,6 +79,7 @@ owner 只有两个主动动作:
 - 规则区出现未建候选卡的 drift:标记 unqualified-change,不得静默编译;
 - 观察到期:只关闭 Observation,不删除 capture evidence;
 - Run 中断:下次 `open` 恢复同一 Run,已经记录的 disposition 不重做。
+- 未跟踪文件在 provider baseline 之外:显示 `unseen`;可判定早于 baseline 的另标 `historical backlog`,不猜测是否最近产生。
 
 ## 真实使用反馈
 

@@ -14,6 +14,8 @@ ADR-0002 把持续治理收敛为 owner 主动发起的 Forge Run,并保留 rule
 6. Run 问单只包含 conflict、Candidate Asset 与绕过候选机制形成的 unqualified rule change。候选默认每轮最多 3 张;状态文件 freshness 只在 status/portal 审计,不再产生 certification-due 问项。
 7. owner 对候选只做 approve、reject 或 observe。approve 复用 ledger、compile gate、scoped commit 与 runtime rebuild;reject/observe 均保留 evidence。
 8. Portal 保留 provenance/diff 审计能力,但主要 review surface 改为一次一张候选卡。旧 proposal/workbench 只作 legacy evidence,不再进入主流程。
+9. `monitor` 发现但尚未进入 `capture/` 的变化以聚合 Source Signal 进入同一次 Run。Source Signal 只保存类别、摘要、计数和证据指针,不自动复制外部语料库;必须解决或带理由 defer。仍 actionable 的来源不得被普通 disposition 假装关闭。
+10. 完全干净的空 Run 不产生持久记录或 Git commit。Memory 文件未被 state 跟踪时称为 unseen;若早于 provider baseline,再标 historical backlog,不猜测其是否最近新产出。
 
 ## Consequences
 
@@ -21,6 +23,7 @@ ADR-0002 把持续治理收敛为 owner 主动发起的 Forge Run,并保留 rule
 - Forge 不再用“写了多少”代表 Memory 价值;报告区分 evidence、observations、candidates、promotions 与 closures。
 - 自动语义分类仍由运行 Forge 的 agent 完成;CLI 只提供确定性的状态、准入校验、预算、执行与审计。
 - 错误抽象仍可能发生,因此首版保持人工晋升门禁并记录接受/拒绝/回观察的结果,不做无审核自动晋升。
+- Run 完整性现在覆盖来源发现与已捕获 evidence 两层;`monitor: attention` 与空 Run 成功不能再并存而不被明确 defer。
 
 ## Supersedes
 

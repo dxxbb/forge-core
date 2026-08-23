@@ -2,6 +2,17 @@
 
 All notable changes to `forge-core` will be recorded in this file.
 
+## [0.11.1] — 2026-08-23
+
+### Added
+- Grouped `source://<kind>` Source Signals connect monitor discovery to Run completeness without bulk-copying external corpora.
+- `run status` reports source attention; unresolved signals may only be deferred with an explicit reason.
+
+### Changed
+- A still-actionable source can no longer disappear behind a successful empty Run. Deferred Runs report incomplete and resurface next time.
+- Genuinely clean empty Runs create no audit file or Git commit.
+- Untracked files are labeled unseen; those predating a provider baseline are additionally labeled historical backlog rather than guessed to be recent memory.
+
 ## [0.11.0] — 2026-08-23
 
 Evidence-to-Asset Promotion replaces bulk item-by-item memory review while preserving capture, zones, the compile gate, ledger, compiler, provenance Portal, and evaluation substrate.

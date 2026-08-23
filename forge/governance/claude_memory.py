@@ -100,6 +100,7 @@ class MemoryFile:
     name: str                  # filename (basename)
     size: int                  # bytes
     sha256: str                # content hash
+    modified_at: float = 0.0   # source mtime; used to separate new vs historical
 
     @property
     def display(self) -> str:
@@ -135,13 +136,19 @@ def discover_memory_files(slug: str) -> list[MemoryFile]:
         if p.name in _EXCLUDED_NAMES:
             continue
         try:
-            size = p.stat().st_size
+            stat = p.stat()
+            size = stat.st_size
         except OSError:
             continue
         h = _hash_file(p)
         if not h:
             continue
-        out.append(MemoryFile(path=p, slug=slug, name=p.name, size=size, sha256=h))
+        out.append(
+            MemoryFile(
+                path=p, slug=slug, name=p.name, size=size, sha256=h,
+                modified_at=stat.st_mtime,
+            )
+        )
     return out
 
 
@@ -189,7 +196,8 @@ def discover_codex_files() -> list[MemoryFile]:
     out: list[MemoryFile] = []
     for p, slug in sorted(candidates, key=lambda item: str(item[0])):
         try:
-            size = p.stat().st_size
+            stat = p.stat()
+            size = stat.st_size
         except OSError:
             continue
         h = _hash_file(p)
@@ -199,7 +207,12 @@ def discover_codex_files() -> list[MemoryFile]:
             name = str(p.relative_to(root))
         except ValueError:
             name = p.name
-        out.append(MemoryFile(path=p, slug=slug, name=name, size=size, sha256=h))
+        out.append(
+            MemoryFile(
+                path=p, slug=slug, name=name, size=size, sha256=h,
+                modified_at=stat.st_mtime,
+            )
+        )
     return out
 
 
@@ -446,7 +459,8 @@ def mark_path_seen(workspace: Path, memory_path: Path) -> bool:
     if not is_memory_file(memory_path):
         return False
     try:
-        size = memory_path.stat().st_size
+        stat = memory_path.stat()
+        size = stat.st_size
     except OSError:
         return False
     h = _hash_file(memory_path)
@@ -463,6 +477,7 @@ def mark_path_seen(workspace: Path, memory_path: Path) -> bool:
         ),
         size=size,
         sha256=h,
+        modified_at=stat.st_mtime,
     )
     mark_seen(workspace, [f])
     return True
@@ -477,6 +492,7 @@ class MemoryDiff:
 
     new: list[MemoryFile] = field(default_factory=list)
     modified: list[MemoryFile] = field(default_factory=list)
+    historical: list[MemoryFile] = field(default_factory=list)
     # Note: deleted files are silent — we don't surface them in monitor
     # (they're not actionable; the agent removed them, that's a normal
     # workflow event). They DO get cleaned out of state on the next sync
@@ -486,11 +502,12 @@ class MemoryDiff:
 def compute_diff(workspace: Path, slug: str, state: MemoryState) -> MemoryDiff:
     """Diff current memory files for `slug` against `state.last_seen`."""
     diff = MemoryDiff()
+    baseline_at = _source_baseline_epoch(state, f"claude:{slug}")
     for f in discover_memory_files(slug):
         key = str(f.path)
         prev = state.last_seen.get(key)
         if prev is None:
-            diff.new.append(f)
+            (diff.historical if _predates_baseline(f, baseline_at) else diff.new).append(f)
         elif prev.get("hash") != f.sha256:
             diff.modified.append(f)
     return diff
@@ -499,14 +516,41 @@ def compute_diff(workspace: Path, slug: str, state: MemoryState) -> MemoryDiff:
 def compute_codex_diff(state: MemoryState) -> MemoryDiff:
     """Diff global Codex memory/history files against `state.last_seen`."""
     diff = MemoryDiff()
+    baseline_at = _source_baseline_epoch(state, "codex")
     for f in discover_codex_files():
         key = str(f.path)
         prev = state.last_seen.get(key)
         if prev is None:
-            diff.new.append(f)
+            (diff.historical if _predates_baseline(f, baseline_at) else diff.new).append(f)
         elif prev.get("hash") != f.sha256:
             diff.modified.append(f)
     return diff
+
+
+def _source_baseline_epoch(state: MemoryState, source_id: str) -> float:
+    """Best available activation time for a provider, including v1 state migration."""
+    timestamps: list[float] = []
+    for path, entry in state.last_seen.items():
+        if source_id == "codex":
+            if "/.codex/" not in path:
+                continue
+        else:
+            slug = source_id.removeprefix("claude:")
+            try:
+                Path(path).relative_to(memory_dir_for_slug(slug))
+            except ValueError:
+                continue
+        try:
+            timestamps.append(datetime.fromisoformat(entry.get("seen_at", "")).timestamp())
+        except (TypeError, ValueError):
+            continue
+    return max(timestamps, default=0.0)
+
+
+def _predates_baseline(memory_file: MemoryFile, baseline_at: float) -> bool:
+    # One-second tolerance avoids misclassifying a file created in the same
+    # coarse filesystem clock tick immediately after baseline activation.
+    return bool(baseline_at and memory_file.modified_at < baseline_at - 1.0)
 
 
 def prune_state_for_slug(state: MemoryState, slug: str) -> int:
@@ -565,8 +609,9 @@ def format_monitor_lines(workspace: Path) -> tuple[list[str], list[str]]:
          (`agent-memory: initialized baseline (N files tracked)`). No
          per-file actions — the user has been operating without monitor
          coverage; existing files are NOT retroactively pushed through PR.
-      3. Otherwise, diff current files against state. Surface new and
-         modified files as inbox-worthy actions.
+      3. Otherwise, diff current files against state. Surface unseen and
+         modified files as inbox-worthy actions. "Unseen" deliberately does
+         not claim the file was recently created.
       4. If neither Claude nor Codex watched sources exist, return empty.
       5. State pruning (deleted files) happens silently as a side-effect of
          the diff/save cycle — no monitor noise.
@@ -642,12 +687,14 @@ def format_monitor_lines(workspace: Path) -> tuple[list[str], list[str]]:
         claude_diff = compute_diff(workspace, slug, state)
         diff.new.extend(claude_diff.new)
         diff.modified.extend(claude_diff.modified)
+        diff.historical.extend(claude_diff.historical)
     if has_codex:
         codex_diff = compute_codex_diff(state)
         diff.new.extend(codex_diff.new)
         diff.modified.extend(codex_diff.modified)
+        diff.historical.extend(codex_diff.historical)
 
-    if not diff.new and not diff.modified:
+    if not diff.new and not diff.modified and not diff.historical:
         # Opportunistic pruning: drop state entries for deleted files.
         pruned = 0
         if has_claude:
@@ -663,20 +710,33 @@ def format_monitor_lines(workspace: Path) -> tuple[list[str], list[str]]:
     total = len(diff.new) + len(diff.modified)
     parts: list[str] = []
     if diff.new:
-        parts.append(f"new {len(diff.new)}")
+        parts.append(f"unseen {len(diff.new)}")
     if diff.modified:
         parts.append(f"modified {len(diff.modified)}")
-    issues.append(f"agent-memory updates: {total} ({', '.join(parts)})")
+    if total:
+        issues.append(f"agent-memory updates: {total} ({', '.join(parts)})")
+    if diff.historical:
+        issues.append(f"agent-memory historical backlog: {len(diff.historical)}")
 
     # Cap at 5 per category to keep monitor surface readable
     for f in diff.new[:5]:
-        actions.append(f'agent-memory NEW: {f.display} · forge capture --from "{f.path}"')
+        actions.append(
+            f'agent-memory UNSEEN: {f.display} · forge capture --from "{f.path}"'
+        )
     if len(diff.new) > 5:
-        actions.append(f"  ... and {len(diff.new) - 5} more new agent-memory files")
+        actions.append(f"  ... and {len(diff.new) - 5} more unseen agent-memory files")
     for f in diff.modified[:5]:
         actions.append(f'agent-memory MODIFIED: {f.display} · forge capture --from "{f.path}"')
     if len(diff.modified) > 5:
         actions.append(f"  ... and {len(diff.modified) - 5} more modified agent-memory files")
+    for f in diff.historical[:5]:
+        actions.append(
+            f'agent-memory HISTORICAL: {f.display} · forge capture --from "{f.path}"'
+        )
+    if len(diff.historical) > 5:
+        actions.append(
+            f"  ... and {len(diff.historical) - 5} more historical agent-memory files"
+        )
 
     return issues, actions
 

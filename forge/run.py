@@ -64,7 +64,11 @@ def run_dir(root: Path) -> Path:
 
 # ---------- status ----------
 
-def status(root: Path) -> dict[str, Any]:
+def status(
+    root: Path,
+    *,
+    source_signals: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
     root = Path(root).resolve()
     records = _records(root)
     closed = [r for r in records if r.status == "closed"]
@@ -73,10 +77,18 @@ def status(root: Path) -> dict[str, Any]:
     freshness = _state_freshness(root)
     candidates = promotion.list_candidates(root, include_decided=True)
     observations = promotion.list_observations(root, include_closed=True)
+    signals = source_signals or []
+    source_signal_counts: dict[str, int] = {}
+    for signal in signals:
+        kind = signal.get("path", "").removeprefix("source://")
+        if kind:
+            source_signal_counts[kind] = source_signal_counts.get(kind, 0) + 1
     return {
         "last_run_closed_at": last_closed or None,
         "days_since_last_run": _days_since(last_closed),
         "open_run": next((r.id for r in records if r.status == "open"), None),
+        "source_attention": bool(signals),
+        "source_signal_counts": source_signal_counts,
         "ask_counts": {
             t: sum(1 for i in items if i.type == t)
             for t in ("conflict", "candidate", "unqualified-change")
@@ -96,11 +108,34 @@ def status(root: Path) -> dict[str, Any]:
 
 # ---------- open / close ----------
 
-def open_run(root: Path) -> RunRecord:
+def open_run(
+    root: Path,
+    *,
+    source_signals: list[dict[str, str]] | None = None,
+) -> RunRecord:
     """Create the run record, or resume the one still open (AC-RUN-2)."""
     root = Path(root).resolve()
     existing = next((r for r in _records(root) if r.status == "open"), None)
     if existing is not None:
+        if source_signals:
+            by_path = {item.get("path"): index for index, item in enumerate(existing.inputs)}
+            for signal in source_signals:
+                path = signal.get("path")
+                if path not in by_path:
+                    existing.inputs.append(signal)
+                    continue
+                index = by_path[path]
+                previous = existing.inputs[index]
+                if previous.get("digest") == signal.get("digest"):
+                    continue
+                previous_digest = previous.get("digest")
+                existing.inputs[index] = signal
+                existing.dispositions = [
+                    disposition
+                    for disposition in existing.dispositions
+                    if disposition.get("input_digest") != previous_digest
+                ]
+            _write_record(root, existing)
         return existing
     processed = {
         i["digest"] for r in _records(root) for i in r.inputs if i.get("digest")
@@ -112,7 +147,14 @@ def open_run(root: Path) -> RunRecord:
             digest = hashlib.sha1(path.read_bytes()).hexdigest()[:16]
             if digest in processed:
                 continue
-            inputs.append({"path": path.relative_to(root).as_posix(), "digest": digest})
+            inputs.append(
+                {
+                    "path": path.relative_to(root).as_posix(),
+                    "digest": digest,
+                    "type": "capture-evidence",
+                }
+            )
+    inputs.extend(source_signals or [])
     base_id = "run-" + datetime.now().strftime("%Y%m%d-%H%M%S")
     run_id, n = base_id, 0
     while (run_dir(root) / f"{run_id}.md").exists():
@@ -131,7 +173,11 @@ def open_run(root: Path) -> RunRecord:
     return record
 
 
-def close_run(root: Path) -> dict[str, Any]:
+def close_run(
+    root: Path,
+    *,
+    current_source_signals: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
     """Rebuild, report, mark closed, and commit the run's bookkeeping (AC-RUN-6)."""
     root = Path(root).resolve()
     record = next((r for r in _records(root) if r.status == "open"), None)
@@ -142,14 +188,55 @@ def close_run(root: Path) -> dict[str, Any]:
     if unclassified:
         paths = ", ".join(i.get("path", "") for i in unclassified[:3])
         raise RuntimeError(f"unclassified input(s): {paths}")
-    runtime_paths = rebuild_outputs(root)
+    current_signal_paths = {
+        signal.get("path", "") for signal in (current_source_signals or [])
+    }
+    disposition_by_digest = {
+        d.get("input_digest", ""): d for d in record.dispositions
+    }
+    unresolved_sources: list[str] = []
+    for item in record.inputs:
+        if item.get("type") != "source-signal" or item.get("path") not in current_signal_paths:
+            continue
+        disposition = disposition_by_digest.get(item.get("digest", ""), {})
+        if disposition.get("kind") != "defer":
+            raise RuntimeError(
+                f"source signal still actionable: {item.get('path')} "
+                "(resolve it or record --as defer with a reason)"
+            )
+        unresolved_sources.append(item.get("path", ""))
     settled = [
         e for e in ledgerlib.list_entries(root) if e.origin == f"run:{record.id}"
     ]
+    remaining_before_close = _ask_items(root)
+    if (
+        not record.inputs
+        and not record.dispositions
+        and not record.decisions
+        and not record.expired_observations
+        and not remaining_before_close
+        and not settled
+    ):
+        if record.path is not None and record.path.exists():
+            record.path.unlink()
+        return {
+            "empty": True,
+            "settled": 0,
+            "decisions": 0,
+            "deferred": 0,
+            "pending_candidates": 0,
+            "integrity_issues": 0,
+            "rule_changes_decided": 0,
+            "dispositions": {},
+            "expired_observations": 0,
+            "unresolved_sources": 0,
+        }
+    runtime_paths = rebuild_outputs(root)
     remaining = _ask_items(root)
     record.status = "closed"
     record.closed_at = datetime.now().astimezone().isoformat(timespec="seconds")
     report = {
+        "empty": False,
         "settled": len(settled),
         "decisions": len(record.decisions),
         "deferred": len(remaining),
@@ -162,6 +249,7 @@ def close_run(root: Path) -> dict[str, Any]:
         ),
         "dispositions": _count_by(record.dispositions, "kind"),
         "expired_observations": len(record.expired_observations),
+        "unresolved_sources": len(unresolved_sources),
     }
     _write_record(root, record, report=report)
     scoped = [str((run_dir(root) / f"{record.id}.md").relative_to(root))]
@@ -218,7 +306,9 @@ def record_disposition(
     record = next((r for r in _records(root) if r.status == "open"), None)
     if record is None:
         raise RuntimeError("no open run — `forge run open` first")
-    allowed = {"covered", "one-off", "volatile-state", "observe", "candidate", "closed"}
+    allowed = {
+        "covered", "one-off", "volatile-state", "observe", "candidate", "closed", "defer"
+    }
     if kind not in allowed:
         raise ValueError("disposition must be " + "|".join(sorted(allowed)))
     item = next(
@@ -231,6 +321,8 @@ def record_disposition(
     )
     if item is None:
         raise ValueError(f"input not found in open run: {input_ref}")
+    if kind == "defer" and item.get("type") != "source-signal":
+        raise ValueError("defer is only valid for a source signal")
     if kind in {"covered", "one-off", "volatile-state"} and not sink.strip():
         raise ValueError(f"{kind} disposition requires a concrete sink")
     if kind == "observe":
@@ -241,8 +333,8 @@ def record_disposition(
     if kind == "candidate":
         if promotion.get_candidate(root, sink) is None:
             raise ValueError(f"candidate sink not found: {sink}")
-    if kind == "closed" and not note.strip():
-        raise ValueError("closed disposition requires a reason")
+    if kind in {"closed", "defer"} and not note.strip():
+        raise ValueError(f"{kind} disposition requires a reason")
     disposition = {
         "input_path": item["path"],
         "input_digest": item["digest"],
@@ -597,7 +689,8 @@ def _write_record(root: Path, record: RunRecord, report: dict[str, Any] | None =
             f"\n结算报告:落账 {report['settled']} 笔 · 裁决 {report['decisions']} 条 "
             f"· 候选待下轮 {report['pending_candidates']} 条 "
             f"· 完整性问题 {report['integrity_issues']} 条 · 输入去向 {disposition_text} "
-            f"· 观察到期 {report['expired_observations']} 条\n"
+            f"· 观察到期 {report['expired_observations']} 条 "
+            f"· 顺延来源 {report['unresolved_sources']} 条\n"
         )
     path = run_dir(root) / f"{record.id}.md"
     path.parent.mkdir(parents=True, exist_ok=True)

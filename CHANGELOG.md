@@ -2,6 +2,26 @@
 
 记录 `forge-core` 的所有显著变动。
 
+## 0.11.1 (Source Signal completeness) — 2026-08-23
+
+真实狗粮测试发现 `forge monitor` 可报告数百条 Memory 更新,但 `forge run open` 只扫描 `capture/`,因此能关闭空 Run 并误称“全部处理完成”。本版把来源发现和已捕获 evidence 接到同一份 Run 完整性账本。
+
+### Added
+
+- `Source Signal`:按 agent-memory、web-clipping、skill-projection、pending inbox/proposal、context/import/project/content 等类别聚合 monitor 发现,以 `source://<kind>` 进入 Run,不自动复制外部语料库。
+- `run status` 新增 `source_attention` 与 `source_signal_counts`。
+- Source Signal 专用 `defer --note <reason>`;下次 Run 重新出现。
+
+### Changed
+
+- `run close` 对未分流来源 fail closed;来源仍 actionable 时只能解决或明确 defer。存在 defer 的报告写“本轮未完成”。
+- 真正干净的空 Run 不再生成审计文件或 Git commit。
+- Memory state 未跟踪的文件统一称 `unseen`;其中 mtime 早于 provider baseline 的再单列 `historical backlog`,不再猜测它们是否最近新产出。
+
+### Tests
+
+- 新增 Source Signal CLI 端到端测试,并扩展 Memory baseline 与空 Run 回归测试。
+
 ## 0.11.0 (Evidence-to-Asset Promotion) — 2026-08-23
 
 真实 Memory intake 证明“逐条蒸馏输入再批量 review”仍会把 owner 成本绑定到输入量。本版保留 capture、zone、compile gate、ledger、compiler、Portal provenance 和 eval 底座,把 Run 的选择单元改成跨独立事件聚合的主题。

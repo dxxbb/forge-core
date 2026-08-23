@@ -579,7 +579,13 @@ def test_close_run_never_reports_success_when_its_scoped_commit_fails(
     tmp_path: Path,
 ) -> None:
     ws = _run_workspace(tmp_path)
+    capture = ws / "capture" / "import" / "failure.md"
+    capture.parent.mkdir(parents=True)
+    capture.write_text("material run input\n", encoding="utf-8")
     opened = run.open_run(ws)
+    run.record_disposition(
+        ws, "capture/import/failure.md", "closed", note="test commit failure"
+    )
     hook = ws / ".git" / "hooks" / "pre-commit"
     hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
     hook.chmod(0o755)

@@ -47,17 +47,17 @@
 
 ## 4. Forge run(AC-RUN)
 
-**AC-RUN-1** `forge run status`:距上次 run 天数、open run、完整性问题与 Candidate 计数、Observation 状态、promotion metrics、各状态文件 freshness。freshness 不进入待问计数。
+**AC-RUN-1** `forge run status`:距上次 run 天数、open run、Source Signal attention/类别计数、完整性问题与 Candidate 计数、Observation 状态、promotion metrics、各状态文件 freshness。freshness 不进入待问计数。
 
-**AC-RUN-2** `forge run open`:创建 run 记录 `system/run/<id>.md`,列出上次 run 后新增的 capture 指纹,同时自动关闭到期 Observation;重复 open 接续未关闭 run,不重复收集或重复到期处理。
+**AC-RUN-2** `forge run open`:创建 run 记录 `system/run/<id>.md`,列出 monitor 发现的聚合 Source Signal 与上次 run 后新增的 capture 指纹,同时自动关闭到期 Observation;Source Signal 不复制外部语料库;重复 open 接续未关闭 run并合并新来源,不重复 capture 或到期处理。
 
-**AC-RUN-3** 每个新 input 必须经 `forge run disposition` 记录且只能保留一个最新去向:`covered|one-off|volatile-state|observe|candidate|closed`;各类要求具体 sink 或关闭原因。存在 unclassified input 时 close 必须失败。
+**AC-RUN-3** 每个新 input 必须经 `forge run disposition` 记录且只能保留一个最新去向:`covered|one-off|volatile-state|observe|candidate|closed|defer`;`defer` 仅用于 Source Signal 且必须有理由。存在 unclassified input 时 close 必须失败。
 
 **AC-RUN-4(问单)** `forge run ask [--budget N]` 默认 3:conflict 与 unqualified-change 全量置顶,其后最多 N 张 pending Candidate Asset。Candidate 卡携带 problem、proposal、scope、exclusions、target 与 verification;不返回超预算 Candidate,不生成 certification-due。
 
 **AC-RUN-5(裁决执行)** `forge run decide <candidate-id> --approve|--reject|--observe [--note]`:approve 走 AC-LEDGER-5 全流水线(规则区同时更新 verified 快照);reject 关闭卡但保留 evidence;observe 回到 Observation。执行结果即时回写 run 记录。conflict/unqualified-change 只接受 approve/reject。
 
-**AC-RUN-6** `forge run close`:先拒绝任何 unclassified input;否则重编译、验证、写 disposition/expiry/decision/pending-candidate 报告并 scoped commit 运行记录及相关系统状态。close 后 run 记录不可再追加。
+**AC-RUN-6** `forge run close`:先拒绝任何 unclassified input;对仍 actionable 的 Source Signal,未明确 defer 同样拒绝。带 defer 的 Run 可关闭但报告必须写“本轮未完成”、顺延数,且下一次重新出现。真正无 Source Signal、capture input、完整性问题、裁决或到期处理的空 Run 删除临时记录且不 commit。其余 Run 重编译、验证、写报告并 scoped commit;close 后不可追加。
 
 **AC-RUN-7** 查重、分类、跨事件抽象和 patch 撰写由 agent 完成;CLI 确定性负责持久状态、准入校验、预算、expiry、apply、gate、commit 与统计。playbook 必须要求一次只向 owner 展示一张卡。
 

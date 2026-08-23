@@ -5,6 +5,7 @@ forge-core 领域字典。一句话定义,只收本项目独有概念。
 ## Terms
 
 - **Forge Run(结算 run)** — owner 主动发起的结算式对话:收集 → 分流 → 预算内质检 → 裁决即执行 → 报告。治理的唯一工作流;有头有尾,两次 run 之间系统对 owner 零要求。
+- **Source Signal(来源信号)** — `monitor` 从外部 Memory、待综合剪藏、Skill 投影等入口发现的一组待处理事实。它是带计数和证据指针的聚合输入,不是已复制进 `capture/` 的原始 evidence;每次 Run 必须明确处理或带理由顺延。
 - **Observation(观察)** — 一个可能复现、但证据尚不足以成为长期资产的主题。观察按独立 evidence 聚合,有到期日;到期无新证据即关闭,原始 evidence 不删除。
 - **Candidate Asset(候选资产)** — 已达到晋升门槛、等待 owner 质检的一张卡。卡片必须给出 evidence、一般化问题、建议资产、适用范围、不适用范围、准确 patch 与验证方法。
 - **Promotion(资产晋升)** — owner 批准 Candidate Asset 后,通过既有 ledger / compile gate 把它写入 Canonical Source。频率本身不构成晋升理由。
@@ -26,7 +27,7 @@ forge-core 领域字典。一句话定义,只收本项目独有概念。
 
 ## Relationships
 
-- 1 次 run → N 条 evidence disposition + ≤budget 个 Candidate Asset + 必须处理的 conflict/unqualified-change + 1 份 run 记录(`system/run/<id>.md`)
+- 1 次 run → N 条 Source Signal/capture evidence disposition + ≤budget 个 Candidate Asset + 必须处理的 conflict/unqualified-change + 0..1 份持久 run 记录(`system/run/<id>.md`;完全干净的空 Run 不落 Git)
 - 1 个 Observation → 1..N 个独立 evidence → 0..1 个 Candidate Asset
 - 1 个 Candidate Asset → reject|observe|promote;promote → 1 笔 Ledger Entry
 - 1 笔账本条目 ↔ 1 commit(`Ledger-Id:` trailer)

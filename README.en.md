@@ -9,7 +9,7 @@ It is not a vector-memory product, and it does not ask the owner to review every
 ```text
 experience / memory / external input
                  ↓
-          captured evidence                 retained
+ Source Signal (grouped pointer) ──selective read──→ captured evidence
                  ↓
        deduplicate and disposition
        ├─ covered / one-off / volatile-state / closed
@@ -54,6 +54,7 @@ Every card must also contain `problem / proposal / scope / exclusions / exact pa
 
 | Object | Location | Role |
 |---|---|---|
+| Source Signal | `source://...` in a Run | grouped monitor discovery without bulk-copying the external corpus |
 | Evidence | `capture/` | retained, searchable raw material |
 | Observation | `system/observations/` | time-bounded theme waiting for more evidence |
 | Candidate Asset | `system/candidates/` | admitted one-card owner decision |
@@ -69,7 +70,7 @@ forge run open
 
 forge observation record --theme "..." --evidence capture/a.md
 forge candidate create --help
-forge run disposition <input> --as covered|one-off|volatile-state|observe|candidate|closed
+forge run disposition <input> --as covered|one-off|volatile-state|observe|candidate|closed|defer
 
 forge run ask --budget 3
 forge candidate show <candidate-id>
@@ -83,6 +84,8 @@ forge candidate feedback <candidate-id> \
 ```
 
 The hosting agent performs semantic deduplication, classification, and abstraction. The CLI deterministically owns durable state, admission checks, budgets, expiry, the ledger, compile gate, commits, and metrics.
+
+`run status/open` now collect the same source categories as `monitor`. A still-actionable source must be resolved or explicitly deferred with a reason; the close report says the Run is incomplete and the signal returns next time. A genuinely clean empty Run creates neither an audit file nor a Git commit.
 
 ## Preserved substrate
 
@@ -98,7 +101,7 @@ Legacy `system/pr`, proposal schemas, memory workbenches, and bulk Portal review
 
 ## Status
 
-`0.11.0` Alpha and dogfood-stage. The deterministic Evidence-to-Asset Promotion substrate, tests, and packaged Skill exist; semantic candidate quality and long-term real-use outcomes still require repeated live Runs.
+`0.11.1` Alpha and dogfood-stage. Source Signals connect monitor discovery to Run completeness and prevent false completion; semantic candidate quality and long-term real-use outcomes still require repeated live Runs.
 
 ## Development
 

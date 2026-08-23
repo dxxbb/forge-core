@@ -23,6 +23,7 @@ Tests cover:
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -213,9 +214,9 @@ def test_new_memory_file_after_baseline_triggers_action(
     (mem / "new_rule.md").write_text("new rule body", encoding="utf-8")
 
     issues, actions = format_monitor_lines(workspace)
-    assert any("agent-memory updates" in i and "new 1" in i for i in issues)
+    assert any("agent-memory updates" in i and "unseen 1" in i for i in issues)
     assert any(
-        "agent-memory NEW" in a and "new_rule.md" in a for a in actions
+        "agent-memory UNSEEN" in a and "new_rule.md" in a for a in actions
     )
     # Suggested capture command is included
     assert any("forge capture --from" in a for a in actions)
@@ -414,8 +415,29 @@ def test_new_codex_memory_after_baseline_triggers_action(
 
     issues, actions = format_monitor_lines(workspace)
 
-    assert any("agent-memory updates" in i and "new 1" in i for i in issues)
-    assert any("agent-memory NEW" in a and "rollout_summaries/new.md" in a for a in actions)
+    assert any("agent-memory updates" in i and "unseen 1" in i for i in issues)
+    assert any("agent-memory UNSEEN" in a and "rollout_summaries/new.md" in a for a in actions)
+
+
+def test_old_codex_file_outside_baseline_is_historical_not_new(
+    tmp_path: Path, fake_home: Path
+) -> None:
+    workspace = _make_personalos_root(tmp_path)
+    codex = _make_codex_layout(fake_home)
+    (codex / "memories" / "memory_summary.md").write_text(
+        "baseline summary\n", encoding="utf-8"
+    )
+    format_monitor_lines(workspace)
+
+    old = codex / "memories" / "rollout_summaries" / "old.md"
+    old.write_text("historical rollout\n", encoding="utf-8")
+    os.utime(old, (1_735_689_600, 1_735_689_600))  # 2025-01-01 UTC
+
+    issues, actions = format_monitor_lines(workspace)
+
+    assert any("agent-memory historical backlog: 1" in i for i in issues)
+    assert not any("unseen 1" in i for i in issues)
+    assert any("agent-memory HISTORICAL" in a and "old.md" in a for a in actions)
 
 
 def test_modified_codex_history_after_baseline_triggers_action(
