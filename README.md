@@ -9,9 +9,9 @@
 ```text
 经历 / Memory / 外部输入
           ↓
-  Source Signal(聚合指针) ──选择性读取──→ capture evidence(全部保留)
+  Source Signal → Source Batch(稳定小批次) ──选择性读取──→ evidence
           ↓
-   自动查重与明确分流
+   明确分流 → Source Settlement(推进来源状态)
    ├─ covered / one-off / volatile-state / closed
    └─ Observation ──新独立证据──→ Candidate Asset
                                       ↓ owner 一次审一张
@@ -46,9 +46,8 @@ curl -fsSL https://raw.githubusercontent.com/dxxbb/forge-core/main/install.sh | 
 ```text
 你:做一次 Forge。今天只有一分钟。
 
-Agent:距上次 9 天。新增 evidence 18 份:
-      covered 9 / one-off 3 / volatile-state 4 / observe 2。
-      没有冲突;有 1 张候选值得你决定。
+Agent:距上次 9 天。本轮 Memory 固定读取 10 条,剩余 8 条留到下轮。
+      CLI 指定当前只处理这一批,不会临场扩大成全量 intake。
 
 Agent:候选:一次性实现缺陷默认在代码和回归测试层闭环,
       不写成永久协作规则。
@@ -58,7 +57,7 @@ Agent:候选:一次性实现缺陷默认在代码和回归测试层闭环,
 你:同意。
 
 Agent:已通过 ledger 写入 assist config,重编译 runtime 并验证。
-      本轮结束;原始 evidence 仍保留。
+      最终状态 complete · Run 已关闭 · 工作树 clean · 剩余来源 0。
 ```
 
 两次 Run 之间 Forge 不主动要求你维护观察池或 review 队列。每次默认最多展示三张 Candidate Asset;状态 freshness 只作为审计信号。
@@ -68,6 +67,8 @@ Agent:已通过 ledger 写入 assist config,重编译 runtime 并验证。
 | 对象 | 位置 | 作用 |
 |---|---|---|
 | Source Signal | Run 记录中的 `source://...` | monitor 发现的聚合入口;不自动复制整个外部语料库 |
+| Source Batch | Source Signal 的 `batch_items` | 一次 Run 的稳定上限:Memory 10、剪藏 5 |
+| Source Settlement | Run disposition + provider checkpoint | 让已处理批次不再重复出现 |
 | Evidence | `capture/` | 原始材料,全部保留、可搜索 |
 | Observation | `system/observations/` | 证据不足的主题,有期限、自动关闭 |
 | Candidate Asset | `system/candidates/` | 通过准入、等待 owner 质检的一张卡 |
@@ -88,12 +89,13 @@ Candidate 的准入依据只有三种:
 ```bash
 forge run status
 forge run open
+forge run next --budget 3
 
 forge observation record --theme "..." --evidence capture/a.md
 forge candidate create --help
 forge run disposition <input> --as covered|one-off|volatile-state|observe|candidate|closed|defer
 
-forge run ask --budget 3
+forge run ask --budget 3  # 兼容的只读问单;主流程由 run next 驱动
 forge candidate show <candidate-id>
 forge candidate revise <candidate-id> --scope "..." --exclusion "..."
 forge run decide <candidate-id> --approve|--reject|--observe
@@ -106,7 +108,9 @@ forge candidate feedback <candidate-id> \
 
 语义查重、分类和抽象由运行 Forge 的 Agent 完成;CLI 负责确定性的持久状态、准入校验、预算、到期关闭、ledger、compile gate、commit 和统计。
 
-`run status/open` 与 `monitor` 使用同一批来源类别。来源仍待处理时必须解决或带理由 `defer`,关闭报告会写“本轮未完成”,下一次 Run 继续出现。真正没有 Source Signal、capture input 或完整性问题的空 Run 不生成记录和 Git 提交。
+`run open` 固定本轮批次,随后反复调用 `run next --budget N`,只执行合同返回的一个动作,直到它返回 `close`。Memory 每批最多 10 个文件;Web clipping 每批最多 5 个文件,默认只核对已有 canonical sink,不会自行启动完整 knowledge-intake。来源仍待处理时必须真正推进 provider checkpoint,或带理由 `defer`。
+
+`run close` 的最终状态只有三种:`complete`(无剩余)、`batch-complete`(本批已结算,仍有下一批)、`incomplete`(存在 defer)。它同时返回 Run 是否关闭、工作树 clean/dirty 和剩余具体来源数;Agent 不得用自己的总结覆盖这些机器事实。真正干净的空 Run 不生成记录和 Git 提交。
 
 ## 仍然保留的底座
 
@@ -145,7 +149,7 @@ forge update
 
 ## 当前状态
 
-`0.11.1` Alpha,dogfood 阶段。Source Signal 已把 monitor 与 Run 接通并禁止假完成;语义分类质量与真实长期使用效果仍需连续 Run 验证。
+`0.12.0` Alpha,dogfood 阶段。稳定 Source Batch、provider settlement 与 Run Contract 已把交互范围和结束口径固定下来;语义分类质量与真实长期使用效果仍需连续 Run 验证。
 
 ## 开发
 
@@ -154,7 +158,7 @@ pip install -e '.[dev]'
 pytest -q
 ```
 
-设计入口:[`docs/run-design.md`](docs/run-design.md) · 验收条款:[`docs/run-acceptance-spec.md`](docs/run-acceptance-spec.md) · 决策:[`docs/adr/0003-evidence-to-asset-promotion.md`](docs/adr/0003-evidence-to-asset-promotion.md)
+设计入口:[`docs/run-design.md`](docs/run-design.md) · 验收条款:[`docs/run-acceptance-spec.md`](docs/run-acceptance-spec.md) · 决策:[`ADR-0003`](docs/adr/0003-evidence-to-asset-promotion.md)、[`ADR-0004`](docs/adr/0004-deterministic-source-settlement.md)
 
 ## License
 

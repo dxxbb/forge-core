@@ -2,6 +2,25 @@
 
 All notable changes to `forge-core` will be recorded in this file.
 
+## [0.12.0] — 2026-08-23
+
+Disposition alone did not make live Runs deterministic: aggregate counts could change mid-conversation, Memory had no bounded cursor, settled clippings could reappear, and agents could choose different workflow depth for the same signal. This release moves batch scope, provider settlement, the next action, and closing facts into the CLI.
+
+### Added
+
+- Stable Source Batches: at most 10 Agent Memory files or 5 web clippings per Run.
+- Provider-specific settlement: Memory advances its seen checkpoint; clipping settlement writes a source marker and `covered` requires an existing canonical asset.
+- `forge run next`, a single machine-readable Run Contract with the current action, batch items, constraints, and remaining candidate-review budget.
+- `complete / batch-complete / incomplete` close states plus machine-checked open-Run, worktree, and remaining-source facts.
+- [ADR-0004](docs/adr/0004-deterministic-source-settlement.md).
+
+### Changed
+
+- Reopening an active Run preserves its original batch; later same-source arrivals wait for the next Run.
+- Web clippings enter through their bounded Source Batch only, not again as generic capture evidence.
+- First Memory baseline/import reminders remain monitor information and cannot create an empty, unsettleable Run batch.
+- The packaged Forge Skill now loops on `run next`, obeys batch boundaries, and reports close facts verbatim.
+
 ## [0.11.1] — 2026-08-23
 
 ### Added

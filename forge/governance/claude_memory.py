@@ -221,6 +221,7 @@ def discover_codex_files() -> list[MemoryFile]:
 
 _STATE_REL_PATH = (".forge", "agent_memory_state.json")
 _STATE_SCHEMA_VERSION = 1
+RUN_BATCH_LIMIT = 10
 
 
 def state_path(workspace: Path) -> Path:
@@ -739,6 +740,133 @@ def format_monitor_lines(workspace: Path) -> tuple[list[str], list[str]]:
         )
 
     return issues, actions
+
+
+def build_run_source_signal(
+    workspace: Path,
+    *,
+    limit: int = RUN_BATCH_LIMIT,
+) -> dict[str, object] | None:
+    """Build the stable, bounded Source Batch used by ``forge run``.
+
+    Monitor remains the full backlog view.  A Run receives only the first
+    ``limit`` concrete files, with modified files before unseen files and
+    historical backlog last.  The signal digest deliberately excludes the
+    changing total count so later arrivals cannot invalidate an open batch.
+    """
+    issues, _ = format_monitor_lines(workspace)
+    if not issues:
+        return None
+
+    state = load_state(workspace)
+    if state is None:
+        return None
+
+    diff = MemoryDiff()
+    slug = workspace_to_slug(workspace)
+    if memory_dir_for_slug(slug).is_dir():
+        current = compute_diff(workspace, slug, state)
+        diff.new.extend(current.new)
+        diff.modified.extend(current.modified)
+        diff.historical.extend(current.historical)
+    if discover_codex_files():
+        current = compute_codex_diff(state)
+        diff.new.extend(current.new)
+        diff.modified.extend(current.modified)
+        diff.historical.extend(current.historical)
+
+    categorized = (
+        [("modified", item) for item in diff.modified]
+        + [("unseen", item) for item in diff.new]
+        + [("historical", item) for item in diff.historical]
+    )
+    if not categorized:
+        # Baseline initialization/import reminders remain monitor information;
+        # they are not a settleable Run batch and must not create a dead-end.
+        return None
+
+    effective_limit = max(1, limit)
+    selected = categorized[:effective_limit]
+    batch_items = [
+        {
+            "path": str(item.path),
+            "display": item.display,
+            "digest": item.sha256,
+            "category": category,
+            "size": item.size,
+        }
+        for category, item in selected
+    ]
+    digest_material = "\n".join(
+        f"{item['category']}\t{item['path']}\t{item['digest']}"
+        for item in batch_items
+    )
+    digest = hashlib.sha1(
+        f"agent-memory\n{digest_material}".encode("utf-8")
+    ).hexdigest()[:16]
+    total_count = len(categorized)
+    selected_count = len(batch_items)
+    remaining_count = total_count - selected_count
+    summary = (
+        f"agent-memory batch: {selected_count} of {total_count}; "
+        f"remaining after batch: {remaining_count}"
+    )
+    detail = "\n".join(
+        f"{item['category'].upper()}: {item['display']} · {item['path']}"
+        for item in batch_items
+    )
+    return {
+        "path": "source://agent-memory",
+        "digest": digest,
+        "type": "source-signal",
+        "source_kind": "agent-memory",
+        "handler": "bounded-memory-review",
+        "summary": summary,
+        "detail": detail,
+        "batch_items": batch_items,
+        "batch_size": selected_count,
+        "total_count": total_count,
+        "remaining_count": remaining_count,
+    }
+
+
+def settle_run_source_batch(
+    workspace: Path,
+    batch_items: list[dict[str, object]],
+) -> list[str]:
+    """Advance the seen checkpoint for one exact Memory Source Batch.
+
+    Every item is stale-checked before any state is written.  The checkpoint
+    means the item received a disposition; it does not claim that it became a
+    promoted asset.
+    """
+    files: list[MemoryFile] = []
+    for item in batch_items:
+        path = Path(str(item.get("path") or ""))
+        expected = str(item.get("digest") or "")
+        if not is_memory_file(path):
+            raise ValueError(f"memory batch item is outside governed sources: {path}")
+        try:
+            stat = path.stat()
+        except OSError as exc:
+            raise ValueError(f"memory batch item is missing: {path}") from exc
+        current = _hash_file(path)
+        if not current or current != expected:
+            raise ValueError(f"memory batch item drifted: {path}")
+        files.append(
+            MemoryFile(
+                path=path.resolve(),
+                slug=slug_for_memory_path(path),
+                name=path.name,
+                size=stat.st_size,
+                sha256=current,
+                modified_at=stat.st_mtime,
+            )
+        )
+    if not files:
+        raise ValueError("agent-memory Source Signal has no settleable batch items")
+    mark_seen(workspace, files)
+    return [str(item.path) for item in files]
 
 
 def _historical_import_pending_lines(

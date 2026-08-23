@@ -32,6 +32,7 @@ Design constraints:
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -39,6 +40,9 @@ from pathlib import Path
 from typing import Iterable
 
 import yaml
+
+
+RUN_BATCH_LIMIT = 5
 
 
 # ---------- frontmatter helpers ----------
@@ -396,6 +400,113 @@ def format_monitor_lines(workspace: Path) -> tuple[list[str], list[str]]:
         # Quote the path (it likely contains spaces — `web clipping/`)
         actions.append(f'forge synthesize-clipping "{rel}"')
     return issues, actions
+
+
+def build_run_source_signal(
+    workspace: Path,
+    *,
+    limit: int = RUN_BATCH_LIMIT,
+) -> dict[str, object] | None:
+    """Return one stable bounded batch of pending clippings for a Run."""
+    pending = pending_clippings(workspace)
+    if not pending:
+        return None
+    selected = pending[: max(1, limit)]
+    batch_items: list[dict[str, object]] = []
+    for clipping in selected:
+        relpath = clipping.path.relative_to(workspace).as_posix()
+        digest = hashlib.sha256(clipping.path.read_bytes()).hexdigest()
+        batch_items.append(
+            {
+                "path": relpath,
+                "digest": digest,
+                "title": clipping.title or clipping.slug,
+                "source": clipping.source_url,
+            }
+        )
+    digest_material = "\n".join(
+        f"{item['path']}\t{item['digest']}" for item in batch_items
+    )
+    digest = hashlib.sha1(
+        f"web-clipping\n{digest_material}".encode("utf-8")
+    ).hexdigest()[:16]
+    total_count = len(pending)
+    selected_count = len(batch_items)
+    remaining_count = total_count - selected_count
+    return {
+        "path": "source://web-clipping",
+        "digest": digest,
+        "type": "source-signal",
+        "source_kind": "web-clipping",
+        "handler": "canonical-coverage-check",
+        "summary": (
+            f"web-clipping batch: {selected_count} of {total_count}; "
+            f"remaining after batch: {remaining_count}"
+        ),
+        "detail": "\n".join(str(item["path"]) for item in batch_items),
+        "batch_items": batch_items,
+        "batch_size": selected_count,
+        "total_count": total_count,
+        "remaining_count": remaining_count,
+    }
+
+
+def settle_run_source_batch(
+    workspace: Path,
+    batch_items: list[dict[str, object]],
+    *,
+    disposition_kind: str,
+    sink: str,
+    at: str,
+) -> list[str]:
+    """Mark one exact clipping Source Batch as absorbed by ``sink``."""
+    if disposition_kind == "covered":
+        sink_path = (workspace / sink).resolve()
+        if not sink_path.is_file() or not _is_canonical_asset_path(
+            workspace, sink_path
+        ):
+            raise ValueError(f"web-clipping sink is not an existing canonical asset: {sink}")
+
+    resolved: list[Path] = []
+    for item in batch_items:
+        relpath = str(item.get("path") or "")
+        path = (workspace / relpath).resolve()
+        try:
+            path.relative_to(clippings_dir(workspace).resolve())
+        except ValueError as exc:
+            raise ValueError(
+                f"clipping batch item is outside capture/web clipping: {relpath}"
+            ) from exc
+        if not path.is_file():
+            raise ValueError(f"clipping batch item is missing: {relpath}")
+        current = hashlib.sha256(path.read_bytes()).hexdigest()
+        if current != str(item.get("digest") or ""):
+            raise ValueError(f"clipping batch item drifted: {relpath}")
+        resolved.append(path)
+
+    if not resolved:
+        raise ValueError("web-clipping Source Signal has no settleable batch items")
+    marker_sinks = [sink] if disposition_kind == "covered" else []
+    for path in resolved:
+        if not mark_synthesized(path, into=marker_sinks, at=at):
+            raise ValueError(f"failed to mark clipping as settled: {path}")
+    return [path.relative_to(workspace).as_posix() for path in resolved]
+
+
+def _is_canonical_asset_path(workspace: Path, path: Path) -> bool:
+    try:
+        normalized = path.relative_to(workspace.resolve()).as_posix()
+    except ValueError:
+        return False
+    return normalized.startswith(
+        (
+            "user space/",
+            "workspace/",
+            "assist config/",
+            "public knowledge base/",
+            "context build/sections/",
+        )
+    )
 
 
 # ---------- approve-time helpers ----------

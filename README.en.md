@@ -9,9 +9,9 @@ It is not a vector-memory product, and it does not ask the owner to review every
 ```text
 experience / memory / external input
                  ↓
- Source Signal (grouped pointer) ──selective read──→ captured evidence
+ Source Signal → stable Source Batch ──selective read──→ evidence
                  ↓
-       deduplicate and disposition
+       disposition → provider Source Settlement
        ├─ covered / one-off / volatile-state / closed
        └─ Observation ──new independent evidence──→ Candidate Asset
                                                     ↓ one-card owner review
@@ -55,6 +55,8 @@ Every card must also contain `problem / proposal / scope / exclusions / exact pa
 | Object | Location | Role |
 |---|---|---|
 | Source Signal | `source://...` in a Run | grouped monitor discovery without bulk-copying the external corpus |
+| Source Batch | `batch_items` on a Source Signal | stable per-Run limit: 10 Memory files or 5 clippings |
+| Source Settlement | disposition plus provider checkpoint | prevents a settled batch from resurfacing |
 | Evidence | `capture/` | retained, searchable raw material |
 | Observation | `system/observations/` | time-bounded theme waiting for more evidence |
 | Candidate Asset | `system/candidates/` | admitted one-card owner decision |
@@ -67,12 +69,13 @@ Every card must also contain `problem / proposal / scope / exclusions / exact pa
 ```bash
 forge run status
 forge run open
+forge run next --budget 3
 
 forge observation record --theme "..." --evidence capture/a.md
 forge candidate create --help
 forge run disposition <input> --as covered|one-off|volatile-state|observe|candidate|closed|defer
 
-forge run ask --budget 3
+forge run ask --budget 3  # compatibility read view; run next drives the main flow
 forge candidate show <candidate-id>
 forge candidate revise <candidate-id> --scope "..." --exclusion "..."
 forge run decide <candidate-id> --approve|--reject|--observe
@@ -85,7 +88,9 @@ forge candidate feedback <candidate-id> \
 
 The hosting agent performs semantic deduplication, classification, and abstraction. The CLI deterministically owns durable state, admission checks, budgets, expiry, the ledger, compile gate, commits, and metrics.
 
-`run status/open` now collect the same source categories as `monitor`. A still-actionable source must be resolved or explicitly deferred with a reason; the close report says the Run is incomplete and the signal returns next time. A genuinely clean empty Run creates neither an audit file nor a Git commit.
+`run open` freezes the current bounded inputs. The operator then repeats `run next --budget N` and executes exactly the returned action until it says `close`. Agent Memory is capped at 10 files per batch; web clippings are capped at 5 and default to checking existing canonical sinks, not launching deep knowledge intake. A non-deferred disposition must advance the provider checkpoint.
+
+`run close` returns one of `complete`, `batch-complete`, or `incomplete`, plus machine-checked open-Run, clean/dirty worktree, and concrete remaining-source facts. The hosting agent must not overwrite those facts with its own summary. A genuinely clean empty Run creates neither an audit file nor a Git commit.
 
 ## Preserved substrate
 
@@ -101,7 +106,7 @@ Legacy `system/pr`, proposal schemas, memory workbenches, and bulk Portal review
 
 ## Status
 
-`0.11.1` Alpha and dogfood-stage. Source Signals connect monitor discovery to Run completeness and prevent false completion; semantic candidate quality and long-term real-use outcomes still require repeated live Runs.
+`0.12.0` Alpha and dogfood-stage. Stable Source Batches, provider settlement, and the Run Contract fix the interaction scope and close vocabulary; semantic candidate quality and long-term real-use outcomes still require repeated live Runs.
 
 ## Development
 
@@ -110,7 +115,7 @@ pip install -e '.[dev]'
 pytest -q
 ```
 
-Design: [`docs/run-design.md`](docs/run-design.md) · Acceptance: [`docs/run-acceptance-spec.md`](docs/run-acceptance-spec.md) · Decision: [`docs/adr/0003-evidence-to-asset-promotion.md`](docs/adr/0003-evidence-to-asset-promotion.md)
+Design: [`docs/run-design.md`](docs/run-design.md) · Acceptance: [`docs/run-acceptance-spec.md`](docs/run-acceptance-spec.md) · Decisions: [`ADR-0003`](docs/adr/0003-evidence-to-asset-promotion.md), [`ADR-0004`](docs/adr/0004-deterministic-source-settlement.md)
 
 ## License
 

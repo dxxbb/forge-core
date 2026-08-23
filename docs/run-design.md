@@ -2,7 +2,7 @@
 
 **一句话。** Forge 保存全部 evidence,但只让经过独立证据、明确边界和 owner 质检的极少数 Candidate Asset 晋升为正式资产。
 
-当前决策见 [ADR-0003](adr/0003-evidence-to-asset-promotion.md);底层 zone / gate / ledger 决策见 [ADR-0002](adr/0002-forge-run-workflow.md);可测条款见 [run-acceptance-spec.md](run-acceptance-spec.md)。
+资产晋升决策见 [ADR-0003](adr/0003-evidence-to-asset-promotion.md);稳定来源结算见 [ADR-0004](adr/0004-deterministic-source-settlement.md);底层 zone / gate / ledger 决策见 [ADR-0002](adr/0002-forge-run-workflow.md);可测条款见 [run-acceptance-spec.md](run-acceptance-spec.md)。
 
 ## 1. 设计目标
 
@@ -21,9 +21,12 @@ Forge 要同时满足:
 持续产生的经历
       ↓
 Source Signal(聚合发现,不复制整库)
+      ↓ CLI 固定范围
+Source Batch(Memory ≤10 / clipping ≤5)
       ↓ 选择性读取/捕获
 capture 原始证据(全部保留)
       ↓ Agent 查重、分类、给出 disposition
+Source Settlement(推进 provider checkpoint)
  ┌────┼───────────┬──────────────┐
  ↓    ↓           ↓              ↓
 覆盖  一次性缺陷   易变状态         可能复现
@@ -43,7 +46,11 @@ capture 原始证据(全部保留)
 
 Observation 有期限,关闭不删除 capture。Candidate Asset 是唯一正常 review 对象。
 
-Source Signal 与 Evidence 不混用。前者来自 `monitor` 的 Memory、剪藏、投影和项目变化等来源,只携带摘要、计数和证据指针;后者是已经进入 `capture/` 的原始材料。Run 必须覆盖两者,否则会出现“monitor 有 attention,空 Run 却成功”的假完成。
+Source Signal 与 Evidence 不混用。前者来自 `monitor` 的 Memory、剪藏、投影和项目变化等来源;后者是已经进入 `capture/` 的原始材料。Run 必须覆盖两者,否则会出现“monitor 有 attention,空 Run 却成功”的假完成。
+
+Source Signal 也不能直接等同于“一次要处理的全部 backlog”。CLI 从支持的 provider 取一个稳定 Source Batch:Agent Memory 最多 10 个文件,Web clipping 最多 5 个文件。批次 digest 不含不断变化的总数;Run 已打开后,同类新文件留给下一次 Run,不替换本轮批次。
+
+非 defer disposition 必须产生 Source Settlement。Memory 把准确批次写入 seen checkpoint;clipping 写入处理 marker,其中 `covered` 必须指向已有 canonical asset。只在 Run 记录里写一句“处理过”而 provider 仍返回同一批,不算完成。
 
 ## 3. 三层状态
 
@@ -86,12 +93,13 @@ Rule Zone / State Zone 决定“批准后怎么写和怎么保护”;Observation
 ```text
 你:“做一次 Forge”(可附“只有 1 分钟”)
 Forge:自动收集、分流、关闭到期观察
-Forge:报告 Source Signal 与 capture 摘要;若来源未处理则解决或带理由顺延
+Forge:循环执行 `run next`,每次只处理合同指定的一件事
+Forge:Memory 只读本批 10 条;clipping 默认只查已有 sink,不擅自启动 deep intake
 Forge:来源和 capture 都干净时直接结束,不生成空提交
 Forge:一次展示一张候选卡
 你:“同意 / 不写 / 继续观察 / 修改 / 解释”
 Forge:当场执行或重写同一张卡
-Forge:报告本轮去向并关闭
+Forge:原样报告 close 的 complete / batch-complete / incomplete、Run、工作树和剩余来源事实
 ```
 
 两次 Run 之间零主动治理打扰。状态 freshness 只在 status/portal 作为审计信号,不产生 certification-due 问项。
@@ -120,6 +128,10 @@ Forge 不以 imported、processed 或 promoted 数量为成功指标。首版记
 | Candidate apply 失败 | 半套状态 | ledger atomic apply;失败保持 pending |
 | Agent 绕过 Candidate 改规则 | 低质量规则进入 runtime | compile gate 使用 verified snapshot,并报 unqualified-change |
 | monitor 有变化但 Run 只看 capture | 空 Run 假称处理完 | Source Signal 进入 status/open;未分流拒绝 close |
+| Run 中新文件改变聚合 digest | 已做 disposition 失效、交互漂移 | 固定 Source Batch;reopen 不替换本轮同类批次 |
+| disposition 不推进 provider 状态 | 下轮重复出现同一批 | Memory checkpoint / clipping marker;close 校验批次已推进 |
+| 同一 clipping 同时作为 signal/capture | 同一材料重复审两次 | provider-managed capture 只通过 Source Batch 进入 Run |
+| Agent 临场扩大处理范围 | 一次 Run 变成高成本 intake | `run next` 返回唯一 action 与 constraints |
 | 未跟踪文件不在 baseline | 旧档案被误报为“新增” | 统一称 unseen;mtime 早于 provider baseline 的文件再单列 historical backlog |
 
 ## 8. Legacy

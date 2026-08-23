@@ -14,7 +14,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import yaml
 
@@ -51,8 +51,8 @@ class RunRecord:
     status: str
     opened_at: str
     closed_at: str
-    inputs: list[dict[str, str]] = field(default_factory=list)
-    dispositions: list[dict[str, str]] = field(default_factory=list)
+    inputs: list[dict[str, Any]] = field(default_factory=list)
+    dispositions: list[dict[str, Any]] = field(default_factory=list)
     decisions: list[dict[str, str]] = field(default_factory=list)
     expired_observations: list[str] = field(default_factory=list)
     path: Path | None = None
@@ -67,7 +67,7 @@ def run_dir(root: Path) -> Path:
 def status(
     root: Path,
     *,
-    source_signals: list[dict[str, str]] | None = None,
+    source_signals: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     root = Path(root).resolve()
     records = _records(root)
@@ -111,39 +111,30 @@ def status(
 def open_run(
     root: Path,
     *,
-    source_signals: list[dict[str, str]] | None = None,
+    source_signals: list[dict[str, Any]] | None = None,
 ) -> RunRecord:
     """Create the run record, or resume the one still open (AC-RUN-2)."""
     root = Path(root).resolve()
     existing = next((r for r in _records(root) if r.status == "open"), None)
     if existing is not None:
         if source_signals:
-            by_path = {item.get("path"): index for index, item in enumerate(existing.inputs)}
+            existing_paths = {item.get("path") for item in existing.inputs}
             for signal in source_signals:
                 path = signal.get("path")
-                if path not in by_path:
+                if path not in existing_paths:
                     existing.inputs.append(signal)
-                    continue
-                index = by_path[path]
-                previous = existing.inputs[index]
-                if previous.get("digest") == signal.get("digest"):
-                    continue
-                previous_digest = previous.get("digest")
-                existing.inputs[index] = signal
-                existing.dispositions = [
-                    disposition
-                    for disposition in existing.dispositions
-                    if disposition.get("input_digest") != previous_digest
-                ]
+                    existing_paths.add(path)
             _write_record(root, existing)
         return existing
     processed = {
         i["digest"] for r in _records(root) for i in r.inputs if i.get("digest")
     }
-    inputs: list[dict[str, str]] = []
+    inputs: list[dict[str, Any]] = []
     capture_root = root / "capture"
     if capture_root.is_dir():
         for path in sorted(capture_root.rglob("*.md")):
+            if _is_provider_managed_capture(root, path):
+                continue
             digest = hashlib.sha1(path.read_bytes()).hexdigest()[:16]
             if digest in processed:
                 continue
@@ -176,7 +167,8 @@ def open_run(
 def close_run(
     root: Path,
     *,
-    current_source_signals: list[dict[str, str]] | None = None,
+    current_source_signals: list[dict[str, Any]] | None = None,
+    refresh_source_signals: Callable[[], list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     """Rebuild, report, mark closed, and commit the run's bookkeeping (AC-RUN-6)."""
     root = Path(root).resolve()
@@ -188,23 +180,32 @@ def close_run(
     if unclassified:
         paths = ", ".join(i.get("path", "") for i in unclassified[:3])
         raise RuntimeError(f"unclassified input(s): {paths}")
-    current_signal_paths = {
-        signal.get("path", "") for signal in (current_source_signals or [])
+    current_signals_by_path = {
+        signal.get("path", ""): signal for signal in (current_source_signals or [])
     }
     disposition_by_digest = {
         d.get("input_digest", ""): d for d in record.dispositions
     }
     unresolved_sources: list[str] = []
     for item in record.inputs:
-        if item.get("type") != "source-signal" or item.get("path") not in current_signal_paths:
+        if item.get("type") != "source-signal":
+            continue
+        current_signal = current_signals_by_path.get(item.get("path", ""))
+        if current_signal is None:
             continue
         disposition = disposition_by_digest.get(item.get("digest", ""), {})
-        if disposition.get("kind") != "defer":
+        if disposition.get("kind") == "defer":
+            unresolved_sources.append(item.get("path", ""))
+            continue
+        batch_advanced = (
+            disposition.get("source_settled") is True
+            and current_signal.get("digest") != item.get("digest")
+        )
+        if not batch_advanced:
             raise RuntimeError(
                 f"source signal still actionable: {item.get('path')} "
                 "(resolve it or record --as defer with a reason)"
             )
-        unresolved_sources.append(item.get("path", ""))
     settled = [
         e for e in ledgerlib.list_entries(root) if e.origin == f"run:{record.id}"
     ]
@@ -219,7 +220,12 @@ def close_run(
     ):
         if record.path is not None and record.path.exists():
             record.path.unlink()
-        return {
+        final_signals = (
+            refresh_source_signals()
+            if refresh_source_signals is not None
+            else (current_source_signals or [])
+        )
+        return _with_final_facts(root, {
             "empty": True,
             "settled": 0,
             "decisions": 0,
@@ -230,7 +236,8 @@ def close_run(
             "dispositions": {},
             "expired_observations": 0,
             "unresolved_sources": 0,
-        }
+            "remaining_sources": 0,
+        }, final_signals)
     runtime_paths = rebuild_outputs(root)
     remaining = _ask_items(root)
     record.status = "closed"
@@ -250,6 +257,7 @@ def close_run(
         "dispositions": _count_by(record.dispositions, "kind"),
         "expired_observations": len(record.expired_observations),
         "unresolved_sources": len(unresolved_sources),
+        "remaining_sources": _remaining_source_count(current_source_signals or []),
     }
     _write_record(root, record, report=report)
     scoped = [str((run_dir(root) / f"{record.id}.md").relative_to(root))]
@@ -265,6 +273,7 @@ def close_run(
             scoped.append(f"system/observations/{sink}.md")
         elif sink.startswith("cand-"):
             scoped.append(f"system/candidates/{sink}.md")
+        scoped.extend(str(path) for path in disposition.get("settled_paths", []))
     for decision in record.decisions:
         if decision.get("type") != "candidate":
             continue
@@ -290,7 +299,12 @@ def close_run(
         record.closed_at = ""
         _write_record(root, record)
         raise RuntimeError(f"failed to commit run close {record.id}: {exc}") from exc
-    return report
+    final_signals = (
+        refresh_source_signals()
+        if refresh_source_signals is not None
+        else (current_source_signals or [])
+    )
+    return _with_final_facts(root, report, final_signals)
 
 
 def record_disposition(
@@ -300,7 +314,7 @@ def record_disposition(
     *,
     sink: str = "",
     note: str = "",
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """Give one newly collected input exactly one terminal or promotion route."""
     root = Path(root).resolve()
     record = next((r for r in _records(root) if r.status == "open"), None)
@@ -343,12 +357,195 @@ def record_disposition(
         "note": note.strip(),
         "at": datetime.now().astimezone().isoformat(timespec="seconds"),
     }
+    if item.get("type") == "source-signal" and kind != "defer":
+        settlement = _settle_source_batch(
+            root,
+            item,
+            disposition_kind=kind,
+            sink=sink.strip(),
+        )
+        if settlement["items"]:
+            disposition["source_settled"] = True
+            disposition["settled_items"] = settlement["items"]
+            disposition["settled_paths"] = settlement["paths"]
     record.dispositions = [
         d for d in record.dispositions if d.get("input_digest") != item["digest"]
     ]
     record.dispositions.append(disposition)
     _write_record(root, record)
     return disposition
+
+
+def _settle_source_batch(
+    root: Path,
+    item: dict[str, Any],
+    *,
+    disposition_kind: str,
+    sink: str,
+) -> dict[str, list[str]]:
+    source_kind = _source_kind(item)
+    if source_kind == "agent-memory" and item.get("batch_items"):
+        from forge.governance.claude_memory import settle_run_source_batch
+
+        items = settle_run_source_batch(root, list(item.get("batch_items") or []))
+        return {"items": items, "paths": []}
+    if source_kind == "web-clipping" and item.get("batch_items"):
+        from forge.governance.web_clipping import settle_run_source_batch
+
+        paths = settle_run_source_batch(
+            root,
+            list(item.get("batch_items") or []),
+            disposition_kind=disposition_kind,
+            sink=sink,
+            at=datetime.now().astimezone().isoformat(timespec="seconds"),
+        )
+        return {"items": paths, "paths": paths}
+    return {"items": [], "paths": []}
+
+
+# ---------- deterministic interaction contract ----------
+
+_SOURCE_PRIORITY = {
+    "skill-projection": 10,
+    "pending-proposal": 20,
+    "pending-inbox": 30,
+    "context-drift": 40,
+    "import-update": 50,
+    "workspace-project": 60,
+    "internal-content": 70,
+    "web-clipping": 80,
+    "agent-memory": 90,
+}
+
+
+def next_contract(root: Path, *, budget: int = DEFAULT_BUDGET) -> dict[str, Any]:
+    """Return one machine-readable next step for the open Run.
+
+    The contract removes workflow choice from the operator while leaving the
+    semantic judgment inside the selected bounded input to the agent.
+    """
+    root = Path(root).resolve()
+    record = next((r for r in _records(root) if r.status == "open"), None)
+    if record is None:
+        raise RuntimeError("no open run — `forge run open` first")
+
+    mandatory = [
+        item for item in _ask_items(root)
+        if item.type in {"conflict", "unqualified-change"}
+    ]
+    if mandatory:
+        item = mandatory[0]
+        return {
+            "run_id": record.id,
+            "action": "decide-integrity",
+            "ask_id": item.id,
+            "ask_type": item.type,
+            "title": item.title,
+            "detail": item.detail,
+            "constraints": ["present this one decision to the owner"],
+        }
+
+    classified = {d.get("input_digest") for d in record.dispositions}
+    unclassified = [
+        item for item in record.inputs if item.get("digest") not in classified
+    ]
+    source_inputs = [
+        item for item in unclassified if item.get("type") == "source-signal"
+    ]
+    if source_inputs:
+        source_inputs.sort(
+            key=lambda item: (
+                _SOURCE_PRIORITY.get(_source_kind(item), 999),
+                item.get("path", ""),
+            )
+        )
+        item = source_inputs[0]
+        kind = _source_kind(item)
+        return {
+            "run_id": record.id,
+            "action": "classify-source",
+            "input_ref": item.get("path", ""),
+            "source_kind": kind,
+            "handler": item.get("handler", "source-review"),
+            "summary": item.get("summary", ""),
+            "detail": item.get("detail", ""),
+            "batch_items": item.get("batch_items", []),
+            "batch_size": int(item.get("batch_size") or 0),
+            "total_count": int(item.get("total_count") or 0),
+            "remaining_count": int(item.get("remaining_count") or 0),
+            "constraints": _source_constraints(kind),
+        }
+
+    capture_inputs = [
+        item for item in unclassified if item.get("type") == "capture-evidence"
+    ]
+    if capture_inputs:
+        item = sorted(capture_inputs, key=lambda row: row.get("path", ""))[0]
+        return {
+            "run_id": record.id,
+            "action": "classify-evidence",
+            "input_ref": item.get("path", ""),
+            "constraints": ["record exactly one disposition for this evidence"],
+        }
+
+    candidate_decisions = sum(
+        1 for decision in record.decisions if decision.get("type") == "candidate"
+    )
+    candidate_budget = max(0, max(0, budget) - candidate_decisions)
+    candidates = [item for item in _ask_items(root) if item.type == "candidate"]
+    if candidates and candidate_budget:
+        item = candidates[0]
+        return {
+            "run_id": record.id,
+            "action": "decide-candidate",
+            "ask_id": item.id,
+            "ask_type": item.type,
+            "title": item.title,
+            "detail": item.detail,
+            "review_budget_remaining": candidate_budget,
+            "constraints": ["present this one candidate card to the owner"],
+        }
+
+    return {
+        "run_id": record.id,
+        "action": "close",
+        "constraints": [
+            "run forge run close",
+            "report the returned open, dirty, and remaining-source facts verbatim",
+        ],
+    }
+
+
+def _source_kind(item: dict[str, Any]) -> str:
+    return str(
+        item.get("source_kind")
+        or str(item.get("path") or "").removeprefix("source://")
+    )
+
+
+def _source_constraints(kind: str) -> list[str]:
+    if kind == "agent-memory":
+        return [
+            "inspect only the listed batch items",
+            "do not invoke another workflow without explicit owner request",
+            "record exactly one disposition for this batch",
+        ]
+    if kind == "web-clipping":
+        return [
+            "check existing canonical sinks before creating new knowledge",
+            "do not invoke deep knowledge intake without explicit owner request",
+            "record exactly one disposition for this batch",
+        ]
+    return ["record exactly one disposition for this source"]
+
+
+def _is_provider_managed_capture(root: Path, path: Path) -> bool:
+    """Avoid presenting one source through both a batch and raw capture input."""
+    try:
+        relpath = path.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return False
+    return relpath.startswith("capture/web clipping/")
 
 
 # ---------- ask / decide ----------
@@ -688,9 +885,11 @@ def _write_record(root: Path, record: RunRecord, report: dict[str, Any] | None =
         body += (
             f"\n结算报告:落账 {report['settled']} 笔 · 裁决 {report['decisions']} 条 "
             f"· 候选待下轮 {report['pending_candidates']} 条 "
-            f"· 完整性问题 {report['integrity_issues']} 条 · 输入去向 {disposition_text} "
+            f"· 完整性问题 {report['integrity_issues']} 条 "
+            f"· 输入去向 {disposition_text} "
             f"· 观察到期 {report['expired_observations']} 条 "
-            f"· 顺延来源 {report['unresolved_sources']} 条\n"
+            f"· 顺延来源 {report['unresolved_sources']} 条 "
+            f"· 剩余来源 {report['remaining_sources']} 条\n"
         )
     path = run_dir(root) / f"{record.id}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -704,10 +903,48 @@ def _write_record(root: Path, record: RunRecord, report: dict[str, Any] | None =
     record.path = path
 
 
-def _count_by(rows: list[dict[str, str]], key: str) -> dict[str, int]:
+def _count_by(rows: list[dict[str, Any]], key: str) -> dict[str, int]:
     counts: dict[str, int] = {}
     for row in rows:
         value = row.get(key, "")
         if value:
             counts[value] = counts.get(value, 0) + 1
     return counts
+
+
+def _with_final_facts(
+    root: Path,
+    report: dict[str, Any],
+    current_source_signals: list[dict[str, Any]],
+) -> dict[str, Any]:
+    source_paths = {
+        str(signal.get("path") or "")
+        for signal in current_source_signals
+        if signal.get("path")
+    }
+    open_run_id = next((r.id for r in _records(root) if r.status == "open"), None)
+    try:
+        porcelain = _git.git(root, ["status", "--porcelain"], allow_empty_output=True)
+    except Exception:
+        porcelain = "<status unavailable>"
+    if report.get("unresolved_sources"):
+        final_state = "incomplete"
+    elif source_paths:
+        final_state = "batch-complete"
+    else:
+        final_state = "complete"
+    report.update(
+        {
+            "final_state": final_state,
+            "open_run": open_run_id,
+            "worktree_clean": not bool(porcelain.strip()),
+            "remaining_sources": _remaining_source_count(current_source_signals),
+            "remaining_source_paths": sorted(source_paths),
+        }
+    )
+    return report
+
+
+def _remaining_source_count(source_signals: list[dict[str, Any]]) -> int:
+    """Count concrete remaining inputs, falling back to one per generic signal."""
+    return sum(max(1, int(signal.get("total_count") or 0)) for signal in source_signals)

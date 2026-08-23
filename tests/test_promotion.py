@@ -226,6 +226,65 @@ def test_reject_or_observe_closes_review_without_losing_evidence(tmp_path: Path)
     assert observation.evidence == ["capture/observe.md"]
 
 
+def test_run_next_stops_after_three_candidate_decisions(tmp_path: Path) -> None:
+    ws = _run_workspace(tmp_path)
+    run.open_run(ws)
+    candidates = [
+        create_candidate(
+            ws,
+            title=f"candidate-{index}",
+            ground="explicit",
+            evidence=[f"capture/owner-{index}.md"],
+            problem="需要判断是否形成长期资产。",
+            proposal=f"记录候选 {index}。",
+            scope="Forge 测试。",
+            exclusions=["一次性实验"],
+            target=f"public knowledge base/topic/candidate-{index}.md",
+            anchor="",
+            mode="create",
+            proposed_text=f"# Candidate {index}",
+            verification="后续真实任务验证。",
+        )
+        for index in range(4)
+    ]
+
+    for remaining in (3, 2, 1):
+        contract = run.next_contract(ws)
+        assert contract["action"] == "decide-candidate"
+        assert contract["review_budget_remaining"] == remaining
+        run.decide(ws, contract["ask_id"], "reject", "test budget")
+
+    assert run.next_contract(ws)["action"] == "close"
+    pending = [
+        candidate
+        for candidate in list_candidates(ws)
+        if candidate.state == "pending"
+    ]
+    assert [candidate.id for candidate in pending] == [candidates[3].id]
+
+
+def test_run_next_respects_zero_candidate_budget(tmp_path: Path) -> None:
+    ws = _run_workspace(tmp_path)
+    run.open_run(ws)
+    create_candidate(
+        ws,
+        title="not-now",
+        ground="explicit",
+        evidence=["capture/owner.md"],
+        problem="候选存在但 owner 本轮没有 review 时间。",
+        proposal="保留候选到以后。",
+        scope="Forge 测试。",
+        exclusions=["当前 Run"],
+        target="public knowledge base/topic/not-now.md",
+        anchor="",
+        mode="create",
+        proposed_text="# Not now",
+        verification="后续 Run 再审。",
+    )
+
+    assert run.next_contract(ws, budget=0)["action"] == "close"
+
+
 def test_approved_rule_candidate_updates_verified_runtime_without_prior_rule_drift(
     tmp_path: Path,
 ) -> None:

@@ -2,6 +2,29 @@
 
 记录 `forge-core` 的所有显著变动。
 
+## 0.12.0 (Deterministic Source Settlement) — 2026-08-23
+
+真实 Run 证明“Source Signal 必须有 disposition”仍不足以稳定交互：聚合计数会在会话中变化，Memory 没有持久 cursor，剪藏写了去向后仍可能重复报警，Agent 也会临场选择不同处理范围。本版把批次、来源结算、唯一下一步和最终状态下沉到 CLI。
+
+### Added
+
+- `Source Batch`：Agent Memory 每批最多 10 个文件，Web clipping 每批最多 5 个文件；digest 只由批次内路径和内容决定。
+- provider-specific `Source Settlement`：Memory 非 defer disposition 推进 seen checkpoint；clipping 结算写回 marker，`covered` 强制指向已有 canonical asset。
+- `forge run next` 返回唯一的 Run Contract，包括当前 action、批次文件、范围约束和剩余候选预算。
+- `run close` 区分 `complete / batch-complete / incomplete`，并机器核验 Run 是否关闭、工作树 clean/dirty 与剩余来源数。
+- [ADR-0004](docs/adr/0004-deterministic-source-settlement.md) 记录稳定批次与结算合同。
+
+### Changed
+
+- 重复 `run open` 保留已打开 Run 的原批次；会话期间新到的同类文件留给下一轮，不再替换 input 或使 disposition 失效。
+- Web clipping 只通过有界 Source Batch 进入 Run，不再同时作为普通 capture evidence 重复出现。
+- Memory 首次 baseline/import reminder 仍可由 monitor 报告，但不会伪装成没有可结算 item 的 Run batch。
+- Packaged Forge Skill 改为循环消费 `run next`；不得自行扩大 Memory 批次，clipping 默认只查已有资产，close 后原样报告机器事实。
+
+### Tests
+
+- 覆盖稳定 reopen、Memory/剪藏批次上限、provider checkpoint、越界 sink、首次 baseline、重复 capture 抑制、三张候选预算及 close 最终事实。
+
 ## 0.11.1 (Source Signal completeness) — 2026-08-23
 
 真实狗粮测试发现 `forge monitor` 可报告数百条 Memory 更新,但 `forge run open` 只扫描 `capture/`,因此能关闭空 Run 并误称“全部处理完成”。本版把来源发现和已捕获 evidence 接到同一份 Run 完整性账本。

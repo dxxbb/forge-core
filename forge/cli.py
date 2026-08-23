@@ -580,7 +580,11 @@ def candidate_feedback(
 
 # ---------- run / certify / state ----------
 
-def _source_signal(kind: str, issues: list[str], actions: list[str]) -> dict[str, str]:
+def _source_signal(
+    kind: str,
+    issues: list[str],
+    actions: list[str],
+) -> dict[str, object]:
     summary = "; ".join(issues)
     detail = "\n".join(actions[:8])
     digest = hashlib.sha1(
@@ -590,14 +594,19 @@ def _source_signal(kind: str, issues: list[str], actions: list[str]) -> dict[str
         "path": f"source://{kind}",
         "digest": digest,
         "type": "source-signal",
+        "source_kind": kind,
+        "handler": {
+            "web-clipping": "canonical-coverage-check",
+            "skill-projection": "projection-repair",
+        }.get(kind, "source-review"),
         "summary": summary,
         "detail": detail,
     }
 
 
-def _collect_run_source_signals(workspace: Path) -> list[dict[str, str]]:
+def _collect_run_source_signals(workspace: Path) -> list[dict[str, object]]:
     """Collect monitor discoveries without copying their source corpus."""
-    signals: list[dict[str, str]] = []
+    signals: list[dict[str, object]] = []
 
     def add(kind: str, issues: list[str], actions: list[str]) -> None:
         if issues:
@@ -636,13 +645,26 @@ def _collect_run_source_signals(workspace: Path) -> list[dict[str, str]]:
     providers = (
         ("internal-content", _internal_content_changes),
         ("skill-projection", _skill_projection_gaps),
-        ("agent-memory", _agent_memory_updates),
-        ("web-clipping", _web_clipping_pending),
     )
     for kind, provider in providers:
         issues, actions = provider(workspace)
         add(kind, issues, actions)
+    from forge.governance.web_clipping import (
+        build_run_source_signal as clipping_signal_for_run,
+    )
+
+    clipping_signal = clipping_signal_for_run(workspace)
+    if clipping_signal is not None:
+        signals.append(clipping_signal)
+    from forge.governance.claude_memory import (
+        build_run_source_signal as memory_signal_for_run,
+    )
+
+    memory_signal = memory_signal_for_run(workspace)
+    if memory_signal is not None:
+        signals.append(memory_signal)
     return signals
+
 
 @main.group("run")
 def run_group() -> None:
@@ -707,6 +729,22 @@ def run_ask(budget: int, root: str | None) -> None:
             click.echo(f"    {line}")
 
 
+@run_group.command("next")
+@click.option("--budget", type=int, default=3, show_default=True)
+@click.option("--root", type=click.Path(), default=None)
+def run_next(budget: int, root: str | None) -> None:
+    """Return the single deterministic next action for the open Run."""
+    from forge.run import next_contract
+
+    click.echo(
+        json.dumps(
+            next_contract(_root(root), budget=budget),
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+
+
 @run_group.command("decide")
 @click.argument("ask_id")
 @click.option("--approve", "decision", flag_value="approve")
@@ -760,20 +798,42 @@ def run_close(root: str | None) -> None:
     report = close_run(
         workspace,
         current_source_signals=_collect_run_source_signals(workspace),
+        refresh_source_signals=lambda: _collect_run_source_signals(workspace),
     )
     if report["empty"]:
         click.echo("没有发现需要处理的输入;未生成 Run 记录或 Git 提交。")
+        _echo_run_final_facts(report)
         return
     disposition_text = "、".join(
         f"{kind} {count}" for kind, count in report["dispositions"].items()
     ) or "无"
-    state_text = "本轮未完成" if report["unresolved_sources"] else "结算完毕"
+    if report["unresolved_sources"]:
+        state_text = "本轮未完成"
+    elif report["remaining_sources"]:
+        state_text = "本批完成"
+    else:
+        state_text = "结算完毕"
     click.echo(
         f"{state_text}:落账 {report['settled']} · 裁决 {report['decisions']} "
         f"· 候选待下轮 {report['pending_candidates']} "
         f"· 完整性问题 {report['integrity_issues']} · 输入去向 {disposition_text} "
         f"· 观察到期 {report['expired_observations']} "
-        f"· 顺延来源 {report['unresolved_sources']}"
+        f"· 顺延来源 {report['unresolved_sources']} "
+        f"· 剩余来源 {report['remaining_sources']}"
+    )
+    _echo_run_final_facts(report)
+
+
+def _echo_run_final_facts(report: dict[str, object]) -> None:
+    run_text = (
+        "Run 已关闭"
+        if not report.get("open_run")
+        else f"Run 仍打开 {report['open_run']}"
+    )
+    tree_text = "clean" if report.get("worktree_clean") else "dirty"
+    click.echo(
+        f"最终状态 {report['final_state']} · {run_text} · 工作树 {tree_text} "
+        f"· 剩余来源 {report['remaining_sources']}"
     )
 
 
