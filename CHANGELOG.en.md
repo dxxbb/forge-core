@@ -2,6 +2,24 @@
 
 All notable changes to `forge-core` will be recorded in this file.
 
+## [0.11.0] — 2026-08-23
+
+Evidence-to-Asset Promotion replaces bulk item-by-item memory review while preserving capture, zones, the compile gate, ledger, compiler, provenance Portal, and evaluation substrate.
+
+### Added
+- Time-bounded `system/observations/` with evidence deduplication and automatic expiry.
+- Admission-checked `system/candidates/` with repeated/explicit/high-risk grounds, scope, exclusions, exact patch, and verification.
+- Observation, Candidate, input-disposition, owner-decision, real-use feedback, and promotion-metric CLI paths.
+
+### Changed
+- A Run presents integrity issues plus at most three Candidate Assets; state freshness is audit-only.
+- A Run cannot close while any new input lacks an explicit disposition.
+- The Portal renders read-only Candidate cards and the Evidence-to-Asset workflow.
+
+### Fixed
+- Ledger and Run frontmatter parsing now recognizes delimiter lines instead of splitting on literal `---` inside YAML values.
+- `forge run close` no longer swallows scoped-commit failures; it restores a resumable open Run and fails loudly.
+
 ## [0.1.0] — 2026-04-24
 
 First release. Review-gated context compiler with schema-checked provenance.

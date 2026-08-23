@@ -65,6 +65,7 @@ def apply_write(
     title: str = "",
     base_digest: str | None = None,
     force: bool = False,
+    verified_rule: bool = False,
 ) -> ApplyResult:
     """Write one block into a canonical file through the full pipeline:
 
@@ -134,12 +135,28 @@ def apply_write(
 
     applied_range = _applied_range(new_text, current_text, anchor, mode, proposed_text)
 
+    verified_snapshot: Path | None = None
+    if verified_rule:
+        from forge.zone import load_zones, verified_snapshot_path
+
+        if load_zones(root).zone_for(target) != "rule":
+            return ApplyResult(
+                entry_id, "failed", error=f"verified_rule target is not in rule zone: {target}"
+            )
+        verified_snapshot = verified_snapshot_path(root, target)
+
     # -- write phase, rolled back wholesale on any failure --
     written: dict[Path, str | None] = {}  # path -> original content (None = did not exist)
     try:
         _record_original(written, target_path)
         target_path.parent.mkdir(parents=True, exist_ok=True)
         target_path.write_text(new_text, encoding="utf-8")
+
+        if verified_snapshot is not None:
+            from forge.zone import update_verified_snapshot
+
+            _record_original(written, verified_snapshot)
+            update_verified_snapshot(root, target, new_text)
 
         runtime_paths = [p for p in rebuild_outputs(root)]
 
@@ -165,6 +182,8 @@ def apply_write(
         )
 
         scoped = [target, str(entry_path.relative_to(root))]
+        if verified_snapshot is not None:
+            scoped.append(str(verified_snapshot.relative_to(root)))
         scoped += [str(p.resolve().relative_to(root)) for p in runtime_paths]
         _git.add(root, scoped)
         sha = _git.commit(
@@ -500,17 +519,16 @@ def _render_entry(
 
 
 _FENCE_RE = re.compile(r"## (Before|After)\n\n```text\n(.*?)\n```", re.DOTALL)
+_FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---(?:\r?\n|\Z)", re.DOTALL)
 
 
 def _parse_entry(path: Path) -> LedgerEntry | None:
     text = path.read_text(encoding="utf-8")
-    if not text.startswith("---"):
-        return None
-    parts = text.split("---", 2)
-    if len(parts) < 3:
+    frontmatter = _FRONTMATTER_RE.match(text)
+    if frontmatter is None:
         return None
     try:
-        fm = yaml.safe_load(parts[1]) or {}
+        fm = yaml.safe_load(frontmatter.group(1)) or {}
     except yaml.YAMLError:
         return None
     if not isinstance(fm, dict) or fm.get("kind") != "ledger-entry":

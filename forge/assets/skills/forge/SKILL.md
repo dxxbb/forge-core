@@ -1,6 +1,6 @@
 ---
 name: forge
-version: 0.10.0
+version: 0.11.0
 description: "Initialize and operate a personalOS workspace with forge. Use when the user says they want to create/setup/build a forge or personalOS workspace, manage agent context, import existing CLAUDE.md/AGENTS.md/memory, review context changes, or approve/reject context updates. This skill is personalOS-layout-first and must not use legacy `forge new` / `sp` onboarding."
 metadata:
   requires:
@@ -15,10 +15,10 @@ This skill is the user-facing operator for the personalOS + forge flow.
 Hard rule: do **not** use legacy `forge new`, `sp/`, or `output/` for onboarding. The default model is:
 
 ```text
-capture -> system/inbox -> system/pr -> review -> assets/context build -> runtime
+capture -> disposition -> observation/candidate -> owner decision -> assets -> runtime
 ```
 
-`forge-core` CLI is only the compiler/gate executor. You, the agent, provide the LLM capability: source discovery, extraction, proposal drafting, and review presentation.
+`forge-core` CLI owns durable state, admission checks, budgets, expiry, the compiler gate, ledger, and execution. You, the agent, provide the semantic capability: source discovery, evidence classification, cross-event abstraction, candidate drafting, and concise review presentation.
 
 ## Trigger
 
@@ -82,29 +82,32 @@ topics proactively in work sessions.
 ```
 1. forge run status          → 开场白:距上次 N 天、待问几条、状态新鲜度
 2. forge run open            → 新输入清单(capture 指纹去重,自动续接未关闭 run)
-3. 蒸馏落账(语义工作,在会话内做):
-   - 逐个读 inputs 里的 capture,拆成原子事实(一笔一个事实)
-   - 状态类:经 forge.ledger.apply_write 写入——
-     每笔带 origin=run:<run-id>、evidence=capture 路径
-     ※ 写入返回 held(冲突)是正常结果,留给问单,绝不绕过
-   - 规则候选:直接编辑规则区文件(gate 会扣住,自动成为待问项)
-   - 拿不准落点的:不写,如实告诉 owner
-4. forge run ask --budget 5  → 逐条用人话呈现:一句话讲清
-   为什么改 / 改成什么 / 影响谁;证据和 diff 念重点,不倾倒原文
-5. owner 一句话裁决 → forge run decide <id> --approve|--reject [--note]
-   立即报执行结果(commit / 回退 / stale)
-6. 认证项:owner 说"念重点"→ 念 uncertified diff;说"盖章/转正"→ decide approve
-7. forge run close           → 复述报告:落账 N · 裁决 M · 顺延 K
+3. 分流全部新 input(语义工作,在会话内做;每条必须且只能有一个 disposition):
+   - 已覆盖 → `forge run disposition <input> --as covered --sink <existing-asset>`
+   - 一次性缺陷 → 修代码/测试/Issue 后记 `one-off --sink <receipt>`;不建长期规则
+   - 易变项目事实 → ledger 写入带日期状态后记 `volatile-state --sink <path>`
+   - 证据不足但可能复现 → `forge observation record ...`,再记 `observe --sink <obs-id>`
+   - 满足晋升依据 → `forge candidate create ...`,再记 `candidate --sink <cand-id>`
+   - 无价值 → `closed --note <reason>`;raw capture 仍保留
+4. forge run ask --budget 3  → 冲突/绕过候选的规则改动先行;其后最多 3 张候选卡。
+   一次只呈现一张:证据、一般化问题、建议、适用/不适用范围、准确 patch、验证方法。
+5. owner 一句话裁决 →
+   - 同意:`forge run decide <id> --approve [--note]`
+   - 不写:`forge run decide <id> --reject [--note]`
+   - 继续观察:`forge run decide <id> --observe [--note]`
+   “修改范围/解释/举例”不是裁决;解释不写盘,修改用 `forge candidate revise <id> ...` 更新同一张卡后再呈现,不要创建第二张卡。
+6. forge run close           → 所有 input 有去向后才可关闭;复述 evidence 去向、观察、候选、晋升和关闭数。
 ```
 
 ### Run 铁律
 
-- 预算神圣:owner 说"只有 1 分钟"→ `--budget 0`(只剩冲突);顺延项一句话带过。
+- 预算神圣:owner 说"只有 1 分钟"→ `--budget 0`(只剩完整性问题);未展示候选留在系统状态,不称为 owner 欠下的待办。
 - 冲突先行,问序固定,不重排。
 - 不硬凑:没有待问项就说"没有"——空 run 是合法结果。
 - 裁决即执行,立刻报结果,不留"稍后处理"。
-- 规则区与冲突项,任何"显然该批"的判断只能以建议语气出现,决策永远是 owner 的。
-- close 之后不留尾巴;顺延项属于下一次 run。
+- 候选准入至少满足一项:两个以上独立事件、owner 明确长期要求、可确定性验证的高风险不变量。重复次数本身不能替代 scope/exclusions/verification。
+- 候选目标在 approve 前不得写入 canonical asset;规则区脱离候选卡的直接改动属于 unqualified-change。
+- close 前每条 input 必须有 disposition;观察池有期限,不是永久 backlog。
 - decide 报 stale/failed → 如实报错,标记下次重备,继续下一项;run 中断 → 下次 open 自动续接。
 
 ### 随时可答的只读问题(不需要 run)
@@ -112,6 +115,9 @@ topics proactively in work sessions.
 - "这条规则哪来的" → `forge ledger blame <path> --line N`
 - "这个文件最近改了什么" → `forge state show <path>`
 - "上次结算是什么时候" → `forge run status`
+- "观察池里有什么" → `forge observation list`
+- "这张候选是什么" → `forge candidate show <id>`
+- "这条资产还有效吗" → `forge candidate list --all` + `forge run status`;真实使用后用 `forge candidate feedback <id> --outcome effective|revise|retire --evidence <receipt>` 留痕
 
 ## Workspace Triage
 
@@ -829,6 +835,8 @@ Only approve a proposal after the user explicitly says approve/同意/可以/确
 - Do not read private/secret paths.
 - Do not import personal files before explicit permission.
 - Do not write directly from import into context sections.
-- Do not skip `system/inbox` and `system/pr`.
+- Once zones/run are active, do not route new intake through legacy `system/pr`; inbox/proposal remain compatibility-only for workspaces not yet migrated.
+- Do not hand-edit `system/observations` or `system/candidates`; use their CLI commands so admission, expiry, and metrics stay valid.
+- Do not promote any candidate without an explicit owner decision.
 - Do not approve a proposal without explicit user confirmation.
 - Do not ask for a second commit confirmation after proposal approval; approval commits if build and doctor pass.

@@ -366,17 +366,229 @@ def zone_init_cmd(root: str | None) -> None:
         click.echo(f"  {relpath}")
 
 
+# ---------- observations / candidates / run ----------
+
+@main.group("observation")
+def observation_group() -> None:
+    """Evidence themes waiting for another independent occurrence."""
+
+
+@observation_group.command("record")
+@click.option("--theme", required=True)
+@click.option("--evidence", multiple=True, required=True)
+@click.option("--note", default="")
+@click.option("--expires-days", type=int, default=30, show_default=True)
+@click.option("--root", type=click.Path(), default=None)
+def observation_record(
+    theme: str,
+    evidence: tuple[str, ...],
+    note: str,
+    expires_days: int,
+    root: str | None,
+) -> None:
+    """Create or refresh an observation, deduplicated by theme."""
+    from forge.promotion import record_observation
+
+    observation = record_observation(
+        _root(root),
+        theme=theme,
+        evidence=list(evidence),
+        note=note,
+        expires_days=expires_days,
+    )
+    click.echo(f"{observation.id} {observation.state} · {observation.independent_events} evidence")
+
+
+@observation_group.command("list")
+@click.option("--all", "include_closed", is_flag=True)
+@click.option("--root", type=click.Path(), default=None)
+def observation_list(include_closed: bool, root: str | None) -> None:
+    """List observation themes; closed observations are hidden by default."""
+    from forge.promotion import list_observations
+
+    for observation in list_observations(_root(root), include_closed=include_closed):
+        click.echo(
+            f"{observation.id} [{observation.state}] "
+            f"{observation.independent_events} evidence · {observation.theme}"
+        )
+
+
+@main.group("candidate")
+def candidate_group() -> None:
+    """High-quality asset promotion cards waiting for owner review."""
+
+
+@candidate_group.command("create")
+@click.option("--title", required=True)
+@click.option("--ground", type=click.Choice(["repeated", "explicit", "high-risk"]), required=True)
+@click.option("--evidence", multiple=True, required=True)
+@click.option("--problem", required=True)
+@click.option("--proposal", required=True)
+@click.option("--scope", required=True)
+@click.option("--exclusion", "exclusions", multiple=True, required=True)
+@click.option("--target", required=True)
+@click.option("--anchor", default="")
+@click.option("--mode", type=click.Choice(["create", "replace", "append"]), required=True)
+@click.option("--proposed-file", type=click.Path(exists=True, dir_okay=False), required=True)
+@click.option("--verification", required=True)
+@click.option("--observation", "observation_id", default="")
+@click.option("--root", type=click.Path(), default=None)
+def candidate_create(
+    title: str,
+    ground: str,
+    evidence: tuple[str, ...],
+    problem: str,
+    proposal: str,
+    scope: str,
+    exclusions: tuple[str, ...],
+    target: str,
+    anchor: str,
+    mode: str,
+    proposed_file: str,
+    verification: str,
+    observation_id: str,
+    root: str | None,
+) -> None:
+    """Create a validated promotion card; never writes the target asset."""
+    from forge.promotion import create_candidate
+
+    candidate = create_candidate(
+        _root(root),
+        title=title,
+        ground=ground,
+        evidence=list(evidence),
+        problem=problem,
+        proposal=proposal,
+        scope=scope,
+        exclusions=list(exclusions),
+        target=target,
+        anchor=anchor,
+        mode=mode,
+        proposed_text=Path(proposed_file).read_text(encoding="utf-8"),
+        verification=verification,
+        observation_id=observation_id,
+    )
+    click.echo(f"{candidate.id} {candidate.state}")
+
+
+@candidate_group.command("list")
+@click.option("--all", "include_decided", is_flag=True)
+@click.option("--root", type=click.Path(), default=None)
+def candidate_list(include_decided: bool, root: str | None) -> None:
+    """List promotion cards; decided cards are hidden by default."""
+    from forge.promotion import list_candidates
+
+    for candidate in list_candidates(_root(root), include_decided=include_decided):
+        click.echo(f"{candidate.id} [{candidate.state}] {candidate.title}")
+
+
+@candidate_group.command("show")
+@click.argument("candidate_id")
+@click.option("--root", type=click.Path(), default=None)
+def candidate_show(candidate_id: str, root: str | None) -> None:
+    """Show one complete owner review card."""
+    from forge.promotion import get_candidate
+
+    candidate = get_candidate(_root(root), candidate_id)
+    if candidate is None:
+        raise click.ClickException(f"candidate not found: {candidate_id}")
+    click.echo(f"{candidate.id} [{candidate.state}] {candidate.title}")
+    click.echo(f"晋升依据: {candidate.ground}")
+    click.echo(f"问题: {candidate.problem}")
+    click.echo(f"建议: {candidate.proposal}")
+    click.echo(f"适用范围: {candidate.scope}")
+    click.echo("不适用: " + "；".join(candidate.exclusions))
+    click.echo("证据: " + "；".join(candidate.evidence))
+    click.echo(f"修改: {candidate.target} @ {candidate.anchor or '(whole file)'} [{candidate.mode}]")
+    click.echo(f"验证: {candidate.verification}")
+
+
+@candidate_group.command("revise")
+@click.argument("candidate_id")
+@click.option("--problem", default=None)
+@click.option("--proposal", default=None)
+@click.option("--scope", default=None)
+@click.option("--exclusion", "exclusions", multiple=True)
+@click.option("--target", default=None)
+@click.option("--anchor", default=None)
+@click.option("--mode", type=click.Choice(["create", "replace", "append"]), default=None)
+@click.option("--proposed-file", type=click.Path(exists=True, dir_okay=False), default=None)
+@click.option("--verification", default=None)
+@click.option("--note", default="")
+@click.option("--root", type=click.Path(), default=None)
+def candidate_revise(
+    candidate_id: str,
+    problem: str | None,
+    proposal: str | None,
+    scope: str | None,
+    exclusions: tuple[str, ...],
+    target: str | None,
+    anchor: str | None,
+    mode: str | None,
+    proposed_file: str | None,
+    verification: str | None,
+    note: str,
+    root: str | None,
+) -> None:
+    """Revise the same pending card after owner feedback."""
+    from forge.promotion import revise_candidate
+
+    candidate = revise_candidate(
+        _root(root),
+        candidate_id,
+        problem=problem,
+        proposal=proposal,
+        scope=scope,
+        exclusions=list(exclusions) if exclusions else None,
+        target=target,
+        anchor=anchor,
+        mode=mode,
+        proposed_text=Path(proposed_file).read_text(encoding="utf-8")
+        if proposed_file
+        else None,
+        verification=verification,
+        note=note,
+    )
+    click.echo(f"{candidate.id} pending · revised {len(candidate.revisions)} time(s)")
+
+
+@candidate_group.command("feedback")
+@click.argument("candidate_id")
+@click.option("--outcome", type=click.Choice(["effective", "revise", "retire"]), required=True)
+@click.option("--evidence", multiple=True, required=True)
+@click.option("--note", default="")
+@click.option("--root", type=click.Path(), default=None)
+def candidate_feedback(
+    candidate_id: str,
+    outcome: str,
+    evidence: tuple[str, ...],
+    note: str,
+    root: str | None,
+) -> None:
+    """Record a promoted asset's real-use result."""
+    from forge.promotion import record_asset_feedback
+
+    result = record_asset_feedback(
+        _root(root),
+        candidate_id,
+        outcome=outcome,
+        evidence=list(evidence),
+        note=note,
+    )
+    click.echo(json.dumps(result, ensure_ascii=False))
+
+
 # ---------- run / certify / state ----------
 
 @main.group("run")
 def run_group() -> None:
-    """The forge run: settle accumulated context in one owner-driven session."""
+    """Owner-driven evidence disposition and asset promotion."""
 
 
 @run_group.command("status")
 @click.option("--root", type=click.Path(), default=None)
 def run_status(root: str | None) -> None:
-    """Days since last run, pending ask items, state freshness."""
+    """Run age, integrity issues, promotion state, metrics, and freshness."""
     from forge.run import status as run_status_fn
 
     click.echo(json.dumps(run_status_fn(_root(root)), indent=2, ensure_ascii=False))
@@ -390,15 +602,17 @@ def run_open(root: str | None) -> None:
 
     record = open_run(_root(root))
     click.echo(f"run {record.id} open · {len(record.inputs)} new input(s)")
+    if record.expired_observations:
+        click.echo(f"  {len(record.expired_observations)} observation(s) expired")
     for item in record.inputs:
         click.echo(f"  {item['path']}")
 
 
 @run_group.command("ask")
-@click.option("--budget", type=int, default=5, show_default=True)
+@click.option("--budget", type=int, default=3, show_default=True)
 @click.option("--root", type=click.Path(), default=None)
 def run_ask(budget: int, root: str | None) -> None:
-    """The budgeted question list: conflicts -> rule changes -> certifications."""
+    """Integrity issues plus at most N asset candidates, one card at a time."""
     from forge.run import ask
 
     items = ask(_root(root), budget=budget)
@@ -406,8 +620,7 @@ def run_ask(budget: int, root: str | None) -> None:
         click.echo("没有待问项。")
         return
     for item in items:
-        mark = "(顺延)" if item.deferred else ""
-        click.echo(f"[{item.type}] {item.id} {mark}")
+        click.echo(f"[{item.type}] {item.id}")
         click.echo(f"  {item.title}")
         for line in item.detail.splitlines()[:12]:
             click.echo(f"    {line}")
@@ -417,6 +630,7 @@ def run_ask(budget: int, root: str | None) -> None:
 @click.argument("ask_id")
 @click.option("--approve", "decision", flag_value="approve")
 @click.option("--reject", "decision", flag_value="reject")
+@click.option("--observe", "decision", flag_value="observe")
 @click.option("--note", default="")
 @click.option("--root", type=click.Path(), default=None)
 def run_decide(ask_id: str, decision: str | None, note: str, root: str | None) -> None:
@@ -424,10 +638,33 @@ def run_decide(ask_id: str, decision: str | None, note: str, root: str | None) -
     from forge.run import decide
 
     if not decision:
-        click.echo("error: pass --approve or --reject", err=True)
+        click.echo("error: pass --approve, --reject, or --observe", err=True)
         sys.exit(1)
     outcome = decide(_root(root), ask_id, decision, note)
     click.echo(json.dumps(outcome, ensure_ascii=False))
+
+
+@run_group.command("disposition")
+@click.argument("input_ref")
+@click.option(
+    "--as",
+    "kind",
+    type=click.Choice(["covered", "one-off", "volatile-state", "observe", "candidate", "closed"]),
+    required=True,
+)
+@click.option("--sink", default="")
+@click.option("--note", default="")
+@click.option("--root", type=click.Path(), default=None)
+def run_disposition(
+    input_ref: str, kind: str, sink: str, note: str, root: str | None
+) -> None:
+    """Record the one explicit destination for a newly collected input."""
+    from forge.run import record_disposition
+
+    result = record_disposition(
+        _root(root), input_ref, kind, sink=sink, note=note
+    )
+    click.echo(json.dumps(result, ensure_ascii=False))
 
 
 @run_group.command("close")
@@ -437,9 +674,14 @@ def run_close(root: str | None) -> None:
     from forge.run import close_run
 
     report = close_run(_root(root))
+    disposition_text = "、".join(
+        f"{kind} {count}" for kind, count in report["dispositions"].items()
+    ) or "无"
     click.echo(
         f"结算完毕:落账 {report['settled']} · 裁决 {report['decisions']} "
-        f"· 顺延 {report['deferred']}"
+        f"· 候选待下轮 {report['pending_candidates']} "
+        f"· 完整性问题 {report['integrity_issues']} · 输入去向 {disposition_text} "
+        f"· 观察到期 {report['expired_observations']}"
     )
 
 

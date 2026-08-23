@@ -67,17 +67,25 @@ def test_run_open_fingerprints_inputs_and_resumes(tmp_path: Path) -> None:
     # Reopen resumes the same run instead of double-collecting.
     assert run.open_run(ws).id == record.id
 
+    run.record_disposition(
+        ws,
+        "capture/import/memo.md",
+        "closed",
+        note="test fixture has no asset value",
+    )
     run.close_run(ws)
     second = run.open_run(ws)
     assert second.id != record.id
     assert second.inputs == []  # same fingerprint not re-collected
 
 
-def test_run_ask_orders_conflict_rule_cert_within_budget(tmp_path: Path) -> None:
-    """AC-RUN-4: fixed order; conflicts never compressed; overflow deferred."""
+def test_run_ask_orders_integrity_issues_and_keeps_freshness_out_of_review(
+    tmp_path: Path,
+) -> None:
+    """AC-RUN-4: integrity issues lead; state freshness is audit-only."""
     ws = _workspace(tmp_path)
     run.open_run(ws)
-    # certification-due: certify then change additively
+    # Freshness stays visible in status but no longer becomes an ask item.
     certify(ws, "context build/sections/alpha.md")
     ledger.apply_write(
         ws,
@@ -97,7 +105,7 @@ def test_run_ask_orders_conflict_rule_cert_within_budget(tmp_path: Path) -> None
         origin="run:test",
     )
     assert held.state == "held"
-    # rule-change: drift the rule file
+    # A rule drift without a Candidate card is an integrity issue.
     (ws / "context build" / "sections" / "preference.md").write_text(
         "---\nname: preference\ntype: rule\n---\n\n- 沟通直接高效。\n- 新规则候选。\n",
         encoding="utf-8",
@@ -105,9 +113,8 @@ def test_run_ask_orders_conflict_rule_cert_within_budget(tmp_path: Path) -> None
 
     items = run.ask(ws, budget=2)
 
-    assert [i.type for i in items] == ["conflict", "rule-change", "certification-due"]
+    assert [i.type for i in items] == ["conflict", "unqualified-change"]
     assert not items[0].deferred and not items[1].deferred
-    assert items[2].deferred  # over budget -> deferred, not lost
     assert "已下线" in items[0].detail and "新规则候选" in items[1].detail
 
 

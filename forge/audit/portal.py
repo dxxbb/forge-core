@@ -1707,27 +1707,28 @@ _HTML_TEMPLATE = r"""<!doctype html>
         '<div class="track"><i style="width:' + pct + '%;background:' + color + '"></i></div>' +
         (sub ? '<div class="insp-sub" style="font-family:var(--font);margin-top:6px">' + esc(sub) + "</div>" : "") + "</div>";
     }
-    const ASK_TYPE_LABEL = { "conflict": ["冲突", "var(--missing)"], "rule-change": ["规则区变更", "var(--declared)"], "certification-due": ["待认证", "var(--uncertain)"] };
+    const ASK_TYPE_LABEL = { "conflict": ["冲突", "var(--missing)"], "candidate": ["候选资产", "var(--declared)"], "unqualified-change": ["未建候选的规则改动", "var(--missing)"] };
     function askItemsHTML() {
       const items = graph.ask_items || [];
       if (!items.length) return "";
       const list = items.map(i => {
         const meta = ASK_TYPE_LABEL[i.type] || [i.type, "var(--muted)"];
-        return '<div class="gap sev-' + (i.type === "conflict" ? "high" : i.type === "rule-change" ? "med" : "low") + '" style="cursor:default">' +
+        return '<div class="gap sev-' + (i.type === "conflict" || i.type === "unqualified-change" ? "high" : "med") + '" style="cursor:default">' +
           '<div class="gh">' + tag(meta[0], meta[1]) + '<span class="gid">' + esc(i.id) + "</span></div>" +
           '<div class="gobj">' + esc(i.title) + "</div>" +
+          (i.type === "candidate" ? '<div class="insp-sub" style="margin-top:6px;white-space:pre-line">' + esc(i.detail) + "</div>" : "") +
         "</div>";
       }).join("");
       return '<div class="insp-section"><h4>Run 待问项 · ' + items.length + "</h4>" +
         '<div class="gap-list">' + list + "</div>" +
-        '<p class="note" style="margin-top:10px;padding-top:0;border-top:0">裁决在 forge run 中进行;portal 是只读审计面。</p></div>';
+        '<p class="note" style="margin-top:10px;padding-top:0;border-top:0">一次只审一张候选卡;裁决在 forge run 中进行,portal 是只读审计面。</p></div>';
     }
     function workflowHTML() {
-      const steps = [["1", "propose", "Agent 提案补 derive record 或 source pointer"],
-        ["2", "review", "Owner 审核 source、section 与 runtime 证据"],
-        ["3", "approve", "通过后写入 canonical source / proposal"],
-        ["4", "rejected", "驳回,不自动补全历史关系"]];
-      return '<div class="insp-section"><h4>Owner 审核工作流</h4><div class="workflow">' +
+      const steps = [["1", "evidence", "原始输入全部保留,自动查重与分流"],
+        ["2", "observe", "证据不足的主题限时观察,不形成 owner 待办"],
+        ["3", "candidate", "达到准入门槛后一次展示一张候选卡"],
+        ["4", "promote / reject", "Owner 一句话决定,批准才写正式资产"]];
+      return '<div class="insp-section"><h4>资产晋升工作流</h4><div class="workflow">' +
         steps.map(s => '<div class="wf-step"><span class="wf-num">' + s[0] + '</span><span><b>' + s[1] + "</b> · " + esc(s[2]) + "</span></div>").join("") +
         "</div></div>";
     }

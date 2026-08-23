@@ -475,8 +475,8 @@ def test_write_portal_outputs_html_and_json(tmp_path: Path) -> None:
     # The review-gate framing is part of the product contract, not decoration:
     # the portal exposes gaps and an owner workflow, it does not edit truth.
     assert "Review Gaps" in html
-    assert "Owner 审核工作流" in html
-    for step in ("propose", "review", "approve", "rejected"):
+    assert "资产晋升工作流" in html
+    for step in ("evidence", "observe", "candidate", "promote / reject"):
         assert step in html
     # Review is a linear task: the portal walks changes/gaps as a queue.
     assert "queue-bar" in html

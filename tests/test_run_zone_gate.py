@@ -176,7 +176,7 @@ def test_portal_payload_carries_zone_cert_and_ask_items(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     certify(ws, "context build/sections/alpha.md")
-    # Rule drift -> a rule-change ask item.
+    # Rule drift without a candidate card -> an integrity ask item.
     (ws / "context build" / "sections" / "preference.md").write_text(
         "---\nname: preference\ntype: rule\n---\n\n- 沟通直接高效。\n- 新规则候选。\n",
         encoding="utf-8",
@@ -190,7 +190,7 @@ def test_portal_payload_carries_zone_cert_and_ask_items(tmp_path: Path) -> None:
         if s["pointer"] == "context build/sections/preference.md"
     )
     assert pref["zone"] == "rule"
-    assert any(i["type"] == "rule-change" for i in payload["ask_items"])
+    assert any(i["type"] == "unqualified-change" for i in payload["ask_items"])
 
     html = html_path.read_text(encoding="utf-8")
     assert "规则区" in html

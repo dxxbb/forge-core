@@ -1,41 +1,88 @@
 # Forge Run Playbook(agent 会话协议)
 
-这是驱动一场 forge run 的 skill 内容(AC-RUN-7)。CLI 提供确定性骨架,本协议规定 agent 在会话里怎么把它开成一场结算对话。安装方式:并入 personalOS 的 forge skill(`~/.claude/skills/forge/SKILL.md`)的 run 章节。
+这是 Evidence-to-Asset Promotion 时代的一场 Forge Run。CLI 提供确定性状态、准入、预算、expiry、ledger 与 gate;agent 只承担必须由语义判断完成的分流和抽象。
 
-## 触发
+## 触发与用户负担
 
-owner 说"做一次 forge / forge run / 结算一下"。**只能由 owner 发起**;agent 永不在工作会话里主动提治理话题(可以回答 owner 的主动询问,如"有什么待审的" → `forge run status`)。
+只有 owner 说“做一次 forge / forge run / 结算一下”才开始。两次 Run 之间不主动要求 owner 管理观察池、候选或认证队列。
+
+owner 只有两个主动动作:
+
+1. 发起 Run,可同时给预算(如“只有 1 分钟”);
+2. 对一次展示的一张候选卡说“同意 / 不写 / 继续观察 / 修改范围 / 解释”。
 
 ## 流程
 
+```text
+1. forge run status
+   → 报距上次 Run、完整性问题、pending candidate 数和观察池概况。
+
+2. forge run open
+   → 收集未见过的 capture 指纹;自动关闭已到期且无新证据的观察。
+
+3. Agent 分流每一条 input
+   covered        → 关联已有资产
+   one-off        → 修代码/测试/Issue,不建长期规则
+   volatile-state → ledger 写入带日期的项目状态/知识
+   observe        → 聚合进有期限的 Observation
+   candidate      → 生成通过准入校验的 Candidate Asset
+   closed         → 写明无价值原因
+
+   每条随后调用:
+   forge run disposition <input> --as <kind> --sink <receipt> [--note ...]
+
+4. forge run ask --budget 3
+   → conflict / unqualified-change 全量置顶;
+   → 其后最多三张 Candidate Asset;
+   → certification freshness 不进入问单。
+
+5. 一次只讲一张卡
+   - 为什么这是跨场景问题;
+   - 独立 evidence;
+   - 建议形成什么正式资产;
+   - scope 与 exclusions;
+   - 准确 patch;
+   - 如何在真实任务中验证。
+
+6. owner 一句话裁决
+   同意     → forge run decide <id> --approve
+   不写     → forge run decide <id> --reject --note <reason>
+   继续观察 → forge run decide <id> --observe --note <reason>
+
+   “修改范围 / 我没看懂 / 举例”不产生正式资产写入。解释只在对话中完成;修改用 `forge candidate revise <id> ...` 重写同一张卡,再等待裁决。
+
+7. forge run close
+   → 有 unclassified input 时拒绝关闭;
+   → 成功时报告 dispositions、观察到期、候选裁决、晋升和仍 pending 的候选。
 ```
-1. forge run status          → 开场白:距上次 N 天、待问几条、状态新鲜度
-2. forge run open            → 拿到新输入清单(capture 指纹去重)
-3. 蒸馏落账(语义工作,agent 在会话内做):
-   - 逐个读 inputs 里的 capture,拆成原子事实(一笔一个事实)
-   - 状态类 → forge 写入:每笔走 ledger(带 origin=run:<id>、evidence=capture 路径)
-     ※ 写入被 held(冲突)是正常结果,留给问单,不要绕过
-   - 规则候选 → 直接写进规则区文件(gate 会扣住它,自动成为待问项)
-   - 拿不准放哪的 → 不写,如实告诉 owner
-4. forge run ask --budget 5  → 逐条用人话呈现:一句话讲清"为什么改/改成什么/影响谁",
-                                证据和 diff 念重点,不要倾倒原文
-5. owner 一句话裁决 → forge run decide <id> --approve/--reject [--note]
-   立即报执行结果(commit / 回退 / 仍冲突)
-6. 认证项:owner 说"念重点" → 念 uncertified diff;说"盖章" → decide approve
-7. forge run close           → 复述报告:落账 N · 裁决 M · 顺延 K
+
+## 候选准入
+
+至少满足一项:
+
+- `repeated`:两个以上独立事件支持;
+- `explicit`:owner 明确要求长期遵守;
+- `high-risk`:高风险且能确定性验证的不变量。
+
+并且必须完整提供 `problem / proposal / scope / exclusions / target patch / verification`。同一会话的重复摘要不算独立事件;频率不能替代抽象质量。
+
+## 失败语义
+
+- candidate patch stale / apply failed:保持 pending,报告准确错误,不标 promoted;
+- state write 与 certified truth 冲突:保持 held,下一张完整性卡处理;
+- 规则区出现未建候选卡的 drift:标记 unqualified-change,不得静默编译;
+- 观察到期:只关闭 Observation,不删除 capture evidence;
+- Run 中断:下次 `open` 恢复同一 Run,已经记录的 disposition 不重做。
+
+## 真实使用反馈
+
+正式资产在真实任务中使用后记录:
+
+```bash
+forge candidate feedback <candidate-id> \
+  --outcome effective|revise|retire \
+  --evidence <run-or-task-receipt> \
+  --note <what-happened>
 ```
 
-## 行为铁律
-
-- **预算神圣**:owner 说"只有 1 分钟"→ `--budget 0`(只剩冲突);顺延项一句话带过,不展开;
-- **冲突先行**:问单顺序是固定的,不重排;
-- **不硬凑**:没有待问项就说"没有",没有可落账的就说"没有"——空 run 是合法结果;
-- **裁决即执行**:decide 之后立刻报结果,不留"我稍后处理";
-- **绝不代替 owner 决策**:规则区与冲突项,任何"显然该批"的判断都只能作为建议语气出现;
-- **结束即干净**:close 之后不留尾巴,顺延项属于下一次 run,不在本次追问。
-
-## 失败处理
-
-- decide 报 stale / failed → 如实报错误原因,把该项标记为下次 run 重备,继续下一项;
-- 蒸馏中发现 capture 信息与 canonical 矛盾但写入未被 held(未认证内容)→ 正常落账即可,认证机制会让 owner 在读时看到;
-- run 中断 → 下次 `forge run open` 自动续上,已落账的不会重做。
+Forge 统计接受率、平均审查时间、有真实反馈的资产数和 effective/revise/retire 分布。资产数量不是成功指标。

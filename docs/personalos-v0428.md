@@ -45,20 +45,20 @@ workspace/               active projects, topics, writing, whiteboards
 assist config/           collaboration preferences, work preferences, skills
 public knowledge base/   source-grounded external knowledge
 context build/           reviewed projections -> configs -> runtime artifacts
-system/                  rules, eval, inbox, PR state, approve log
+system/                  rules, eval, run, observations, candidates, ledger; legacy inbox/PR
 ```
 
 The governed flow is:
 
 ```text
 import raw material
-  -> capture/import
-  -> system/inbox
-  -> system/pr proposal
-  -> user review
-  -> apply reviewed assets + context projections
+  -> capture/import (retained evidence)
+  -> explicit disposition
+  -> time-bounded Observation or admitted Candidate Asset
+  -> owner reviews at most three Candidate Assets, one at a time
+  -> approve applies through ledger + compile gate
   -> forge build / doctor / diff
-  -> approve commits the reviewed state
+  -> runtime + real-use feedback
 ```
 
 Import should not write directly into `context build/sections`.
@@ -70,8 +70,11 @@ The example skill in `examples/skills/forge/SKILL.md` is v0428-first:
 - it must not call legacy `forge new`
 - it must not create `sp/` or `output/` during onboarding
 - it scaffolds the personalOS directories
-- it routes import through `capture`, `system/inbox`, and `system/pr`
-- `approve` means approve the current proposal; after applying and passing build/doctor, it commits the reviewed state
+- once zones/run are active, it routes import through evidence disposition,
+  Observation, Candidate Asset, and `forge run`; `system/inbox`/`system/pr`
+  remain compatibility-only for legacy workspaces
+- `approve` means promote the current Candidate Asset through ledger, gate,
+  build, validation, and scoped commit
 
 ## Validation
 

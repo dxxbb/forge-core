@@ -1,139 +1,120 @@
 # Forge Run 体系设计
 
-**一句话。** 把 forge 的治理收敛成三个概念:资产分两区(行为规则区锁死、状态区自由流动)、一个动词(`forge run`,你主动发起的结算式对话)、一本账(每笔写入可追可撤)。review 不再是系统持续向 owner 施加的状态,而是 owner 主动调用的函数——有签名、有预算、有返回值、会终止。
+**一句话。** Forge 保存全部 evidence,但只让经过独立证据、明确边界和 owner 质检的极少数 Candidate Asset 晋升为正式资产。
 
-关联文档:[ADR-0002](adr/0002-forge-run-workflow.md)(本轮决策)、[ADR-0001](adr/0001-cp-single-review-primitive.md)(已被取代,机件层保留)、[CONTEXT.md](../CONTEXT.md)(领域字典)、[run-acceptance-spec.md](run-acceptance-spec.md)(v1 验收条款)。
+当前决策见 [ADR-0003](adr/0003-evidence-to-asset-promotion.md);底层 zone / gate / ledger 决策见 [ADR-0002](adr/0002-forge-run-workflow.md);可测条款见 [run-acceptance-spec.md](run-acceptance-spec.md)。
 
----
+## 1. 设计目标
 
-## 1. 问题与根因(简版)
+Forge 要同时满足:
 
-运行期证据:大批量 import 搁置数周、diff 看不清导致无脑通过、三套审阅表单互不相认。历次重设计(CP 队列、风险车道、TTL、周报)都在优化体验,没有触及根因:
+1. 经历不会因“本轮没价值”而丢失;
+2. 一次性缺陷不会被过拟合成永久规则;
+3. owner 不需要审全部 Memory、维护队列或清理观察池;
+4. 正式资产仍然可追溯、可验证、可修正和可退役。
 
-1. **约束**:owner 的审阅注意力稀缺且碎片化,旧设计全部假设"有充足成块的审阅时间";
-2. **抽象错误**:旧工作流全是**名词**——队列、清单、收件箱、工作台。名词 = 一个持续存在、等人打理的地方;搁置、腐烂、负罪感、无脑通过,全是名词式抽象的必然结果。**持续性义务,人坚持不了;有头有尾的仪式,人坚持得了。**
+过去的 Run 已解决“谁能改规则”和“如何追溯写入”,但仍从输入条目出发逐条蒸馏。输入量一大,`covered/archive/certification-due` 也会消耗解释和审查注意力。新的选择单元是跨独立事件聚合的主题,不是输入文件。
 
-## 2. 三个概念
+## 2. 主流程
 
-### 2.1 资产分两区
+```text
+持续产生的经历
+      ↓
+capture 原始证据(全部保留)
+      ↓ Agent 查重、分类、给出 disposition
+ ┌────┼───────────┬──────────────┐
+ ↓    ↓           ↓              ↓
+覆盖  一次性缺陷   易变状态         可能复现
+关闭  代码/测试     带日期落账          ↓
+                                  Observation
+                                    ↓ 新独立证据
+                              Candidate Asset
+                                    ↓ owner 质检
+                       reject / observe / promote
+                                              ↓
+                                    Canonical Source
+                                              ↓
+                                  compiler → runtime
+                                              ↓
+                              effective / revise / retire
+```
 
-| | 行为规则区(rule zone) | 状态区(state zone) |
+Observation 有期限,关闭不删除 capture。Candidate Asset 是唯一正常 review 对象。
+
+## 3. 三层状态
+
+### 3.1 Evidence
+
+- 位置:`capture/`;
+- 内容:会话、Memory、外部输入、日志等原始材料;
+- 性质:可搜索、可追溯,不要求 owner 审阅;
+- 不变量:未晋升不等于删除。
+
+### 3.2 Observation
+
+- 位置:`system/observations/`;
+- 以 theme 聚合独立 evidence reference;
+- 记录首次/最近出现、到期时间、状态和候选关联;
+- 到期无新证据自动 `closed: expired`;
+- 不是 owner 待办,不进入 Run 问单。
+
+### 3.3 Candidate Asset
+
+- 位置:`system/candidates/`;
+- 准入依据仅 `repeated / explicit / high-risk`;
+- 卡片必须含 evidence、problem、proposal、scope、exclusions、准确 patch、verification;
+- 状态:`pending → promoted|rejected|observing`;
+- 每轮最多展示 3 张;完整性冲突不受候选预算压缩。
+
+## 4. 正式写入仍复用原底座
+
+资产晋升不发明第二套写入机制:
+
+- state/KB/project fact:Candidate 批准后走 ledger atomic apply、runtime rebuild、scoped commit;
+- rule/preference/skill:批准后同步 verified snapshot,未批准内容不会进入 runtime;
+- 所有写入继续保留 evidence、before/after、Ledger-Id、blame 与 revert;
+- 未建 Candidate 而直接产生的 rule-zone drift 标为 `unqualified-change`,必须显式处理。
+
+Rule Zone / State Zone 决定“批准后怎么写和怎么保护”;Observation / Candidate 决定“什么值得写”。两者职责不同。
+
+## 5. 用户交互
+
+```text
+你:“做一次 Forge”(可附“只有 1 分钟”)
+Forge:自动收集、分流、关闭到期观察
+Forge:报告摘要;若无候选直接结束
+Forge:一次展示一张候选卡
+你:“同意 / 不写 / 继续观察 / 修改 / 解释”
+Forge:当场执行或重写同一张卡
+Forge:报告本轮去向并关闭
+```
+
+两次 Run 之间零主动治理打扰。状态 freshness 只在 status/portal 作为审计信号,不产生 certification-due 问项。
+
+## 6. 指标
+
+Forge 不以 imported、processed 或 promoted 数量为成功指标。首版记录:
+
+- disposition 分布;
+- pending/promoted/rejected/observing Candidate 数;
+- open/promoted/closed Observation 数;
+- Candidate 接受率与平均审查时间;
+- 有真实使用反馈的正式资产数;
+- effective/revise/retire 分布。
+
+这些指标回答“候选是否值得审”和“资产是否真实有用”,不奖励系统制造更多资产。
+
+## 7. 失败边界
+
+| 失败 | 最坏结果 | 保护 |
 |---|---|---|
-| 装什么 | 偏好、边界、工作规则——改变 agent 行为的内容 | 项目状态、KB、调研结论——信息类内容 |
-| 大小 | 预算制:编译后默认 ≤150 行。每条规则要回答"值得占用所有 agent 永久注意力吗" | 活文档,自然生长 |
-| 写入 | 每笔变更必须 owner 在 run 中点头 | agent 自由写入,每笔自动记账 |
-| 强制 | **编译器 gate**:未批准的变更拒绝编译,该段回退到上一 verified 版本 | 冲突守卫:与已认证内容矛盾的写入不落地,转为待问项 |
-| 审阅 | run 中逐条裁决(月 2-4 条) | **读即审**:渲染时高亮未认证变更,看完盖章(认证) |
+| 同一事件多份摘要被当成重复证据 | 错误 candidate | repeated 强制两个独立 evidence reference;card 仍需 scope/exclusions |
+| Observation 堆积 | 隐形垃圾堆 | 到期自动关闭,不进入 owner 待办 |
+| Candidate 过多 | review 再次爆炸 | 默认最多三张;不展示的不称为顺延债务 |
+| 错误抽象获批 | 正式资产误导 runtime | ledger/revert + verified gate + real-use feedback |
+| Candidate apply 失败 | 半套状态 | ledger atomic apply;失败保持 pending |
+| Agent 绕过 Candidate 改规则 | 低质量规则进入 runtime | compile gate 使用 verified snapshot,并报 unqualified-change |
 
-分区是**owner 持有的路径配置**(`zones` 配置文件),按文件/段落类机械判定;内容不能自我声明区属,agent 的判断不能绕过。zones 配置本身属于行为规则区。
+## 8. Legacy
 
-为什么分区是对的:审"变更流"的成本 ∝ 流入量(无界);审"资产状态"的成本 ∝ 资产规模(有界)。信息类内容审状态,行为类内容才审变更——后者天然低频,这是把审阅压到每周分钟级的数学基础。(先例:Wikipedia flagged revisions——编辑即时生效,受信者定期认证版本。)
-
-### 2.2 一个动词:forge run
-
-你对 agent 说"做一次 forge",发生一场**结算式对话**:
-
-```
-① 收集    上次 run 以来的原料(会话残留、平台记忆、capture)        [agent,内联]
-② 落账    状态区更新直接写入,每笔记账、各自 commit                  [agent + CLI]
-③ 提问    按固定问序、预算内逐条问 owner:
-          冲突(必问,置顶)→ 行为规则候选 → 到期认证
-          每问自带:证据原文 + before/after + 影响                  [对话]
-④ 执行    owner 一句话裁决,agent 当场执行(apply/编译/commit)       [CLI,确定性]
-⑤ 收尾    重编译、验证、run 报告(落了什么/问了什么/顺延什么)        [CLI]
-```
-
-性质:
-
-- **由 owner 发起**,治理永不入侵工作会话;
-- **预算制**:默认每次最多问 5 个,"今天只有 1 分钟"就只问冲突;超预算的顺延下次,不堆积成清单;
-- **会终止**:结束即干净,两次 run 之间系统对 owner 零要求;
-- **可恢复**:中途断了,下次接着跑;
-- **唯一的全局状态**是一个数字:"距上次 run N 天"。
-
-Run 之间没有故事:agent 读上一次编译产物干活;想动规则区会被编译器扣下、留给下次 run;状态区照常流动留痕。**最坏失败模式 = 略陈旧但安全**——三周不 run,损失新鲜度,不损失控制权。
-
-### 2.3 一本账
-
-每一笔 canonical 写入(run 落账的、agent 会话直接改的、owner 手改的)都成为一条账本记录:谁、何时、依据什么、改了哪段、对应哪个 commit(1 笔 ↔ 1 commit,trailer 关联)。三个用途:
-
-- **interpretability**:任何一段内容答得出"为什么在这"(30 秒,链条完整);
-- **单笔撤销**:revert 一条账,不用考古;
-- **对账**:绕过 CLI 的直接编辑在下次 run/编译时被 git diff 对账捕获——状态区自动补账,规则区转待问项。**记账不依赖任何人守纪律。**
-
-## 3. 用户故事(验收的叙事基准)
-
-**故事 A·普通日子**:你在会话里说"可见度优化是下一个算法约束",没有任何打扰。下次 run 时这句话被落进某个项目状态文件,带出处。你的投入:0。
-
-**故事 B·一次 run**:你说"做一次 forge"。agent:"9 天,4 次会话。11 条状态更新已落账。需要你的 3 件:① 冲突——配置值你 4 月确认 A,6 月会话说换 B,哪个对?② 规则候选——'交付前必须跑 security-review',加这 3 行?③ project-alpha 状态 40 天未认证、攒 9 处,现在扫还是下次?"你逐条一句话裁决,agent 当场执行。5 分钟,结算完毕。
-
-**故事 C·守门**:某次蒸馏想把一条规则直接写进规则区。编译时 diff 与账本对不上——该段拒绝编译,agent 们继续读上一个 verified 版本,变更扣下进待问项。不是约定,是结构。
-
-**故事 D·冲突必裁**:与已认证内容矛盾的新写入永不静默覆盖,它在下次 run 置顶等你。已认证的内容,只有你能推翻。
-
-**故事 E·消失三周**:期间状态照常流动(留痕),规则一字不动(锁死)。回来 run 一次:"23 笔已落账,待问 2 条,forge 状态文件 41 天未认证。"1 分钟清完。没有债。
-
-**故事 F·为什么**:agent 说"按你的规则先跑 security-review"。你问"我何时定的"——账本:6 月 12 日会话原话、你某次 run 批准、commit 在此。
-
-## 4. 机制设计
-
-### 4.1 编译器 gate(规则区的强制点)
-
-- 规则区每个文件/段维护一份 **verified 快照**(随 owner 批准/认证更新);
-- 编译时:现文件 ≠ verified 快照 → 该段用快照编译(agent 读到的仍是批准过的版本),差异生成待问项,诊断可见;
-- 解除方式只有一种:owner 在 run 中裁决(批准 → 快照更新;驳回 → 文件回退)。
-- bootstrap:启用时 owner 显式跑一次 zone 初始化,把当前规则区内容认证为基线。
-
-### 4.2 账本与对账
-
-- 账本条目 `system/ledger/<id>.md`:出处(origin)、证据、patch(target/anchor/mode/base_digest)、状态、commit 关联;
-- 写入路径有二:CLI 写入(落账即记账)与**对账补账**(git diff 捕获的脱账编辑);
-- 复用上一版机件:patch 契约、base_digest stale 守卫、scoped commit、原子 apply——全部降级为账本执行层,接口不再面向 owner。
-
-### 4.3 Run 的解剖
-
-- run 记录 `system/run/<id>.md`:起止、输入清单、落账清单、问答记录、顺延清单——run 本身可审计;
-- 问序固定:冲突 → 规则候选 → 到期认证;预算默认 5,可现场压缩;
-- 语义工作(蒸馏、拆分、写 patch)由 agent 在 run 会话内做,确定性工作(apply/编译/验证/commit/对账)全部走 CLI——**owner 裁决之后的执行不依赖模型自觉**;
-- 幂等与可恢复:重复 collect 不重复落账(以 capture 指纹为键);中断后重开接着上次进度。
-
-### 4.4 认证与新鲜度
-
-- 状态文件 frontmatter 带 `certified: <date>`;渲染(CLI / portal)高亮 since-certified 的变更与出处;
-- "盖章"= 一个命令,更新日期 + 快照;
-- 新鲜度全局可见(doctor / portal):每文件的未认证笔数与天数。**陈旧是诚实展示的状态,不是需要消灭的债。**
-
-### 4.5 执行模型
-
-| 场所 | 跑什么 |
-|---|---|
-| forge run 会话(owner 发起的 agent 会话,按 run skill/playbook 进行) | 收集、蒸馏、提问、传达裁决 |
-| forge CLI(确定性) | 落账、对账、gate、apply、编译、验证、commit、报告 |
-| portal | **只读审计**:分区标识、认证新鲜度、账本溯源、provenance 图(沿用已建) |
-
-## 5. 砍掉与保留
-
-| 砍掉(v1 不做) | 原因 |
-|---|---|
-| serve 决策端点 / token / 并发锁 | 裁决在 run 对话内,agent 执行 |
-| cron 夜间蒸馏 / headless | 收集在 run 内联;离线化是日后 plus |
-| 外部 digest 管道 | 没有等待中的清单;想看就 `forge run status` |
-| hook / 会话插话 | run 由 owner 发起,治理不入侵工作会话 |
-| 优先级队列 / TTL / 风险车道(作为独立机制) | 固定问序 + 预算 = 优先级;分区 = 车道;认证新鲜度 = TTL 的诚实版 |
-| portal 决策功能 | portal 收缩为审计查看器 |
-
-保留(全部降为内部机件):patch 契约与锚点定位、base_digest stale 守卫、scoped commit、原子 apply、audit graph、portal 的决策卡渲染(用于待问项展示)、大赦式迁移。
-
-## 6. 日后的 plus(明确不在 v1)
-
-离线自动蒸馏(cron)、外部 digest、语义级冲突/重复检测、portal 读即审的富视图、run 提问的模式学习、规则区预算的自动瘦身提案。每一项都只是把 run 内联做的事挪到线下,或把粗糙判定换成更聪明的——**架构不变**。
-
-## 7. 风险与对策
-
-| 风险 | 对策 |
-|---|---|
-| 蒸馏质量差,落账错误多 | 单笔可撤 + 冲突守卫 + 认证时人眼过;run 报告里首过纠错率可量化,差了改 playbook |
-| agent 在 run 外误用规则区写入命令 | 编译器 gate 兜底(写了也编译不进去);run 报告显著列出全部规则区变更 |
-| owner 长期不 run | 最坏 = 陈旧但安全;`forge doctor` 与 portal 常显"距上次 run N 天" |
-| zones 配置划错区 | zones 属规则区,改它本身要过 gate;doctor 检查未覆盖路径并告警 |
-| run 提问体验差(问题太碎/太长) | 预算制 + 固定问序 + 每问必带证据/diff/影响;playbook 是 skill,可迭代不动架构 |
+`system/pr`、proposal schema、memory workbench 和批量 Portal review 保留兼容与历史审计,不再扩展。已存在的 workbench 不需要重新审;原始 capture 继续可搜索,只有新 evidence 再次命中相同主题时才参与 Observation。

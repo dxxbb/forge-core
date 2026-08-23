@@ -2,6 +2,29 @@
 
 记录 `forge-core` 的所有显著变动。
 
+## 0.11.0 (Evidence-to-Asset Promotion) — 2026-08-23
+
+真实 Memory intake 证明“逐条蒸馏输入再批量 review”仍会把 owner 成本绑定到输入量。本版保留 capture、zone、compile gate、ledger、compiler、Portal provenance 和 eval 底座,把 Run 的选择单元改成跨独立事件聚合的主题。
+
+### Added
+
+- `system/observations/`:按 theme 聚合 evidence,记录 last-seen/expiry;到期自动关闭但不删除 raw capture。
+- `system/candidates/`:带 `repeated|explicit|high-risk` 准入、scope、exclusions、准确 patch 和 verification 的 Candidate Asset。
+- `forge observation record/list`、`forge candidate create/list/show/feedback`、`forge run disposition`。
+- Candidate `approve|reject|observe` 生命周期;approve 复用 ledger 与 verified-snapshot gate。
+- Run status 新增 Candidate/Observation 状态、接受率、平均审查时间、真实使用与 effective/revise/retire 分布。
+
+### Changed
+
+- `forge run ask` 默认最多三张 Candidate;conflict/unqualified-change 置顶;certification freshness 只作审计信号。
+- `forge run close` 在任何新 input 尚无 disposition 时 fail closed,并报告输入去向与 Observation expiry。
+- Portal 改为只读 Candidate card + Evidence-to-Asset 工作流;旧 proposal/workbench 进入 compatibility-only。
+
+### Fixed
+
+- Ledger 与 Run frontmatter parser 只识别独立分隔行;patch anchor 或字段值包含字面量 `---` 时不再截断账本。
+- `forge run close` 不再吞掉 scoped commit 失败并假报“结算完毕”;失败时恢复为可继续的 open Run 并明确报错。
+
 ## Unreleased (compiled-output soft budget) — 2026-06-11
 
 此前唯一的体积约束是 rule zone 的 `budget_lines` (默认 150 行, 只覆盖规则区 section 源文件); 编译产物 (`context build/runtime/claude-code/CLAUDE.md` 等) 没有任何 size guard——产物膨胀无人察觉。

@@ -94,6 +94,26 @@ def test_state_write_lands_with_ledger_entry_and_scoped_commit(tmp_path: Path) -
     assert "_preface.md" in status
 
 
+def test_ledger_parser_accepts_frontmatter_delimiter_as_patch_anchor(tmp_path: Path) -> None:
+    """A literal ``---`` inside YAML values must not terminate ledger frontmatter."""
+    ws = _workspace(tmp_path)
+
+    result = ledger.apply_write(
+        ws,
+        target="context build/sections/alpha.md",
+        anchor="---",
+        mode="replace",
+        proposed_text="---\nname: alpha\ntype: project\nstatus: current\n---",
+        origin="run:test",
+        title="refresh alpha frontmatter",
+    )
+
+    assert result.state == "applied"
+    stored = next(e for e in ledger.list_entries(ws) if e.id == result.entry_id)
+    assert stored.anchor == "---"
+    assert "status: current" in stored.after_text
+
+
 def test_stale_ledger_write_refuses_blind_apply(tmp_path: Path) -> None:
     """AC-LEDGER-4: base digest drift -> zero writes, no commit."""
     from forge.patch import block_digest, extract_block

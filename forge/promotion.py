@@ -1,0 +1,630 @@
+"""Deterministic state for Evidence-to-Asset Promotion.
+
+The agent supplies semantic judgment; this module owns durable observations,
+candidate admission, lifecycle transitions, expiry, and review metrics.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import re
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+
+OBSERVATION_DIR = Path("system") / "observations"
+CANDIDATE_DIR = Path("system") / "candidates"
+
+
+@dataclass
+class Observation:
+    id: str
+    theme: str
+    state: str
+    created_at: str
+    last_seen_at: str
+    expires_at: str
+    evidence: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    candidate_id: str = ""
+    closed_reason: str = ""
+    path: Path | None = None
+
+    @property
+    def independent_events(self) -> int:
+        return len(self.evidence)
+
+
+@dataclass
+class Candidate:
+    id: str
+    title: str
+    state: str
+    ground: str
+    created_at: str
+    decided_at: str
+    evidence: list[str]
+    problem: str
+    proposal: str
+    scope: str
+    exclusions: list[str]
+    target: str
+    anchor: str
+    mode: str
+    proposed_text: str
+    verification: str
+    observation_id: str = ""
+    decision_note: str = ""
+    ledger_entry: str = ""
+    revisions: list[dict[str, Any]] = field(default_factory=list)
+    feedback: list[dict[str, Any]] = field(default_factory=list)
+    path: Path | None = None
+
+
+def observation_dir(root: Path) -> Path:
+    return Path(root).resolve() / OBSERVATION_DIR
+
+
+def candidate_dir(root: Path) -> Path:
+    return Path(root).resolve() / CANDIDATE_DIR
+
+
+def record_observation(
+    root: Path,
+    *,
+    theme: str,
+    evidence: list[str],
+    note: str = "",
+    expires_days: int = 30,
+    now: datetime | None = None,
+) -> Observation:
+    """Create or refresh one theme, deduplicating independent evidence refs."""
+    if not theme.strip():
+        raise ValueError("observation theme is required")
+    if expires_days < 1:
+        raise ValueError("expires_days must be at least 1")
+    evidence = _clean_refs(evidence)
+    if not evidence:
+        raise ValueError("at least one evidence reference is required")
+    now = now or datetime.now().astimezone()
+    obs_id = _stable_id("obs", theme)
+    existing = next((o for o in list_observations(root, include_closed=True) if o.id == obs_id), None)
+    if existing is None:
+        obs = Observation(
+            id=obs_id,
+            theme=theme.strip(),
+            state="open",
+            created_at=_iso(now),
+            last_seen_at=_iso(now),
+            expires_at=_iso(now + timedelta(days=expires_days)),
+            evidence=evidence,
+            notes=[note.strip()] if note.strip() else [],
+        )
+    else:
+        obs = existing
+        if obs.state == "promoted":
+            raise ValueError(
+                "observation already promoted; route new evidence as covered or draft a revision candidate"
+            )
+        obs.theme = theme.strip()
+        obs.state = "open"
+        obs.last_seen_at = _iso(now)
+        obs.expires_at = _iso(now + timedelta(days=expires_days))
+        obs.evidence = _clean_refs(obs.evidence + evidence)
+        if note.strip() and note.strip() not in obs.notes:
+            obs.notes.append(note.strip())
+        obs.closed_reason = ""
+    _write_observation(root, obs)
+    return obs
+
+
+def list_observations(root: Path, *, include_closed: bool = False) -> list[Observation]:
+    out: list[Observation] = []
+    directory = observation_dir(root)
+    if not directory.is_dir():
+        return out
+    for path in sorted(directory.glob("obs-*.md")):
+        fm = _load_frontmatter(path, "observation")
+        if fm is None:
+            continue
+        obs = Observation(
+            id=str(fm.get("id") or path.stem),
+            theme=str(fm.get("theme") or ""),
+            state=str(fm.get("state") or ""),
+            created_at=str(fm.get("created_at") or ""),
+            last_seen_at=str(fm.get("last_seen_at") or ""),
+            expires_at=str(fm.get("expires_at") or ""),
+            evidence=_clean_refs([str(x) for x in (fm.get("evidence") or [])]),
+            notes=[str(x) for x in (fm.get("notes") or [])],
+            candidate_id=str(fm.get("candidate_id") or ""),
+            closed_reason=str(fm.get("closed_reason") or ""),
+            path=path,
+        )
+        if include_closed or obs.state == "open":
+            out.append(obs)
+    return out
+
+
+def expire_observations(root: Path, *, now: datetime | None = None) -> list[str]:
+    """Close stale observations while retaining their evidence on disk."""
+    now = now or datetime.now().astimezone()
+    expired: list[str] = []
+    for obs in list_observations(root):
+        if obs.candidate_id:
+            candidate = get_candidate(root, obs.candidate_id)
+            if candidate is not None and candidate.state == "pending":
+                continue
+        try:
+            deadline = datetime.fromisoformat(obs.expires_at)
+        except ValueError:
+            continue
+        comparable_now = now.astimezone(deadline.tzinfo) if deadline.tzinfo else now.replace(tzinfo=None)
+        if comparable_now < deadline:
+            continue
+        obs.state = "closed"
+        obs.closed_reason = "expired"
+        _write_observation(root, obs)
+        expired.append(obs.id)
+    return expired
+
+
+def create_candidate(
+    root: Path,
+    *,
+    title: str,
+    ground: str,
+    evidence: list[str],
+    problem: str,
+    proposal: str,
+    scope: str,
+    exclusions: list[str],
+    target: str,
+    anchor: str,
+    mode: str,
+    proposed_text: str,
+    verification: str,
+    observation_id: str = "",
+    now: datetime | None = None,
+) -> Candidate:
+    """Admit one review card only when its evidence and boundaries are explicit."""
+    ground = ground.strip()
+    if ground not in {"repeated", "explicit", "high-risk"}:
+        raise ValueError("ground must be repeated|explicit|high-risk")
+    evidence = _clean_refs(evidence)
+    if ground == "repeated" and len(evidence) < 2:
+        raise ValueError("repeated ground requires two independent evidence references")
+    if ground in {"explicit", "high-risk"} and not evidence:
+        raise ValueError(f"{ground} ground requires evidence")
+    required = {
+        "title": title,
+        "problem": problem,
+        "proposal": proposal,
+        "scope": scope,
+        "target": target,
+        "proposed_text": proposed_text,
+        "verification": verification,
+    }
+    missing = [name for name, value in required.items() if not value.strip()]
+    if missing:
+        raise ValueError("candidate missing required field(s): " + ", ".join(missing))
+    exclusions = [x.strip() for x in exclusions if x.strip()]
+    if not exclusions:
+        raise ValueError("candidate requires at least one exclusion")
+    if mode not in {"create", "replace", "append"}:
+        raise ValueError("mode must be create|replace|append")
+    if observation_id:
+        observation = next(
+            (o for o in list_observations(root, include_closed=True) if o.id == observation_id),
+            None,
+        )
+        if observation is None:
+            raise ValueError(f"observation not found: {observation_id}")
+        if not set(evidence).issubset(set(observation.evidence)):
+            raise ValueError("candidate evidence must be present on its observation")
+    now = now or datetime.now().astimezone()
+    candidate_id = _stable_id("cand", f"{title}\n{target}\n{proposal}")
+    if any(c.id == candidate_id for c in list_candidates(root, include_decided=True)):
+        raise ValueError(f"candidate already exists: {candidate_id}")
+    candidate = Candidate(
+        id=candidate_id,
+        title=title.strip(),
+        state="pending",
+        ground=ground,
+        created_at=_iso(now),
+        decided_at="",
+        evidence=evidence,
+        problem=problem.strip(),
+        proposal=proposal.strip(),
+        scope=scope.strip(),
+        exclusions=exclusions,
+        target=target.strip(),
+        anchor=anchor.strip(),
+        mode=mode,
+        proposed_text=proposed_text.rstrip("\n"),
+        verification=verification.strip(),
+        observation_id=observation_id,
+    )
+    _write_candidate(root, candidate)
+    if observation_id:
+        observation.candidate_id = candidate.id  # type: ignore[union-attr]
+        _write_observation(root, observation)  # type: ignore[arg-type]
+    return candidate
+
+
+def list_candidates(root: Path, *, include_decided: bool = False) -> list[Candidate]:
+    out: list[Candidate] = []
+    directory = candidate_dir(root)
+    if not directory.is_dir():
+        return out
+    for path in sorted(directory.glob("cand-*.md")):
+        fm = _load_frontmatter(path, "candidate-asset")
+        if fm is None:
+            continue
+        patch = fm.get("patch") or {}
+        candidate = Candidate(
+            id=str(fm.get("id") or path.stem),
+            title=str(fm.get("title") or ""),
+            state=str(fm.get("state") or ""),
+            ground=str(fm.get("ground") or ""),
+            created_at=str(fm.get("created_at") or ""),
+            decided_at=str(fm.get("decided_at") or ""),
+            evidence=_clean_refs([str(x) for x in (fm.get("evidence") or [])]),
+            problem=str(fm.get("problem") or ""),
+            proposal=str(fm.get("proposal") or ""),
+            scope=str(fm.get("scope") or ""),
+            exclusions=[str(x) for x in (fm.get("exclusions") or [])],
+            target=str(patch.get("target") or ""),
+            anchor=str(patch.get("anchor") or ""),
+            mode=str(patch.get("mode") or ""),
+            proposed_text=str(patch.get("proposed_text") or ""),
+            verification=str(fm.get("verification") or ""),
+            observation_id=str(fm.get("observation_id") or ""),
+            decision_note=str(fm.get("decision_note") or ""),
+            ledger_entry=str(fm.get("ledger_entry") or ""),
+            revisions=[dict(x) for x in (fm.get("revisions") or [])],
+            feedback=[dict(x) for x in (fm.get("feedback") or [])],
+            path=path,
+        )
+        if include_decided or candidate.state == "pending":
+            out.append(candidate)
+    return out
+
+
+def get_candidate(root: Path, candidate_id: str) -> Candidate | None:
+    return next(
+        (c for c in list_candidates(root, include_decided=True) if c.id == candidate_id),
+        None,
+    )
+
+
+def revise_candidate(
+    root: Path,
+    candidate_id: str,
+    *,
+    problem: str | None = None,
+    proposal: str | None = None,
+    scope: str | None = None,
+    exclusions: list[str] | None = None,
+    target: str | None = None,
+    anchor: str | None = None,
+    mode: str | None = None,
+    proposed_text: str | None = None,
+    verification: str | None = None,
+    note: str = "",
+    now: datetime | None = None,
+) -> Candidate:
+    """Revise the same pending card after owner feedback; its id stays stable."""
+    candidate = get_candidate(root, candidate_id)
+    if candidate is None:
+        raise ValueError(f"candidate not found: {candidate_id}")
+    if candidate.state != "pending":
+        raise ValueError(f"candidate is {candidate.state}, not pending")
+    updates: dict[str, Any] = {
+        key: value
+        for key, value in {
+            "problem": problem,
+            "proposal": proposal,
+            "scope": scope,
+            "target": target,
+            "anchor": anchor,
+            "mode": mode,
+            "proposed_text": proposed_text,
+            "verification": verification,
+        }.items()
+        if value is not None
+    }
+    if exclusions is not None:
+        updates["exclusions"] = [x.strip() for x in exclusions if x.strip()]
+    if not updates:
+        raise ValueError("candidate revision has no changes")
+    for name in {"problem", "proposal", "scope", "target", "proposed_text", "verification"}:
+        if name in updates and not str(updates[name]).strip():
+            raise ValueError(f"candidate revision cannot clear {name}")
+    if "exclusions" in updates and not updates["exclusions"]:
+        raise ValueError("candidate revision requires at least one exclusion")
+    if "mode" in updates and updates["mode"] not in {"create", "replace", "append"}:
+        raise ValueError("mode must be create|replace|append")
+    changed: list[str] = []
+    for name, value in updates.items():
+        normalized = value.rstrip("\n") if name == "proposed_text" else value
+        if getattr(candidate, name) != normalized:
+            setattr(candidate, name, normalized)
+            changed.append(name)
+    if not changed:
+        raise ValueError("candidate revision does not change the card")
+    candidate.revisions.append(
+        {
+            "at": _iso(now or datetime.now().astimezone()),
+            "fields": changed,
+            "note": note.strip(),
+        }
+    )
+    _write_candidate(root, candidate)
+    return candidate
+
+
+def transition_candidate(
+    root: Path,
+    candidate_id: str,
+    state: str,
+    *,
+    note: str = "",
+    ledger_entry: str = "",
+    now: datetime | None = None,
+) -> Candidate:
+    if state not in {"promoted", "rejected", "observing"}:
+        raise ValueError("candidate state must be promoted|rejected|observing")
+    candidate = get_candidate(root, candidate_id)
+    if candidate is None:
+        raise ValueError(f"candidate not found: {candidate_id}")
+    if candidate.state != "pending":
+        raise ValueError(f"candidate is {candidate.state}, not pending")
+    candidate.state = state
+    candidate.decided_at = _iso(now or datetime.now().astimezone())
+    candidate.decision_note = note.strip()
+    candidate.ledger_entry = ledger_entry
+    _write_candidate(root, candidate)
+    if candidate.observation_id:
+        observation = next(
+            (
+                o
+                for o in list_observations(root, include_closed=True)
+                if o.id == candidate.observation_id
+            ),
+            None,
+        )
+        if observation is not None:
+            if state == "promoted":
+                observation.state = "promoted"
+                observation.closed_reason = ""
+                _write_observation(root, observation)
+            elif state == "rejected":
+                observation.state = "closed"
+                observation.closed_reason = "candidate-rejected"
+                _write_observation(root, observation)
+    return candidate
+
+
+def return_candidate_to_observation(
+    root: Path,
+    candidate_id: str,
+    *,
+    note: str = "",
+    expires_days: int = 30,
+    now: datetime | None = None,
+) -> tuple[Candidate, Observation]:
+    candidate = get_candidate(root, candidate_id)
+    if candidate is None:
+        raise ValueError(f"candidate not found: {candidate_id}")
+    existing = next(
+        (
+            o
+            for o in list_observations(root, include_closed=True)
+            if o.id == candidate.observation_id
+        ),
+        None,
+    )
+    observation = record_observation(
+        root,
+        theme=existing.theme if existing is not None else candidate.problem,
+        evidence=candidate.evidence,
+        note=note or f"候选 {candidate.id} 退回观察",
+        expires_days=expires_days,
+        now=now,
+    )
+    candidate.observation_id = observation.id
+    _write_candidate(root, candidate)
+    candidate = transition_candidate(root, candidate_id, "observing", note=note, now=now)
+    observation.candidate_id = candidate.id
+    _write_observation(root, observation)
+    return candidate, observation
+
+
+def record_asset_feedback(
+    root: Path,
+    candidate_id: str,
+    *,
+    outcome: str,
+    evidence: list[str],
+    note: str = "",
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Attach and scoped-commit real-use evidence to a promoted asset card."""
+    if outcome not in {"effective", "revise", "retire"}:
+        raise ValueError("feedback outcome must be effective|revise|retire")
+    candidate = get_candidate(root, candidate_id)
+    if candidate is None:
+        raise ValueError(f"candidate not found: {candidate_id}")
+    if candidate.state != "promoted":
+        raise ValueError(f"candidate is {candidate.state}, not promoted")
+    refs = _clean_refs(evidence)
+    if not refs:
+        raise ValueError("asset feedback requires real-use evidence")
+    feedback: dict[str, Any] = {
+        "outcome": outcome,
+        "evidence": refs,
+        "note": note.strip(),
+        "at": _iso(now or datetime.now().astimezone()),
+    }
+    assert candidate.path is not None
+    original = candidate.path.read_text(encoding="utf-8")
+    candidate.feedback.append(feedback)
+    _write_candidate(root, candidate)
+    try:
+        from forge.gate import _git
+
+        relpath = str(candidate.path.relative_to(Path(root).resolve()))
+        _git.add(Path(root).resolve(), [relpath])
+        _git.commit(
+            Path(root).resolve(),
+            f"asset feedback: {candidate.id} {outcome}",
+            trailers={"Candidate-Id": candidate.id},
+        )
+    except Exception:
+        candidate.path.write_text(original, encoding="utf-8")
+        try:
+            _git.git(Path(root).resolve(), ["reset", "--", relpath])
+        except Exception:
+            pass
+        raise
+    return feedback
+
+
+def promotion_metrics(root: Path) -> dict[str, Any]:
+    candidates = list_candidates(root, include_decided=True)
+    decided = [c for c in candidates if c.state in {"promoted", "rejected", "observing"}]
+    promoted = [c for c in decided if c.state == "promoted"]
+    feedback_counts: dict[str, int] = {}
+    review_seconds: list[float] = []
+    for candidate in decided:
+        try:
+            review_seconds.append(
+                max(
+                    0.0,
+                    (
+                        datetime.fromisoformat(candidate.decided_at)
+                        - datetime.fromisoformat(candidate.created_at)
+                    ).total_seconds(),
+                )
+            )
+        except ValueError:
+            pass
+        for item in candidate.feedback:
+            outcome = str(item.get("outcome") or "")
+            if outcome:
+                feedback_counts[outcome] = feedback_counts.get(outcome, 0) + 1
+    return {
+        "decided": len(decided),
+        "acceptance_rate": round(len(promoted) / len(decided), 3) if decided else None,
+        "average_review_seconds": round(sum(review_seconds) / len(review_seconds), 1)
+        if review_seconds
+        else None,
+        "used_assets": sum(1 for c in promoted if c.feedback),
+        "feedback_counts": feedback_counts,
+    }
+
+
+def _write_observation(root: Path, obs: Observation) -> None:
+    path = observation_dir(root) / f"{obs.id}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fm: dict[str, Any] = {
+        "kind": "observation",
+        "id": obs.id,
+        "theme": obs.theme,
+        "state": obs.state,
+        "created_at": obs.created_at,
+        "last_seen_at": obs.last_seen_at,
+        "expires_at": obs.expires_at,
+        "evidence": obs.evidence,
+        "notes": obs.notes,
+        "candidate_id": obs.candidate_id,
+        "closed_reason": obs.closed_reason,
+    }
+    path.write_text(
+        "---\n"
+        + yaml.safe_dump(fm, sort_keys=False, allow_unicode=True).strip()
+        + "\n---\n\n"
+        + f"# {obs.theme}\n\n"
+        + f"独立证据: {obs.independent_events} · 状态: {obs.state}\n",
+        encoding="utf-8",
+    )
+    obs.path = path
+
+
+def _write_candidate(root: Path, candidate: Candidate) -> None:
+    path = candidate_dir(root) / f"{candidate.id}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fm: dict[str, Any] = {
+        "kind": "candidate-asset",
+        "id": candidate.id,
+        "title": candidate.title,
+        "state": candidate.state,
+        "ground": candidate.ground,
+        "created_at": candidate.created_at,
+        "decided_at": candidate.decided_at,
+        "evidence": candidate.evidence,
+        "problem": candidate.problem,
+        "proposal": candidate.proposal,
+        "scope": candidate.scope,
+        "exclusions": candidate.exclusions,
+        "verification": candidate.verification,
+        "observation_id": candidate.observation_id,
+        "decision_note": candidate.decision_note,
+        "ledger_entry": candidate.ledger_entry,
+        "revisions": candidate.revisions,
+        "feedback": candidate.feedback,
+        "patch": {
+            "target": candidate.target,
+            "anchor": candidate.anchor,
+            "mode": candidate.mode,
+            "proposed_text": candidate.proposed_text,
+        },
+    }
+    path.write_text(
+        "---\n"
+        + yaml.safe_dump(fm, sort_keys=False, allow_unicode=True).strip()
+        + "\n---\n\n"
+        + f"# {candidate.title}\n\n"
+        + f"## Problem\n\n{candidate.problem}\n\n"
+        + f"## Proposal\n\n{candidate.proposal}\n\n"
+        + f"## Scope\n\n{candidate.scope}\n\n"
+        + "## Exclusions\n\n"
+        + "\n".join(f"- {item}" for item in candidate.exclusions)
+        + "\n",
+        encoding="utf-8",
+    )
+    candidate.path = path
+
+
+_FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---(?:\r?\n|\Z)", re.DOTALL)
+
+
+def _load_frontmatter(path: Path, kind: str) -> dict[str, Any] | None:
+    match = _FRONTMATTER_RE.match(path.read_text(encoding="utf-8"))
+    if match is None:
+        return None
+    try:
+        fm = yaml.safe_load(match.group(1)) or {}
+    except yaml.YAMLError:
+        return None
+    if not isinstance(fm, dict) or fm.get("kind") != kind:
+        return None
+    return fm
+
+
+def _clean_refs(refs: list[str]) -> list[str]:
+    return list(dict.fromkeys(r.strip() for r in refs if r.strip()))
+
+
+def _stable_id(prefix: str, text: str) -> str:
+    digest = hashlib.sha1(text.strip().casefold().encode("utf-8")).hexdigest()[:10]
+    slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:32]
+    return f"{prefix}-{slug + '-' if slug else ''}{digest}"
+
+
+def _iso(value: datetime) -> str:
+    return value.isoformat(timespec="seconds")
