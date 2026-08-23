@@ -28,3 +28,7 @@ ADR-0003 把 monitor 的外部变化接成聚合 Source Signal，并要求每条
 - Run 可以诚实地区分 `complete`、`batch-complete` 与 `incomplete`。
 - provider 需要实现小而明确的 batch/settlement 接口；新增来源不能只提供 monitor 文本。
 - 历史 evidence 不删除；checkpoint 表示已分流，不表示已晋升为资产。
+
+## Superseded in part
+
+[ADR-0005](0005-review-units-and-candidate-conclusion.md) 将本 ADR 的“Memory 文件批次/整批 disposition”收紧为“有字节上限的 Review Unit 批次/逐单元 disposition”，并规定 Candidate Conclusion 的全局真实性。稳定批次、provider settlement、`complete|batch-complete|incomplete` 和唯一 Run Contract 继续有效。

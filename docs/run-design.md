@@ -46,11 +46,13 @@ Source Settlement(推进 provider checkpoint)
 
 Observation 有期限,关闭不删除 capture。Candidate Asset 是唯一正常 review 对象。
 
-Source Signal 与 Evidence 不混用。前者来自 `monitor` 的 Memory、剪藏、投影和项目变化等来源;后者是已经进入 `capture/` 的原始材料。Run 必须覆盖两者,否则会出现“monitor 有 attention,空 Run 却成功”的假完成。
+Source Signal 与 Evidence 不混用。前者来自 `monitor` 的 Memory、剪藏、投影和项目变化等来源;后者是已经进入 `capture/` 的原始材料。Run 必须覆盖两者,否则会出现“monitor 有 attention,空 Run 却成功”的假完成。由 Agent Memory 或 Web clipping provider 管理的 raw capture 只是同一来源的证据副本,不能再作为 standalone capture 重复筛选。
 
-Source Signal 也不能直接等同于“一次要处理的全部 backlog”。CLI 从支持的 provider 取一个稳定 Source Batch:Agent Memory 最多 10 个文件,Web clipping 最多 5 个文件。批次 digest 不含不断变化的总数;Run 已打开后,同类新文件留给下一次 Run,不替换本轮批次。
+Source Signal 也不能直接等同于“一次要处理的全部 backlog”。CLI 从支持的 provider 取一个稳定 Source Batch,但批次里的原子对象是 Review Unit,不是 provider 文件。Codex Memory 用 `MEMORY.md` 的 Task Group,Claude Memory 用单个非索引 memory 文件;聚合索引、raw history 和 archived session 只作 evidence pointer/诊断。Agent Memory 每批最多 10 个单元且总计不超过 128 KiB,Web clipping 每批最多 5 个单元。批次 digest 不含不断变化的总数;Run 已打开后,同类新单元留给下一次 Run,不替换本轮批次。
 
-非 defer disposition 必须产生 Source Settlement。Memory 把准确批次写入 seen checkpoint;clipping 写入处理 marker,其中 `covered` 必须指向已有 canonical asset。只在 Run 记录里写一句“处理过”而 provider 仍返回同一批,不算完成。
+每个 Review Unit 的非 defer disposition 必须产生 Source Settlement。Memory 把准确单元写入 semantic checkpoint;clipping 写入对应处理 marker,其中 `covered` 必须指向已有 canonical asset。多个单元不能共用一条批次 disposition;只在 Run 记录里写一句“处理过”而 provider 仍返回原单元,不算完成。
+
+候选池为空不是全局结论。只要仍有 Source Review Unit 或 standalone capture evidence 未筛选,Selection Coverage 就是 incomplete,Candidate Conclusion 必须是 unknown;只有全部单元都已有 disposition 且没有 pending Candidate 时,才能说“没有候选”。status、持久 Run report 与 close 终态共用这一清单;Observation 已有明确去向,不属于未筛选 backlog。
 
 ## 3. 三层状态
 
@@ -99,7 +101,7 @@ Forge:来源和 capture 都干净时直接结束,不生成空提交
 Forge:一次展示一张候选卡
 你:“同意 / 不写 / 继续观察 / 修改 / 解释”
 Forge:当场执行或重写同一张卡
-Forge:原样报告 close 的 complete / batch-complete / incomplete、Run、工作树和剩余来源事实
+Forge:原样报告 close 的 complete / batch-complete / incomplete、Run、工作树、Candidate Conclusion 和剩余可筛选单元事实
 ```
 
 两次 Run 之间零主动治理打扰。状态 freshness 只在 status/portal 作为审计信号,不产生 certification-due 问项。

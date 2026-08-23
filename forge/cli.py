@@ -775,15 +775,21 @@ def run_decide(ask_id: str, decision: str | None, note: str, root: str | None) -
 )
 @click.option("--sink", default="")
 @click.option("--note", default="")
+@click.option("--item", "item_ref", default="")
 @click.option("--root", type=click.Path(), default=None)
 def run_disposition(
-    input_ref: str, kind: str, sink: str, note: str, root: str | None
+    input_ref: str,
+    kind: str,
+    sink: str,
+    note: str,
+    item_ref: str,
+    root: str | None,
 ) -> None:
-    """Record the one explicit destination for a newly collected input."""
+    """Record one explicit destination for an input or Source Review Unit."""
     from forge.run import record_disposition
 
     result = record_disposition(
-        _root(root), input_ref, kind, sink=sink, note=note
+        _root(root), input_ref, kind, sink=sink, note=note, item_ref=item_ref
     )
     click.echo(json.dumps(result, ensure_ascii=False))
 
@@ -807,19 +813,34 @@ def run_close(root: str | None) -> None:
     disposition_text = "、".join(
         f"{kind} {count}" for kind, count in report["dispositions"].items()
     ) or "无"
-    if report["unresolved_sources"]:
-        state_text = "本轮未完成"
-    elif report["remaining_sources"]:
-        state_text = "本批完成"
+    if report["candidate_conclusion"] == "available":
+        candidate_text = f"候选待审 {report['pending_candidates']}"
+    elif report["candidate_conclusion"] == "unknown":
+        candidate_text = (
+            "候选结论 未知"
+            f"（{report['unprocessed_review_units']} 个可筛选单元尚未处理）"
+        )
     else:
-        state_text = "结算完毕"
+        if report["observing_units"]:
+            candidate_text = (
+                "候选结论 无"
+                f"（筛选完成，观察中 {report['observing_units']} 条）"
+            )
+        else:
+            candidate_text = "候选结论 无（可筛选单元已处理完）"
+    state_text = {
+        "incomplete": "本轮未完成",
+        "batch-complete": "本批完成",
+        "complete": "结算完毕",
+    }[report["final_state"]]
     click.echo(
         f"{state_text}:落账 {report['settled']} · 裁决 {report['decisions']} "
-        f"· 候选待下轮 {report['pending_candidates']} "
+        f"· {candidate_text} "
         f"· 完整性问题 {report['integrity_issues']} · 输入去向 {disposition_text} "
+        f"· 观察中 {report['observing_units']} "
         f"· 观察到期 {report['expired_observations']} "
         f"· 顺延来源 {report['unresolved_sources']} "
-        f"· 剩余来源 {report['remaining_sources']}"
+        f"· 剩余可筛选单元 {report['unprocessed_review_units']}"
     )
     _echo_run_final_facts(report)
 
@@ -833,8 +854,10 @@ def _echo_run_final_facts(report: dict[str, object]) -> None:
     tree_text = "clean" if report.get("worktree_clean") else "dirty"
     click.echo(
         f"最终状态 {report['final_state']} · {run_text} · 工作树 {tree_text} "
-        f"· 剩余来源 {report['remaining_sources']}"
+        f"· 剩余可筛选单元 {report['unprocessed_review_units']}"
     )
+    if report.get("commit"):
+        click.echo(f"Git commit {str(report['commit'])[:12]}")
 
 
 @main.command("certify")

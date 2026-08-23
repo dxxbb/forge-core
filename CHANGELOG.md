@@ -2,6 +2,26 @@
 
 记录 `forge-core` 的所有显著变动。
 
+## 0.13.0 (Semantic Review Units) — 2026-08-23
+
+连续真实 Run 证明“每批最多 10 个文件”仍是错误边界：Codex provider 把任务主题组、聚合索引、持续增长的历史流和数百 MB 归档会话混在同一文件列表中；整批一条 disposition 会掩埋差异，而候选池暂时为零又会被误说成“没有候选”。本版把候选筛选的真值下沉到 Review Unit 与 Selection Coverage。
+
+### Added
+
+- Codex Memory 以 `MEMORY.md` Task Group 为 Review Unit；Claude Memory 以非索引 memory 文件为单元。
+- Source Batch 同时受 10 单元与 128 KiB 限制；聚合索引/raw history/archived sessions 单独报告排除计数。
+- `forge run next` 每次返回一个 `classify-source-item`；`run disposition --item` 强制逐单元分流。
+- `run status/close` 新增 `selection_coverage`、`candidate_conclusion`、`unprocessed_review_units`；有 backlog 时候选结论只能是 `unknown`。
+- Run 持久报告使用 close 时刷新后的同一份剩余计数；CLI 明确回报 scoped commit。
+
+### Fixed
+
+- 不再允许多个性质不同的 Memory 文件共用一次 `closed/covered`。
+- 已跟踪的 `.forge/agent_memory_state.json` 纳入 Run scoped commit；真正 gitignored side state 仍不提交。
+- 修复 Run 文件、终端输出和最终回复可能分别报告 628/627/“没有提交”的事实漂移。
+
+- [ADR-0005](docs/adr/0005-review-units-and-candidate-conclusion.md) 记录 Review Unit 和全局候选结论。
+
 ## 0.12.0 (Deterministic Source Settlement) — 2026-08-23
 
 真实 Run 证明“Source Signal 必须有 disposition”仍不足以稳定交互：聚合计数会在会话中变化，Memory 没有持久 cursor，剪藏写了去向后仍可能重复报警，Agent 也会临场选择不同处理范围。本版把批次、来源结算、唯一下一步和最终状态下沉到 CLI。

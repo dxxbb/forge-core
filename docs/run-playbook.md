@@ -19,7 +19,7 @@ owner 只有两个主动动作:
 
 2. forge run open
    → 固定本轮 Source Batch 和未见过的 capture 指纹;
-   → Agent Memory 每批最多 10 个文件,Web clipping 每批最多 5 个文件;
+   → Agent Memory 每批最多 10 个 Review Unit/128 KiB,Web clipping 每批最多 5 个单元;
    → 重复 open 保留原批次,同类新到文件留给下一次 Run;
    → 自动关闭已到期且无新证据的观察。
 
@@ -27,12 +27,15 @@ owner 只有两个主动动作:
    → 每次只执行返回的一个 action,不自行改顺序或扩范围;
    → owner 未指定时 N=3;“只有 1 分钟”时 N=0。
 
-   classify-source:
-   - Agent Memory 只读 contract.batch_items,不得扫描完整 Memory 或启动另一套 intake;
+   classify-source-item:
+   - Agent Memory 只读 contract.review_unit 及 evidence pointer,不得扫描完整 Memory 或启动另一套 intake;
    - Web clipping 只检查已有 canonical sink,未经 owner 明确要求不得启动 deep knowledge-intake;
    - 其余来源也只执行 contract.handler / constraints 指定的工作。
 
-   classify-evidence / classify-source 的 disposition:
+   classify-source:
+   - 仅用于尚无 Review Unit adapter 的单一来源合同,不得自行拆批或扩流程。
+
+   classify-evidence / classify-source-item 的 disposition:
    covered        → 关联已有资产
    one-off        → 修代码/测试/Issue,不建长期规则
    volatile-state → ledger 写入带日期的项目状态/知识
@@ -42,7 +45,8 @@ owner 只有两个主动动作:
    defer          → 仅 Source Signal 可用;写明本轮为何不处理,下次重新出现
 
    每条随后调用一次:
-   forge run disposition <input> --as <kind> --sink <receipt> [--note ...]
+   forge run disposition <source> --item <unit-id> --as <kind> --sink <receipt> [--note ...]
+   forge run disposition <capture-input> --as <kind> --sink <receipt> [--note ...]
 
 4. next 返回 decide-integrity / decide-candidate 时,一次只讲一张卡
    - 为什么这是跨场景问题;
@@ -66,7 +70,8 @@ owner 只有两个主动动作:
    → 本批完成但仍有下一批时最终状态 `batch-complete`;
    → 无剩余时最终状态 `complete`;
    → 真正干净的空 Run 不写 run 文件、不生成 Git commit;
-   → 原样报告机器返回的 Run 已关闭/仍打开、工作树 clean/dirty、剩余来源数。
+   → 原样报告机器返回的 commit、Run 已关闭/仍打开、工作树 clean/dirty、Selection Coverage、Candidate Conclusion 与剩余 Review Unit 数;
+   → backlog 未清零时只能说候选结论 unknown,不能把“本批 0 张”说成“没有候选”。
 ```
 
 ## 候选准入

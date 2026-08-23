@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -106,6 +107,42 @@ class MemoryFile:
     def display(self) -> str:
         """Concise label for monitor output (`<slug>/<name>`)."""
         return f"{self.slug}/{self.name}"
+
+
+@dataclass(frozen=True)
+class MemoryReviewUnit:
+    """One bounded semantic unit that can receive an independent disposition."""
+
+    id: str
+    title: str
+    kind: str
+    source_path: Path
+    start_line: int
+    end_line: int
+    size: int
+    sha256: str
+
+    @property
+    def display(self) -> str:
+        if self.start_line == self.end_line:
+            location = f"L{self.start_line}"
+        else:
+            location = f"L{self.start_line}-L{self.end_line}"
+        return f"{self.title} · {self.source_path}#{location}"
+
+    def to_batch_item(self, category: str) -> dict[str, object]:
+        return {
+            "unit_id": self.id,
+            "title": self.title,
+            "unit_kind": self.kind,
+            "path": str(self.source_path),
+            "start_line": self.start_line,
+            "end_line": self.end_line,
+            "display": self.display,
+            "digest": self.sha256,
+            "category": category,
+            "size": self.size,
+        }
 
 
 def _hash_file(path: Path) -> str:
@@ -216,12 +253,155 @@ def discover_codex_files() -> list[MemoryFile]:
     return out
 
 
+_TASK_GROUP_RE = re.compile(r"^# Task Group:\s*(.+?)\s*$", re.MULTILINE)
+_CODEX_AGGREGATE_NAMES = frozenset(
+    {"memory_summary.md", "raw_memories.md"}
+)
+
+
+def discover_codex_review_units(
+) -> tuple[list[MemoryReviewUnit], dict[str, int]]:
+    """Return bounded Codex selection units and explicit non-unit diagnostics.
+
+    When the curated registry exists, one Task Group is the semantic boundary;
+    rollout summaries and raw sessions remain evidence pointers.  A provider
+    without a registry falls back to individual stable summary markdown files.
+    """
+    root = _codex_root()
+    memories = root / "memories"
+    registry = memories / "MEMORY.md"
+    units: list[MemoryReviewUnit] = []
+    excluded: dict[str, int] = {}
+
+    if registry.is_file():
+        try:
+            text = registry.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            text = ""
+        matches = list(_TASK_GROUP_RE.finditer(text))
+        line_offsets = [0]
+        for match in re.finditer(r"\n", text):
+            line_offsets.append(match.end())
+
+        def line_number(offset: int) -> int:
+            import bisect
+
+            return bisect.bisect_right(line_offsets, offset)
+
+        title_occurrences: dict[str, int] = {}
+        for index, match in enumerate(matches):
+            end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+            body = text[match.start():end].rstrip() + "\n"
+            title = match.group(1).strip()
+            title_occurrences[title] = title_occurrences.get(title, 0) + 1
+            occurrence = title_occurrences[title]
+            identity = hashlib.sha1(
+                f"{title}\0{occurrence}".encode("utf-8")
+            ).hexdigest()[:16]
+            units.append(
+                MemoryReviewUnit(
+                    id=f"codex-task-group:{identity}",
+                    title=title,
+                    kind="codex-task-group",
+                    source_path=registry.resolve(),
+                    start_line=line_number(match.start()),
+                    end_line=line_number(max(match.start(), end - 1)),
+                    size=len(body.encode("utf-8")),
+                    sha256=hashlib.sha256(body.encode("utf-8")).hexdigest(),
+                )
+            )
+        referenced = 0
+        for directory in (
+            memories / "rollout_summaries",
+            memories / "extensions",
+        ):
+            if directory.is_dir():
+                referenced += sum(
+                    1 for path in directory.rglob("*.md")
+                    if path.is_file() and ".git" not in path.parts
+                )
+        if referenced:
+            excluded["referenced-evidence-files"] = referenced
+    elif memories.is_dir():
+        fallback_paths = list((memories / "rollout_summaries").rglob("*.md")) \
+            if (memories / "rollout_summaries").is_dir() else []
+        extensions = memories / "extensions"
+        if extensions.is_dir():
+            fallback_paths.extend(extensions.rglob("*.md"))
+        for path in sorted({p.resolve() for p in fallback_paths if p.is_file()}):
+            try:
+                data = path.read_bytes()
+                stat = path.stat()
+            except OSError:
+                continue
+            digest = hashlib.sha256(data).hexdigest()
+            identity = hashlib.sha1(str(path).encode("utf-8")).hexdigest()[:16]
+            units.append(
+                MemoryReviewUnit(
+                    id=f"codex-summary:{identity}",
+                    title=path.stem,
+                    kind="codex-summary-file",
+                    source_path=path,
+                    start_line=1,
+                    end_line=max(1, data.count(b"\n") + 1),
+                    size=stat.st_size,
+                    sha256=digest,
+                )
+            )
+
+    aggregate_count = sum(
+        1 for name in _CODEX_AGGREGATE_NAMES if (memories / name).is_file()
+    )
+    if aggregate_count:
+        excluded["aggregate-memory-files"] = aggregate_count
+    history_count = sum(
+        1 for name in ("history.jsonl", "session_index.jsonl")
+        if (root / name).is_file()
+    )
+    if history_count:
+        excluded["history-indexes"] = history_count
+    archived = root / "archived_sessions"
+    archived_count = (
+        sum(1 for path in archived.rglob("*.jsonl") if path.is_file())
+        if archived.is_dir() else 0
+    )
+    if archived_count:
+        excluded["archived-sessions"] = archived_count
+    return units, excluded
+
+
+def discover_review_units(
+    workspace: Path,
+) -> tuple[list[MemoryReviewUnit], dict[str, int]]:
+    """Discover every eligible semantic unit for the workspace's providers."""
+    units: list[MemoryReviewUnit] = []
+    slug = workspace_to_slug(workspace)
+    for memory_file in discover_memory_files(slug):
+        identity = hashlib.sha1(str(memory_file.path).encode("utf-8")).hexdigest()[:16]
+        units.append(
+            MemoryReviewUnit(
+                id=f"claude-memory:{identity}",
+                title=memory_file.name,
+                kind="claude-memory-file",
+                source_path=memory_file.path.resolve(),
+                start_line=1,
+                end_line=max(1, memory_file.path.read_bytes().count(b"\n") + 1),
+                size=memory_file.size,
+                sha256=memory_file.sha256,
+            )
+        )
+    codex_units, excluded = discover_codex_review_units()
+    units.extend(codex_units)
+    return units, excluded
+
+
 # ---------- state file (.forge/agent_memory_state.json) ----------
 
 
 _STATE_REL_PATH = (".forge", "agent_memory_state.json")
-_STATE_SCHEMA_VERSION = 1
+_STATE_SCHEMA_VERSION = 2
 RUN_BATCH_LIMIT = 10
+RUN_BATCH_BYTE_LIMIT = 128 * 1024
 
 
 def state_path(workspace: Path) -> Path:
@@ -238,6 +418,9 @@ class MemoryState:
     # Source scopes already baseline-initialized. Lets new providers be added
     # without flooding old workspaces with every historical file.
     baselined_sources: list[str] = field(default_factory=list)
+    # Review Unit checkpoint. File-level last_seen is monitor compatibility,
+    # not proof that semantic candidate selection was completed.
+    settled_units: dict[str, dict] = field(default_factory=dict)
 
     def to_json(self) -> str:
         return json.dumps(
@@ -245,6 +428,7 @@ class MemoryState:
                 "schema_version": self.schema_version,
                 "last_seen": self.last_seen,
                 "baselined_sources": sorted(set(self.baselined_sources)),
+                "settled_units": self.settled_units,
             },
             indent=2,
             sort_keys=True,
@@ -265,6 +449,9 @@ class MemoryState:
         baselined_sources_raw = data.get("baselined_sources") or []
         if not isinstance(baselined_sources_raw, list):
             baselined_sources_raw = []
+        settled_units_raw = data.get("settled_units") or {}
+        if not isinstance(settled_units_raw, dict):
+            settled_units_raw = {}
         # Sanitize entries
         last_seen: dict[str, dict] = {}
         for k, v in last_seen_raw.items():
@@ -276,11 +463,21 @@ class MemoryState:
                 "seen_at": str(v.get("seen_at") or ""),
             }
         return cls(
-            schema_version=int(data.get("schema_version") or _STATE_SCHEMA_VERSION),
+            schema_version=_STATE_SCHEMA_VERSION,
             last_seen=last_seen,
             baselined_sources=[
                 str(s) for s in baselined_sources_raw if isinstance(s, str)
             ],
+            settled_units={
+                str(k): {
+                    "hash": str(v.get("hash") or ""),
+                    "size": int(v.get("size") or 0),
+                    "seen_at": str(v.get("seen_at") or ""),
+                    "source_path": str(v.get("source_path") or ""),
+                }
+                for k, v in settled_units_raw.items()
+                if isinstance(k, str) and isinstance(v, dict)
+            },
         )
 
 
@@ -746,59 +943,56 @@ def build_run_source_signal(
     workspace: Path,
     *,
     limit: int = RUN_BATCH_LIMIT,
+    byte_limit: int = RUN_BATCH_BYTE_LIMIT,
 ) -> dict[str, object] | None:
     """Build the stable, bounded Source Batch used by ``forge run``.
 
-    Monitor remains the full backlog view.  A Run receives only the first
-    ``limit`` concrete files, with modified files before unseen files and
-    historical backlog last.  The signal digest deliberately excludes the
-    changing total count so later arrivals cannot invalidate an open batch.
+    Review Units, not provider files, are the classification boundary. Codex
+    uses curated Task Groups; Claude uses individual non-index memory files.
+    The signal digest deliberately excludes the changing total count so later
+    arrivals cannot invalidate an open batch.
     """
-    issues, _ = format_monitor_lines(workspace)
-    if not issues:
+    units, excluded = discover_review_units(workspace)
+    if not units:
         return None
-
     state = load_state(workspace)
     if state is None:
-        return None
-
-    diff = MemoryDiff()
-    slug = workspace_to_slug(workspace)
-    if memory_dir_for_slug(slug).is_dir():
-        current = compute_diff(workspace, slug, state)
-        diff.new.extend(current.new)
-        diff.modified.extend(current.modified)
-        diff.historical.extend(current.historical)
-    if discover_codex_files():
-        current = compute_codex_diff(state)
-        diff.new.extend(current.new)
-        diff.modified.extend(current.modified)
-        diff.historical.extend(current.historical)
-
+        state = MemoryState()
+        save_state(workspace, state)
+    modified: list[MemoryReviewUnit] = []
+    unseen: list[MemoryReviewUnit] = []
+    for unit in units:
+        previous = state.settled_units.get(unit.id)
+        if previous is None:
+            unseen.append(unit)
+        elif previous.get("hash") != unit.sha256:
+            modified.append(unit)
     categorized = (
-        [("modified", item) for item in diff.modified]
-        + [("unseen", item) for item in diff.new]
-        + [("historical", item) for item in diff.historical]
+        [("modified", item) for item in modified]
+        + [("unseen", item) for item in unseen]
     )
     if not categorized:
-        # Baseline initialization/import reminders remain monitor information;
-        # they are not a settleable Run batch and must not create a dead-end.
         return None
 
     effective_limit = max(1, limit)
-    selected = categorized[:effective_limit]
-    batch_items = [
-        {
-            "path": str(item.path),
-            "display": item.display,
-            "digest": item.sha256,
-            "category": category,
-            "size": item.size,
-        }
-        for category, item in selected
-    ]
+    effective_byte_limit = max(1, byte_limit)
+    selected: list[tuple[str, MemoryReviewUnit]] = []
+    selected_bytes = 0
+    for category, unit in categorized:
+        if len(selected) >= effective_limit:
+            break
+        if unit.size > effective_byte_limit:
+            raise ValueError(
+                f"agent-memory Review Unit exceeds {effective_byte_limit} bytes: "
+                f"{unit.display}"
+            )
+        if selected and selected_bytes + unit.size > effective_byte_limit:
+            break
+        selected.append((category, unit))
+        selected_bytes += unit.size
+    batch_items = [item.to_batch_item(category) for category, item in selected]
     digest_material = "\n".join(
-        f"{item['category']}\t{item['path']}\t{item['digest']}"
+        f"{item['category']}\t{item.get('unit_id', item['path'])}\t{item['digest']}"
         for item in batch_items
     )
     digest = hashlib.sha1(
@@ -827,6 +1021,9 @@ def build_run_source_signal(
         "batch_size": selected_count,
         "total_count": total_count,
         "remaining_count": remaining_count,
+        "batch_bytes": selected_bytes,
+        "byte_limit": effective_byte_limit,
+        "excluded_source_counts": excluded,
     }
 
 
@@ -834,12 +1031,37 @@ def settle_run_source_batch(
     workspace: Path,
     batch_items: list[dict[str, object]],
 ) -> list[str]:
-    """Advance the seen checkpoint for one exact Memory Source Batch.
+    """Advance the semantic checkpoint for exact Memory Review Units.
 
     Every item is stale-checked before any state is written.  The checkpoint
     means the item received a disposition; it does not claim that it became a
     promoted asset.
     """
+    if batch_items and all(item.get("unit_id") for item in batch_items):
+        current_units, _ = discover_review_units(workspace)
+        current_by_id = {unit.id: unit for unit in current_units}
+        state = load_state(workspace) or MemoryState()
+        now = _now_iso()
+        settled: list[str] = []
+        for item in batch_items:
+            unit_id = str(item.get("unit_id") or "")
+            expected = str(item.get("digest") or "")
+            current = current_by_id.get(unit_id)
+            if current is None:
+                raise ValueError(f"agent-memory Review Unit is missing: {unit_id}")
+            if current.sha256 != expected:
+                raise ValueError(f"agent-memory Review Unit drifted: {unit_id}")
+            state.settled_units[unit_id] = {
+                "hash": current.sha256,
+                "size": current.size,
+                "seen_at": now,
+                "source_path": str(current.source_path),
+            }
+            settled.append(unit_id)
+        save_state(workspace, state)
+        return settled
+
+    # Compatibility for an already-open v0.12 file-level batch.
     files: list[MemoryFile] = []
     for item in batch_items:
         path = Path(str(item.get("path") or ""))

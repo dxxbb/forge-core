@@ -2,6 +2,16 @@
 
 All notable changes to `forge-core` will be recorded in this file.
 
+## [0.13.0] — 2026-08-23
+
+### Changed
+
+- Candidate selection now operates on bounded semantic Review Units instead of provider files. Codex uses `MEMORY.md` Task Groups; Claude uses non-index memory files.
+- Memory batches are capped by both unit count and 128 KiB. Aggregate indexes, raw history streams, and archived sessions remain evidence pointers and are reported separately.
+- `run next` returns one `classify-source-item`; `run disposition --item` records an independent outcome for every unit.
+- Status and close distinguish Selection Coverage from Candidate Conclusion. Any unprocessed source unit or standalone capture evidence makes the candidate conclusion `unknown`; provider-managed raw captures are not double-counted. `none` is reserved for complete selection.
+- Close reports and persists one refreshed remaining-unit count, includes tracked provider checkpoints in the scoped commit, and prints the commit hash.
+
 ## [0.12.0] — 2026-08-23
 
 Disposition alone did not make live Runs deterministic: aggregate counts could change mid-conversation, Memory had no bounded cursor, settled clippings could reappear, and agents could choose different workflow depth for the same signal. This release moves batch scope, provider settlement, the next action, and closing facts into the CLI.

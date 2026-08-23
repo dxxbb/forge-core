@@ -55,7 +55,7 @@ Every card must also contain `problem / proposal / scope / exclusions / exact pa
 | Object | Location | Role |
 |---|---|---|
 | Source Signal | `source://...` in a Run | grouped monitor discovery without bulk-copying the external corpus |
-| Source Batch | `batch_items` on a Source Signal | stable per-Run limit: 10 Memory files or 5 clippings |
+| Source Batch | `batch_items` on a Source Signal | stable per-Run limit: 10 Memory Review Units/128 KiB or 5 clippings |
 | Source Settlement | disposition plus provider checkpoint | prevents a settled batch from resurfacing |
 | Evidence | `capture/` | retained, searchable raw material |
 | Observation | `system/observations/` | time-bounded theme waiting for more evidence |
@@ -88,7 +88,7 @@ forge candidate feedback <candidate-id> \
 
 The hosting agent performs semantic deduplication, classification, and abstraction. The CLI deterministically owns durable state, admission checks, budgets, expiry, the ledger, compile gate, commits, and metrics.
 
-`run open` freezes the current bounded inputs. The operator then repeats `run next --budget N` and executes exactly the returned action until it says `close`. Agent Memory is capped at 10 files per batch; web clippings are capped at 5 and default to checking existing canonical sinks, not launching deep knowledge intake. A non-deferred disposition must advance the provider checkpoint.
+`run open` freezes the current bounded inputs. The operator then repeats `run next --budget N` and executes exactly the returned action until it says `close`. Agent Memory is capped at 10 semantic Review Units and 128 KiB per batch; web clippings are capped at 5 and default to checking existing canonical sinks, not launching deep knowledge intake. A non-deferred disposition must advance the provider checkpoint.
 
 `run close` returns one of `complete`, `batch-complete`, or `incomplete`, plus machine-checked open-Run, clean/dirty worktree, and concrete remaining-source facts. The hosting agent must not overwrite those facts with its own summary. A genuinely clean empty Run creates neither an audit file nor a Git commit.
 
@@ -106,7 +106,7 @@ Legacy `system/pr`, proposal schemas, memory workbenches, and bulk Portal review
 
 ## Status
 
-`0.12.0` Alpha and dogfood-stage. Stable Source Batches, provider settlement, and the Run Contract fix the interaction scope and close vocabulary; semantic candidate quality and long-term real-use outcomes still require repeated live Runs.
+`0.13.0` Alpha and dogfood-stage. Semantic Review Units, Selection Coverage, and Candidate Conclusion separate a zero-candidate batch from a globally complete selection; semantic candidate quality and long-term real-use outcomes still require repeated live Runs.
 
 ## Development
 

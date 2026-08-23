@@ -78,17 +78,38 @@ def status(
     candidates = promotion.list_candidates(root, include_decided=True)
     observations = promotion.list_observations(root, include_closed=True)
     signals = source_signals or []
+    pending_candidates = sum(1 for c in candidates if c.state == "pending")
+    selection = _selection_facts(
+        root,
+        signals,
+        pending_candidates=pending_candidates,
+        observing=sum(1 for o in observations if o.state == "open"),
+    )
     source_signal_counts: dict[str, int] = {}
     for signal in signals:
         kind = signal.get("path", "").removeprefix("source://")
         if kind:
             source_signal_counts[kind] = source_signal_counts.get(kind, 0) + 1
+    source_diagnostics = [
+        {
+            "source_kind": _source_kind(signal),
+            "eligible_review_units": int(signal.get("total_count") or 1),
+            "batch_size": int(signal.get("batch_size") or 0),
+            "batch_bytes": int(signal.get("batch_bytes") or 0),
+            "excluded_source_counts": dict(
+                signal.get("excluded_source_counts") or {}
+            ),
+        }
+        for signal in signals
+    ]
     return {
         "last_run_closed_at": last_closed or None,
         "days_since_last_run": _days_since(last_closed),
         "open_run": next((r.id for r in records if r.status == "open"), None),
         "source_attention": bool(signals),
         "source_signal_counts": source_signal_counts,
+        "source_diagnostics": source_diagnostics,
+        **selection,
         "ask_counts": {
             t: sum(1 for i in items if i.type == t)
             for t in ("conflict", "candidate", "unqualified-change")
@@ -103,6 +124,38 @@ def status(
         },
         "promotion_metrics": promotion.promotion_metrics(root),
         "state_freshness": freshness,
+    }
+
+
+def _selection_facts(
+    root: Path,
+    source_signals: list[dict[str, Any]],
+    *,
+    pending_candidates: int,
+    observing: int,
+) -> dict[str, Any]:
+    """Return the only valid global candidate conclusion.
+
+    A zero-sized candidate pool is not evidence that selection found nothing:
+    any outstanding Review Unit makes the global conclusion unknown.
+    """
+    unprocessed_sources = _remaining_source_count(source_signals)
+    unprocessed_captures = len(_pending_capture_inputs(root))
+    unprocessed = unprocessed_sources + unprocessed_captures
+    coverage = "complete" if unprocessed == 0 else "incomplete"
+    if pending_candidates:
+        conclusion = "available"
+    elif coverage == "complete":
+        conclusion = "none"
+    else:
+        conclusion = "unknown"
+    return {
+        "selection_coverage": coverage,
+        "candidate_conclusion": conclusion,
+        "unprocessed_review_units": unprocessed,
+        "unprocessed_source_units": unprocessed_sources,
+        "unprocessed_capture_evidence": unprocessed_captures,
+        "observing_units": observing,
     }
 
 
@@ -126,25 +179,7 @@ def open_run(
                     existing_paths.add(path)
             _write_record(root, existing)
         return existing
-    processed = {
-        i["digest"] for r in _records(root) for i in r.inputs if i.get("digest")
-    }
-    inputs: list[dict[str, Any]] = []
-    capture_root = root / "capture"
-    if capture_root.is_dir():
-        for path in sorted(capture_root.rglob("*.md")):
-            if _is_provider_managed_capture(root, path):
-                continue
-            digest = hashlib.sha1(path.read_bytes()).hexdigest()[:16]
-            if digest in processed:
-                continue
-            inputs.append(
-                {
-                    "path": path.relative_to(root).as_posix(),
-                    "digest": digest,
-                    "type": "capture-evidence",
-                }
-            )
+    inputs = _pending_capture_inputs(root)
     inputs.extend(source_signals or [])
     base_id = "run-" + datetime.now().strftime("%Y%m%d-%H%M%S")
     run_id, n = base_id, 0
@@ -175,16 +210,14 @@ def close_run(
     record = next((r for r in _records(root) if r.status == "open"), None)
     if record is None:
         raise RuntimeError("no open run — `forge run open` first")
-    classified = {d.get("input_digest") for d in record.dispositions}
-    unclassified = [i for i in record.inputs if i.get("digest") not in classified]
+    unclassified = [
+        item for item in record.inputs if not _input_is_classified(record, item)
+    ]
     if unclassified:
         paths = ", ".join(i.get("path", "") for i in unclassified[:3])
         raise RuntimeError(f"unclassified input(s): {paths}")
     current_signals_by_path = {
         signal.get("path", ""): signal for signal in (current_source_signals or [])
-    }
-    disposition_by_digest = {
-        d.get("input_digest", ""): d for d in record.dispositions
     }
     unresolved_sources: list[str] = []
     for item in record.inputs:
@@ -193,10 +226,34 @@ def close_run(
         current_signal = current_signals_by_path.get(item.get("path", ""))
         if current_signal is None:
             continue
-        disposition = disposition_by_digest.get(item.get("digest", ""), {})
-        if disposition.get("kind") == "defer":
+        dispositions = _dispositions_for_input(record, item)
+        if any(disposition.get("kind") == "defer" for disposition in dispositions):
             unresolved_sources.append(item.get("path", ""))
             continue
+        batch_items = list(item.get("batch_items") or [])
+        if batch_items:
+            if not dispositions or not all(
+                disposition.get("source_settled") is True
+                for disposition in dispositions
+            ):
+                raise RuntimeError(
+                    f"source batch has unsettled Review Unit(s): {item.get('path')}"
+                )
+            if current_signal is not None:
+                original_refs = {
+                    _batch_item_ref(batch_item) for batch_item in batch_items
+                }
+                current_refs = {
+                    _batch_item_ref(batch_item)
+                    for batch_item in (current_signal.get("batch_items") or [])
+                }
+                if original_refs & current_refs:
+                    raise RuntimeError(
+                        f"source signal still contains settled Review Unit(s): "
+                        f"{item.get('path')}"
+                    )
+            continue
+        disposition = dispositions[0] if dispositions else {}
         batch_advanced = (
             disposition.get("source_settled") is True
             and current_signal.get("digest") != item.get("digest")
@@ -240,6 +297,16 @@ def close_run(
         }, final_signals)
     runtime_paths = rebuild_outputs(root)
     remaining = _ask_items(root)
+    final_signals = (
+        refresh_source_signals()
+        if refresh_source_signals is not None
+        else (current_source_signals or [])
+    )
+    pending_candidates = sum(1 for item in remaining if item.type == "candidate")
+    observing = sum(
+        1 for observation in promotion.list_observations(root, include_closed=True)
+        if observation.state == "open"
+    )
     record.status = "closed"
     record.closed_at = datetime.now().astimezone().isoformat(timespec="seconds")
     report = {
@@ -247,7 +314,7 @@ def close_run(
         "settled": len(settled),
         "decisions": len(record.decisions),
         "deferred": len(remaining),
-        "pending_candidates": sum(1 for item in remaining if item.type == "candidate"),
+        "pending_candidates": pending_candidates,
         "integrity_issues": sum(
             1 for item in remaining if item.type in {"conflict", "unqualified-change"}
         ),
@@ -257,7 +324,13 @@ def close_run(
         "dispositions": _count_by(record.dispositions, "kind"),
         "expired_observations": len(record.expired_observations),
         "unresolved_sources": len(unresolved_sources),
-        "remaining_sources": _remaining_source_count(current_source_signals or []),
+        "remaining_sources": _remaining_source_count(final_signals),
+        **_selection_facts(
+            root,
+            final_signals,
+            pending_candidates=pending_candidates,
+            observing=observing,
+        ),
     }
     _write_record(root, record, report=report)
     scoped = [str((run_dir(root) / f"{record.id}.md").relative_to(root))]
@@ -289,7 +362,9 @@ def close_run(
     scoped = list(dict.fromkeys(path for path in scoped if (root / path).exists()))
     try:
         _git.add(root, scoped)
-        _git.commit(root, f"run: close {record.id}", trailers={"Run-Id": record.id})
+        commit = _git.commit(
+            root, f"run: close {record.id}", trailers={"Run-Id": record.id}
+        )
     except Exception as exc:  # noqa: BLE001 — restore resumable run state, then fail loud
         try:
             _git.git(root, ["reset", "--", *scoped], allow_empty_output=True)
@@ -299,12 +374,13 @@ def close_run(
         record.closed_at = ""
         _write_record(root, record)
         raise RuntimeError(f"failed to commit run close {record.id}: {exc}") from exc
-    final_signals = (
+    post_commit_signals = (
         refresh_source_signals()
         if refresh_source_signals is not None
-        else (current_source_signals or [])
+        else final_signals
     )
-    return _with_final_facts(root, report, final_signals)
+    report["commit"] = commit
+    return _with_final_facts(root, report, post_commit_signals)
 
 
 def record_disposition(
@@ -314,6 +390,7 @@ def record_disposition(
     *,
     sink: str = "",
     note: str = "",
+    item_ref: str = "",
 ) -> dict[str, Any]:
     """Give one newly collected input exactly one terminal or promotion route."""
     root = Path(root).resolve()
@@ -325,18 +402,44 @@ def record_disposition(
     }
     if kind not in allowed:
         raise ValueError("disposition must be " + "|".join(sorted(allowed)))
-    item = next(
-        (
-            i
-            for i in record.inputs
-            if i.get("path") == input_ref or i.get("digest") == input_ref
-        ),
-        None,
-    )
+    item = next((i for i in record.inputs if i.get("path") == input_ref), None)
+    if item is None:
+        digest_matches = [
+            candidate for candidate in record.inputs
+            if candidate.get("digest") == input_ref
+        ]
+        if len(digest_matches) > 1:
+            raise ValueError(
+                f"input digest is ambiguous; use the exact input path: {input_ref}"
+            )
+        item = digest_matches[0] if digest_matches else None
     if item is None:
         raise ValueError(f"input not found in open run: {input_ref}")
+    batch_items = list(item.get("batch_items") or [])
+    batch_item: dict[str, Any] | None = None
+    if batch_items and kind != "defer":
+        if not item_ref.strip():
+            raise ValueError(
+                f"source batch {item.get('path')} requires --item for each Review Unit"
+            )
+        batch_item = next(
+            (
+                candidate for candidate in batch_items
+                if item_ref in {
+                    str(candidate.get("unit_id") or ""),
+                    str(candidate.get("path") or ""),
+                }
+            ),
+            None,
+        )
+        if batch_item is None:
+            raise ValueError(f"Review Unit not found in source batch: {item_ref}")
+    elif item_ref.strip():
+        raise ValueError("--item is only valid for a non-defer Source Batch disposition")
     if kind == "defer" and item.get("type") != "source-signal":
         raise ValueError("defer is only valid for a source signal")
+    if kind == "defer" and batch_items and _dispositions_for_input(record, item):
+        raise ValueError("cannot defer a Source Batch after Review Unit settlement started")
     if kind in {"covered", "one-off", "volatile-state"} and not sink.strip():
         raise ValueError(f"{kind} disposition requires a concrete sink")
     if kind == "observe":
@@ -357,19 +460,36 @@ def record_disposition(
         "note": note.strip(),
         "at": datetime.now().astimezone().isoformat(timespec="seconds"),
     }
+    if batch_item is not None:
+        disposition.update(
+            {
+                "batch_item_ref": str(
+                    batch_item.get("unit_id") or batch_item.get("path") or ""
+                ),
+                "batch_item_path": str(batch_item.get("path") or ""),
+                "batch_item_digest": str(batch_item.get("digest") or ""),
+            }
+        )
     if item.get("type") == "source-signal" and kind != "defer":
         settlement = _settle_source_batch(
             root,
             item,
             disposition_kind=kind,
             sink=sink.strip(),
+            batch_items=[batch_item] if batch_item is not None else None,
         )
         if settlement["items"]:
             disposition["source_settled"] = True
             disposition["settled_items"] = settlement["items"]
             disposition["settled_paths"] = settlement["paths"]
     record.dispositions = [
-        d for d in record.dispositions if d.get("input_digest") != item["digest"]
+        d for d in record.dispositions
+        if not (
+            d.get("input_path") == item["path"]
+            and d.get("input_digest") == item["digest"]
+            and d.get("batch_item_ref", "")
+            == disposition.get("batch_item_ref", "")
+        )
     ]
     record.dispositions.append(disposition)
     _write_record(root, record)
@@ -382,25 +502,126 @@ def _settle_source_batch(
     *,
     disposition_kind: str,
     sink: str,
+    batch_items: list[dict[str, Any] | None] | None = None,
 ) -> dict[str, list[str]]:
     source_kind = _source_kind(item)
-    if source_kind == "agent-memory" and item.get("batch_items"):
+    selected_items = [
+        batch_item for batch_item in (batch_items or item.get("batch_items") or [])
+        if batch_item is not None
+    ]
+    if source_kind == "agent-memory" and selected_items:
         from forge.governance.claude_memory import settle_run_source_batch
 
-        items = settle_run_source_batch(root, list(item.get("batch_items") or []))
-        return {"items": items, "paths": []}
-    if source_kind == "web-clipping" and item.get("batch_items"):
+        items = settle_run_source_batch(root, selected_items)
+        state_relpath = ".forge/agent_memory_state.json"
+        tracked = (
+            _git.git(
+                root,
+                ["ls-files", "--", state_relpath],
+                allow_empty_output=True,
+            ).strip()
+            if _git.is_git_repo(root) else ""
+        )
+        return {
+            "items": items,
+            "paths": [state_relpath] if tracked else [],
+        }
+    if source_kind == "web-clipping" and selected_items:
         from forge.governance.web_clipping import settle_run_source_batch
 
         paths = settle_run_source_batch(
             root,
-            list(item.get("batch_items") or []),
+            selected_items,
             disposition_kind=disposition_kind,
             sink=sink,
             at=datetime.now().astimezone().isoformat(timespec="seconds"),
         )
         return {"items": paths, "paths": paths}
     return {"items": [], "paths": []}
+
+
+def _dispositions_for_input(
+    record: RunRecord,
+    item: dict[str, Any],
+) -> list[dict[str, Any]]:
+    return [
+        disposition for disposition in record.dispositions
+        if disposition.get("input_path") == item.get("path")
+        and disposition.get("input_digest") == item.get("digest")
+    ]
+
+
+def _pending_batch_items(
+    record: RunRecord,
+    item: dict[str, Any],
+) -> list[dict[str, Any]]:
+    settled_refs = {
+        disposition.get("batch_item_ref")
+        for disposition in _dispositions_for_input(record, item)
+        if disposition.get("batch_item_ref")
+    }
+    return [
+        batch_item for batch_item in (item.get("batch_items") or [])
+        if _batch_item_ref(batch_item) not in settled_refs
+    ]
+
+
+def _batch_item_ref(batch_item: dict[str, Any]) -> str:
+    return str(batch_item.get("unit_id") or batch_item.get("path") or "")
+
+
+def _input_is_classified(record: RunRecord, item: dict[str, Any]) -> bool:
+    dispositions = _dispositions_for_input(record, item)
+    if any(disposition.get("kind") == "defer" for disposition in dispositions):
+        return True
+    batch_items = list(item.get("batch_items") or [])
+    if batch_items:
+        return not _pending_batch_items(record, item)
+    return bool(dispositions)
+
+
+def _pending_capture_inputs(root: Path) -> list[dict[str, Any]]:
+    """Return standalone capture evidence that has no recorded disposition.
+
+    Source-provider captures are owned by their Source Signal adapter.  A
+    standalone capture remains selectable until a Run records its disposition;
+    merely snapshotting it into an open Run is not selection coverage.
+    """
+    classified = {
+        (item.get("path"), item.get("digest"))
+        for record in _records(root)
+        for item in record.inputs
+        if item.get("digest") and (
+            (
+                item.get("type") == "capture-evidence"
+                and _input_is_classified(record, item)
+            )
+            or (
+                not item.get("type")
+                and record.status == "closed"
+                and str(item.get("path") or "").startswith("capture/")
+            )
+        )
+    }
+    pending: list[dict[str, Any]] = []
+    capture_root = root / "capture"
+    if not capture_root.is_dir():
+        return pending
+    for path in sorted(capture_root.rglob("*.md")):
+        if _is_provider_managed_capture(root, path):
+            continue
+        digest = hashlib.sha1(path.read_bytes()).hexdigest()[:16]
+        relpath = path.relative_to(root).as_posix()
+        if (relpath, digest) in classified:
+            continue
+        pending.append(
+            {
+                "path": relpath,
+                "digest": digest,
+                "type": "capture-evidence",
+            }
+        )
+    return pending
 
 
 # ---------- deterministic interaction contract ----------
@@ -445,9 +666,8 @@ def next_contract(root: Path, *, budget: int = DEFAULT_BUDGET) -> dict[str, Any]
             "constraints": ["present this one decision to the owner"],
         }
 
-    classified = {d.get("input_digest") for d in record.dispositions}
     unclassified = [
-        item for item in record.inputs if item.get("digest") not in classified
+        item for item in record.inputs if not _input_is_classified(record, item)
     ]
     source_inputs = [
         item for item in unclassified if item.get("type") == "source-signal"
@@ -461,6 +681,26 @@ def next_contract(root: Path, *, budget: int = DEFAULT_BUDGET) -> dict[str, Any]
         )
         item = source_inputs[0]
         kind = _source_kind(item)
+        pending_batch_items = _pending_batch_items(record, item)
+        if pending_batch_items:
+            review_unit = pending_batch_items[0]
+            return {
+                "run_id": record.id,
+                "action": "classify-source-item",
+                "input_ref": item.get("path", ""),
+                "source_kind": kind,
+                "handler": item.get("handler", "source-review"),
+                "summary": item.get("summary", ""),
+                "review_unit": review_unit,
+                "source_batch_size": int(item.get("batch_size") or 0),
+                "remaining_in_batch": len(pending_batch_items),
+                "total_count": int(item.get("total_count") or 0),
+                "remaining_count": int(item.get("remaining_count") or 0),
+                "excluded_source_counts": dict(
+                    item.get("excluded_source_counts") or {}
+                ),
+                "constraints": _source_constraints(kind, per_item=True),
+            }
         return {
             "run_id": record.id,
             "action": "classify-source",
@@ -523,20 +763,25 @@ def _source_kind(item: dict[str, Any]) -> str:
     )
 
 
-def _source_constraints(kind: str) -> list[str]:
+def _source_constraints(kind: str, *, per_item: bool = False) -> list[str]:
+    unit_rule = (
+        "record exactly one disposition for this Review Unit using --item"
+        if per_item else
+        "record exactly one disposition for this source"
+    )
     if kind == "agent-memory":
         return [
-            "inspect only the listed batch items",
+            "inspect only the listed Review Unit and its evidence pointers",
             "do not invoke another workflow without explicit owner request",
-            "record exactly one disposition for this batch",
+            unit_rule,
         ]
     if kind == "web-clipping":
         return [
             "check existing canonical sinks before creating new knowledge",
             "do not invoke deep knowledge intake without explicit owner request",
-            "record exactly one disposition for this batch",
+            unit_rule,
         ]
-    return ["record exactly one disposition for this source"]
+    return [unit_rule]
 
 
 def _is_provider_managed_capture(root: Path, path: Path) -> bool:
@@ -545,7 +790,23 @@ def _is_provider_managed_capture(root: Path, path: Path) -> bool:
         relpath = path.resolve().relative_to(root.resolve()).as_posix()
     except ValueError:
         return False
-    return relpath.startswith("capture/web clipping/")
+    if relpath.startswith("capture/web clipping/"):
+        return True
+    if not relpath.startswith("capture/import/"):
+        return False
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+    frontmatter = _FRONTMATTER_RE.match(text)
+    if frontmatter is None:
+        return False
+    try:
+        metadata = yaml.safe_load(frontmatter.group(1)) or {}
+    except yaml.YAMLError:
+        return False
+    source = str(metadata.get("source") or "") if isinstance(metadata, dict) else ""
+    return source.startswith(("codex-memory-history:", "claude-code-memory:"))
 
 
 # ---------- ask / decide ----------
@@ -879,17 +1140,19 @@ def _write_record(root: Path, record: RunRecord, report: dict[str, Any] | None =
     }
     body = "# Forge run " + record.id + "\n"
     if report:
+        fm["report"] = report
         disposition_text = "、".join(
             f"{kind} {count}" for kind, count in report["dispositions"].items()
         ) or "无"
         body += (
             f"\n结算报告:落账 {report['settled']} 笔 · 裁决 {report['decisions']} 条 "
-            f"· 候选待下轮 {report['pending_candidates']} 条 "
+            f"· {_candidate_summary_text(report)} "
             f"· 完整性问题 {report['integrity_issues']} 条 "
             f"· 输入去向 {disposition_text} "
+            f"· 观察中 {report['observing_units']} 条 "
             f"· 观察到期 {report['expired_observations']} 条 "
             f"· 顺延来源 {report['unresolved_sources']} 条 "
-            f"· 剩余来源 {report['remaining_sources']} 条\n"
+            f"· 剩余可筛选单元 {report['unprocessed_review_units']} 条\n"
         )
     path = run_dir(root) / f"{record.id}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -927,9 +1190,23 @@ def _with_final_facts(
         porcelain = _git.git(root, ["status", "--porcelain"], allow_empty_output=True)
     except Exception:
         porcelain = "<status unavailable>"
+    pending_candidates = sum(
+        1 for candidate in promotion.list_candidates(root, include_decided=True)
+        if candidate.state == "pending"
+    )
+    observing = sum(
+        1 for observation in promotion.list_observations(root, include_closed=True)
+        if observation.state == "open"
+    )
+    selection = _selection_facts(
+        root,
+        current_source_signals,
+        pending_candidates=pending_candidates,
+        observing=observing,
+    )
     if report.get("unresolved_sources"):
         final_state = "incomplete"
-    elif source_paths:
+    elif selection["unprocessed_review_units"]:
         final_state = "batch-complete"
     else:
         final_state = "complete"
@@ -940,9 +1217,25 @@ def _with_final_facts(
             "worktree_clean": not bool(porcelain.strip()),
             "remaining_sources": _remaining_source_count(current_source_signals),
             "remaining_source_paths": sorted(source_paths),
+            **selection,
         }
     )
     return report
+
+
+def _candidate_summary_text(report: dict[str, Any]) -> str:
+    conclusion = report.get("candidate_conclusion")
+    if conclusion == "available":
+        return f"候选待审 {report.get('pending_candidates', 0)} 条"
+    if conclusion == "unknown":
+        return (
+            "候选结论 未知"
+            f"（{report.get('unprocessed_review_units', 0)} 个可筛选单元尚未处理）"
+        )
+    observing = int(report.get("observing_units") or 0)
+    if observing:
+        return f"候选结论 无（筛选完成，观察中 {observing} 条）"
+    return "候选结论 无（可筛选单元已处理完）"
 
 
 def _remaining_source_count(source_signals: list[dict[str, Any]]) -> int:

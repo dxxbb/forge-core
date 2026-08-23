@@ -1,6 +1,6 @@
 ---
 name: forge
-version: 0.12.0
+version: 0.13.0
 description: "Initialize and operate a personalOS workspace with forge. Use when the user says they want to create/setup/build a forge or personalOS workspace, manage agent context, import existing CLAUDE.md/AGENTS.md/memory, review context changes, or approve/reject context updates. This skill is personalOS-layout-first and must not use legacy `forge new` / `sp` onboarding."
 metadata:
   requires:
@@ -84,11 +84,12 @@ topics proactively in work sessions.
 2. forge run open            → 固定本轮 Source Batch 与新 capture 指纹;自动续接未关闭 run且不替换原批次
 3. 循环 `forge run next --budget N`,每次只执行返回的一个 action,直到 action=close:
    - `decide-integrity` → 一次只呈现这一项,等待 owner approve/reject
-   - `classify-source` → 只处理 contract 指定的 batch_items/handler/constraints
+   - `classify-source-item` → 只处理 contract 指定的一个 Review Unit/handler/constraints
+   - `classify-source` → 只处理没有 Review Unit adapter 的单一来源合同,不得自行拆批或扩流程
    - `classify-evidence` → 只处理 contract 指定的一条 capture evidence
    - `decide-candidate` → 一次只呈现这一张卡,等待 owner 裁决
    - `close` → 立即执行 `forge run close`
-4. classify action 必须且只能记录一个 disposition:
+4. classify action 必须且只能给当前 Review Unit 记录一个 disposition；来源批次使用 `forge run disposition <source> --item <unit-id> ...`，禁止整批共用一个判断:
    - 已覆盖 → `forge run disposition <input> --as covered --sink <existing-asset>`
    - 一次性缺陷 → 修代码/测试/Issue 后记 `one-off --sink <receipt>`;不建长期规则
    - 易变项目事实 → ledger 写入带日期状态后记 `volatile-state --sink <path>`
@@ -101,22 +102,24 @@ topics proactively in work sessions.
    - 不写:`forge run decide <id> --reject [--note]`
    - 继续观察:`forge run decide <id> --observe [--note]`
    “修改范围/解释/举例”不是裁决;解释不写盘,修改用 `forge candidate revise <id> ...` 更新同一张卡后再呈现,不要创建第二张卡。
-6. close 后原样报告 CLI 的最终机器事实:`complete|batch-complete|incomplete`、Run 已关闭/仍打开、工作树 clean/dirty、剩余来源。不得把 batch-complete 说成全部处理完。
+6. close 后原样报告 CLI 的最终机器事实:`complete|batch-complete|incomplete`、Run 已关闭/仍打开、工作树 clean/dirty、commit、Selection Coverage、Candidate Conclusion 与剩余可筛选单元。不得把 batch-complete 或本批候选 0 说成全部处理完/没有候选。
 ```
 
 `N` 默认 3。owner 说“只有 1 分钟”时,本轮所有 `run next` 都使用 `--budget 0`;仍须处理完整性问题和 Source Batch,但不展示 Candidate。
 
 Source-specific hard bounds:
 
-- Agent Memory:只读 contract 列出的最多 10 个文件。禁止扫描完整 Memory、读取下一批或自行启动 import/intake。
+- Agent Memory:只读 contract 当前列出的一个 Review Unit。Codex 的单元是 `MEMORY.md` 中一个 Task Group,Claude 的单元是一个非索引 memory 文件；聚合索引、raw history、archived sessions 只作 evidence pointer/诊断,不得扫描。批次同时受最多 10 单元与 128 KiB 限制。
 - Web clipping:只读 contract 列出的最多 5 个文件。默认只搜索已有 canonical asset 作为 sink;未经 owner 明确要求,禁止启动 deep `knowledge-intake`、外部调研或逐篇全文走读。
 - Web clipping 已由 Source Batch 独占,不要再把同一路径当普通 capture evidence 分流。
+- Agent Memory 的 provider-managed raw capture 同样只是 evidence 副本,不要再作为 standalone capture 重复分流。
 
 ### Run 铁律
 
 - 预算神圣:`run next --budget N` 固定问序和候选上限;未展示候选留在系统状态,不称为 owner 欠下的待办。
 - Run Contract 是唯一下一步;不并行处理后续 input,不跳过,不自行重排。
 - 不硬凑:来源与 capture 都干净时说“没有”,空 Run 不生成审计文件或 Git 提交。
+- 全局候选结论:仍有 Source Review Unit 或 standalone capture evidence 未筛选时必须说 `unknown`;只有 Selection Coverage=complete 且 pending Candidate=0 时才能说“没有候选”。Observation 已分流,不算未筛选 backlog。
 - 裁决即执行,立刻报结果,不留"稍后处理"。
 - 候选准入至少满足一项:两个以上独立事件、owner 明确长期要求、可确定性验证的高风险不变量。重复次数本身不能替代 scope/exclusions/verification。
 - 候选目标在 approve 前不得写入 canonical asset;规则区脱离候选卡的直接改动属于 unqualified-change。

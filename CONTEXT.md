@@ -7,6 +7,7 @@ forge-core 领域字典。一句话定义,只收本项目独有概念。
 - **Forge Run(结算 run)** — owner 主动发起的结算式对话:收集 → 分流 → 预算内质检 → 裁决即执行 → 报告。治理的唯一工作流;有头有尾,两次 run 之间系统对 owner 零要求。
 - **Source Signal(来源信号)** — `monitor` 从外部 Memory、待综合剪藏、Skill 投影等入口发现的一组待处理事实。它是带计数和证据指针的聚合输入,不是已复制进 `capture/` 的原始 evidence;每次 Run 必须明确处理或带理由顺延。
 - **Source Batch(来源批次)** — Source Signal 在一次 Run 中交给 Agent 的稳定、有上限子集。批次由具体文件指针及内容摘要确定;运行期间后来出现的新文件不能使已处理批次失效,剩余项留给下一次 Run。
+- **Review Unit(可筛选单元)** — 能够独立判断去向的最小语义单元。它可以是 Source Batch 中的单元或一条 standalone capture evidence;Codex Memory 使用 `MEMORY.md` 的 Task Group,Claude Memory 使用单个非索引 memory 文件;聚合索引、原始会话流和 provider 元数据不是 Review Unit,只作为 evidence pointer 或诊断信息。
 - **Source Settlement(来源结算)** — disposition 对来源 provider 状态产生的持久效果,例如把已审 Memory 批次写入 seen checkpoint,或把已覆盖 clipping 标记到 canonical sink。只写 Run note 而 monitor 数量不减少不算结算。
 - **Run Contract(运行合同)** — CLI 根据 Run 状态给出的唯一下一步、范围上限、禁止扩展项与结束事实。Agent 负责批次内语义判断,不能自行扩大为另一套工作流;最终答复以合同返回的 open/dirty/remaining 状态为准。
 - **Observation(观察)** — 一个可能复现、但证据尚不足以成为长期资产的主题。观察按独立 evidence 聚合,有到期日;到期无新证据即关闭,原始 evidence 不删除。
@@ -22,6 +23,8 @@ forge-core 领域字典。一句话定义,只收本项目独有概念。
 - **Reconcile(对账)** — 用 git diff 捕获脱账编辑并补账/转待问项的确定性过程;使记账不依赖任何人守纪律。
 - **Ask Item(待问项)** — 下次 run 要问 owner 的一件事:conflict(冲突,必问置顶)、candidate(候选资产)或 unqualified-change(绕过候选卡产生的规则区改动)。状态新鲜度只做审计信号,不进入问单。
 - **Run Budget(提问预算)** — 单次 run 的候选质检上限(默认 3);conflict 与 unqualified-change 不受压缩;超出候选留在其原状态,不形成 owner 待办债务。
+- **Selection Coverage(筛选覆盖状态)** — 所有 eligible Review Unit 是否都已有 disposition。来源单元或 standalone capture evidence 存在任一未筛选项时为 incomplete;只有未筛选数为零时才是 complete。Observation 已有明确去向,不属于未筛选。
+- **Candidate Conclusion(候选结论)** — `available` 表示已有待审 Candidate Asset;`none` 只允许在 Selection Coverage=complete 且无待审 Candidate 时出现;其余情况必须是 `unknown`,不能把“本批 0 张”说成“没有候选”。
 - **Certification(认证/盖章)** — owner 对一个状态文件当前内容的确认动作;此后"未认证变更"基于新快照计算。冲突守卫保护的对象即已认证内容。
 - **Settle(落账)** — run 中把蒸馏出的状态区更新逐笔写入并记账的步骤。
 - **Stale 守卫** — replace 型写入前校验 base_digest,基准漂移即拒绝,不盲改。
@@ -30,7 +33,7 @@ forge-core 领域字典。一句话定义,只收本项目独有概念。
 
 ## Relationships
 
-- 1 条 Source Signal → 1 个 Source Batch → 1 条 disposition → 0..1 次 Source Settlement;仍有剩余项时下一次 Run 取得下一批
+- 1 条 Source Signal → 1 个 Source Batch → 1..N 个 Review Unit → 每单元 1 条 disposition → 每单元 0..1 次 Source Settlement;仍有剩余项时下一次 Run 取得下一批
 - 1 次 run → N 条 Source Batch/capture evidence disposition + ≤budget 个 Candidate Asset + 必须处理的 conflict/unqualified-change + 0..1 份持久 run 记录(`system/run/<id>.md`;完全干净的空 Run 不落 Git)
 - 1 个 Observation → 1..N 个独立 evidence → 0..1 个 Candidate Asset
 - 1 个 Candidate Asset → reject|observe|promote;promote → 1 笔 Ledger Entry
@@ -46,6 +49,7 @@ forge-core 领域字典。一句话定义,只收本项目独有概念。
 - ~~queue / 队列~~ — 名词式工作流残留;正确说法是"下次 run 的问单"。
 - ~~proposal / workbench decision / approve log~~ — legacy,由账本与 run 记录取代。
 - ~~把每条 Memory 都蒸馏落账~~ — 输入不是资产;先分流,只有达到 Promotion Ground 的少数主题才能成为 Candidate Asset。
+- ~~候选 0 / 没有候选~~ — 批次局部统计不能充当全局结论;有未筛选 Review Unit 时只能说 Candidate Conclusion=unknown。
 
 ## Flagged ambiguities
 

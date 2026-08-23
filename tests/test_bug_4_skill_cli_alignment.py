@@ -53,6 +53,17 @@ def test_cli_capture_help_supports_skill_flags() -> None:
         assert flag in result.output, f"capture --help missing {flag}"
 
 
+def test_skill_and_cli_align_on_review_unit_disposition() -> None:
+    skill = _read_skill_md()
+    assert "classify-source-item" in skill
+    assert "--item <unit-id>" in skill
+    assert "Candidate Conclusion" in skill
+
+    result = CliRunner().invoke(main, ["run", "disposition", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "--item" in result.output
+
+
 def test_detect_recommendation_matches_skill_capture_command() -> None:
     """Bug 4 + Bug 1: detect's tail commands must match the skill's capture flow."""
     runner = CliRunner()

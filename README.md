@@ -57,7 +57,7 @@ Agent:候选:一次性实现缺陷默认在代码和回归测试层闭环,
 你:同意。
 
 Agent:已通过 ledger 写入 assist config,重编译 runtime 并验证。
-      最终状态 complete · Run 已关闭 · 工作树 clean · 剩余来源 0。
+      最终状态 complete · Run 已关闭 · 工作树 clean · 剩余可筛选单元 0。
 ```
 
 两次 Run 之间 Forge 不主动要求你维护观察池或 review 队列。每次默认最多展示三张 Candidate Asset;状态 freshness 只作为审计信号。
@@ -67,7 +67,7 @@ Agent:已通过 ledger 写入 assist config,重编译 runtime 并验证。
 | 对象 | 位置 | 作用 |
 |---|---|---|
 | Source Signal | Run 记录中的 `source://...` | monitor 发现的聚合入口;不自动复制整个外部语料库 |
-| Source Batch | Source Signal 的 `batch_items` | 一次 Run 的稳定上限:Memory 10、剪藏 5 |
+| Source Batch | Source Signal 的 `batch_items` | 一次 Run 的稳定上限:Memory 10 个 Review Unit/128 KiB、剪藏 5 个单元 |
 | Source Settlement | Run disposition + provider checkpoint | 让已处理批次不再重复出现 |
 | Evidence | `capture/` | 原始材料,全部保留、可搜索 |
 | Observation | `system/observations/` | 证据不足的主题,有期限、自动关闭 |
@@ -108,7 +108,7 @@ forge candidate feedback <candidate-id> \
 
 语义查重、分类和抽象由运行 Forge 的 Agent 完成;CLI 负责确定性的持久状态、准入校验、预算、到期关闭、ledger、compile gate、commit 和统计。
 
-`run open` 固定本轮批次,随后反复调用 `run next --budget N`,只执行合同返回的一个动作,直到它返回 `close`。Memory 每批最多 10 个文件;Web clipping 每批最多 5 个文件,默认只核对已有 canonical sink,不会自行启动完整 knowledge-intake。来源仍待处理时必须真正推进 provider checkpoint,或带理由 `defer`。
+`run open` 固定本轮批次,随后反复调用 `run next --budget N`,只执行合同返回的一个动作,直到它返回 `close`。Memory 每批最多 10 个 Review Unit 且不超过 128 KiB;Codex 以 `MEMORY.md` Task Group 为单元,不扫描聚合索引或数百 MB 原始会话。每个单元必须单独 disposition。Web clipping 每批最多 5 个单元,默认只核对已有 canonical sink,不会自行启动完整 knowledge-intake。来源仍待处理时必须真正推进 provider checkpoint,或带理由 `defer`。
 
 `run close` 的最终状态只有三种:`complete`(无剩余)、`batch-complete`(本批已结算,仍有下一批)、`incomplete`(存在 defer)。它同时返回 Run 是否关闭、工作树 clean/dirty 和剩余具体来源数;Agent 不得用自己的总结覆盖这些机器事实。真正干净的空 Run 不生成记录和 Git 提交。
 
@@ -149,7 +149,7 @@ forge update
 
 ## 当前状态
 
-`0.12.0` Alpha,dogfood 阶段。稳定 Source Batch、provider settlement 与 Run Contract 已把交互范围和结束口径固定下来;语义分类质量与真实长期使用效果仍需连续 Run 验证。
+`0.13.0` Alpha,dogfood 阶段。Review Unit、Selection Coverage 与 Candidate Conclusion 已把“本批 0”与“全局没有候选”分开;语义分类质量与真实长期使用效果仍需连续 Run 验证。
 
 ## 开发
 

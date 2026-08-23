@@ -34,6 +34,7 @@ from forge.governance.claude_memory import (
     MemoryState,
     compute_diff,
     discover_codex_files,
+    discover_codex_review_units,
     discover_memory_files,
     format_monitor_lines,
     is_memory_file,
@@ -137,6 +138,55 @@ def test_discover_memory_files_hashes_content(fake_home: Path) -> None:
     assert f.name == "rule.md"
     assert len(f.sha256) == 64  # sha256 hex
     assert f.size == len(b"body A")
+
+
+def test_codex_review_units_are_task_groups_not_aggregate_or_raw_files(
+    fake_home: Path,
+) -> None:
+    codex = _make_codex_layout(fake_home)
+    (codex / "memories" / "MEMORY.md").write_text(
+        "# Task Group: Alpha\n\nscope: alpha\n\n"
+        "# Task Group: Beta\n\nscope: beta\n",
+        encoding="utf-8",
+    )
+    (codex / "memories" / "raw_memories.md").write_text(
+        "aggregate duplicate\n", encoding="utf-8"
+    )
+    (codex / "session_index.jsonl").write_text("{}\n", encoding="utf-8")
+    (codex / "archived_sessions" / "raw.jsonl").write_text(
+        "raw session\n", encoding="utf-8"
+    )
+
+    units, excluded = discover_codex_review_units()
+
+    assert [unit.title for unit in units] == ["Alpha", "Beta"]
+    assert all(unit.kind == "codex-task-group" for unit in units)
+    assert all(unit.source_path.name == "MEMORY.md" for unit in units)
+    assert excluded == {
+        "aggregate-memory-files": 1,
+        "history-indexes": 1,
+        "archived-sessions": 1,
+    }
+
+
+def test_duplicate_task_group_titles_remain_distinct_review_units(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    memories = home / ".codex" / "memories"
+    memories.mkdir(parents=True)
+    (memories / "MEMORY.md").write_text(
+        "# Task Group: Same title\n\nfirst body\n\n"
+        "# Task Group: Same title\n\nsecond body\n",
+        encoding="utf-8",
+    )
+
+    units, _ = discover_codex_review_units()
+
+    assert len(units) == 2
+    assert units[0].id != units[1].id
+    assert units[0].sha256 != units[1].sha256
 
 
 # ---------- baseline-on-activation ----------
@@ -570,8 +620,26 @@ def test_state_file_is_valid_json(tmp_path: Path, fake_home: Path) -> None:
 
     raw = state_path(workspace).read_text(encoding="utf-8")
     parsed = json.loads(raw)
-    assert parsed["schema_version"] == 1
+    assert parsed["schema_version"] == 2
     assert "last_seen" in parsed
+    assert "baselined_sources" in parsed
+    assert parsed["settled_units"] == {}
+
+
+def test_v1_state_upgrades_to_review_unit_schema_on_next_save(tmp_path: Path) -> None:
+    workspace = _make_personalos_root(tmp_path)
+    state_path(workspace).write_text(
+        '{"schema_version": 1, "last_seen": {}, "baselined_sources": []}\n',
+        encoding="utf-8",
+    )
+
+    state = load_state(workspace)
+    assert state is not None
+    save_state(workspace, state)
+
+    parsed = json.loads(state_path(workspace).read_text(encoding="utf-8"))
+    assert parsed["schema_version"] == 2
+    assert parsed["settled_units"] == {}
 
 
 # ---------- cross-slug isolation ----------

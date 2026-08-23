@@ -51,23 +51,25 @@
 
 **AC-RUN-2** `forge run open`:创建 run 记录 `system/run/<id>.md`,列出 monitor 发现的 Source Batch 与上次 run 后新增的 capture 指纹,同时自动关闭到期 Observation;Source Signal 不复制外部语料库;重复 open 接续未关闭 run,可补入新的来源类别,但不得替换已有来源批次、使既有 disposition 失效或重复处理 provider-managed capture。
 
-**AC-RUN-3** 每个新 input 必须经 `forge run disposition` 记录且只能保留一个最新去向:`covered|one-off|volatile-state|observe|candidate|closed|defer`;`defer` 仅用于 Source Signal 且必须有理由。存在 unclassified input 时 close 必须失败。
+**AC-RUN-3** 每个新 capture input、每个 Source Batch Review Unit 必须经 `forge run disposition` 记录且只能保留一个最新去向:`covered|one-off|volatile-state|observe|candidate|closed|defer`;批次单元用 `--item <unit-id>` 独立分流,批次级非 defer disposition 必须拒绝。`defer` 仅用于尚未开始单元结算的 Source Signal 且必须有理由。存在 unclassified input/unit 时 close 必须失败。
 
 **AC-RUN-4(问单)** `forge run ask [--budget N]` 默认 3:conflict 与 unqualified-change 全量置顶,其后最多 N 张 pending Candidate Asset。Candidate 卡携带 problem、proposal、scope、exclusions、target 与 verification;不返回超预算 Candidate,不生成 certification-due。
 
 **AC-RUN-5(裁决执行)** `forge run decide <candidate-id> --approve|--reject|--observe [--note]`:approve 走 AC-LEDGER-5 全流水线(规则区同时更新 verified 快照);reject 关闭卡但保留 evidence;observe 回到 Observation。执行结果即时回写 run 记录。conflict/unqualified-change 只接受 approve/reject。
 
-**AC-RUN-6** `forge run close`:先拒绝任何 unclassified input;对仍返回同一批的 Source Signal,未明确 defer 同样拒绝。带 defer 的 Run 可关闭但最终状态必须为 `incomplete`;本批完成但 provider 仍有下一批时为 `batch-complete`;无剩余为 `complete`。真正无 Source Signal、capture input、完整性问题、裁决或到期处理的空 Run 删除临时记录且不 commit。其余 Run 重编译、验证、写报告并 scoped commit;close 后返回机器核验的 open Run、工作树 clean/dirty 与剩余具体来源数。
+**AC-RUN-6** `forge run close`:先拒绝任何 unclassified input/Review Unit;对仍返回原批单元的 Source Signal,未明确 defer 同样拒绝。带 defer 的 Run 可关闭但最终状态必须为 `incomplete`;本批完成但 provider 仍有下一批时为 `batch-complete`;无剩余为 `complete`。真正无 Source Signal、capture input、完整性问题、裁决或到期处理的空 Run 删除临时记录且不 commit。其余 Run 重编译、验证、写报告并 scoped commit;close 后返回机器核验的 commit、open Run、工作树 clean/dirty、Selection Coverage、Candidate Conclusion 与剩余 Review Unit 数;持久报告必须使用同一计数。
 
 **AC-RUN-7** 查重、分类、跨事件抽象和 patch 撰写由 agent 完成;CLI 确定性负责持久状态、准入校验、预算、expiry、apply、gate、commit 与统计。playbook 必须要求一次只向 owner 展示一张卡。
 
-**AC-RUN-8(Source Batch)** Agent Memory 每批最多 10 个文件,Web clipping 每批最多 5 个文件;批次 digest 只由本批 item 路径与内容 digest 决定,不包含 backlog 总数。首次 Memory baseline/reminder 没有具体可结算 item 时不得生成空 batch。
+**AC-RUN-8(Source Batch)** Agent Memory 每批最多 10 个 Review Unit 且总计最多 128 KiB,Web clipping 每批最多 5 个 Review Unit;批次 digest 只由本批 unit id 与内容 digest 决定,不包含 backlog 总数。Codex Review Unit 是 `MEMORY.md` Task Group,Claude Review Unit 是非索引 memory 文件;聚合索引/raw history/archived sessions 不进入 backlog并单独报告排除计数。首次 Memory baseline/reminder 没有具体可结算 unit 时不得生成空 batch。
 
-**AC-RUN-9(Source Settlement)** Memory 的非 defer disposition stale-check 本批全部文件后推进 seen checkpoint;Web clipping 的非 defer disposition写回本批 marker,其中 `covered` 必须验证 sink 是 workspace 内已存在 canonical asset。provider 仍返回同一批时 close fail closed。
+**AC-RUN-9(Source Settlement)** Memory 的每个非 defer Review Unit disposition 独立 stale-check 后推进 semantic checkpoint;Web clipping 的每个非 defer Review Unit disposition写回对应 marker,其中 `covered` 必须验证 sink 是 workspace 内已存在 canonical asset。provider 仍返回原批任一 unit 时 close fail closed。checkpoint 文件若已被 Git 跟踪,必须进入 close scoped commit;真正 gitignored side state 不提交。
 
-**AC-RUN-10(Run Contract)** `forge run next [--budget N]` 每次只返回一个 action。顺序固定为:完整性问题 → 未分流 Source Batch → 未分流 capture evidence → 预算内 Candidate → close。合同包含 input/ask id、批次 items、handler、constraints 与候选剩余预算;Agent 不得扩大合同范围。
+**AC-RUN-10(Run Contract)** `forge run next [--budget N]` 每次只返回一个 action。顺序固定为:完整性问题 → 一个未分流 Review Unit → 一条未分流 capture evidence → 预算内 Candidate → close。合同包含 input/ask id、当前 Review Unit、handler、constraints 与候选剩余预算;Agent 不得扩大合同范围。
 
-**AC-RUN-11** Web clipping 由 Source Batch 独占处理,不能在同一 Run 再作为 generic `capture-evidence` 出现。Memory batch 只读列出的文件;clipping 默认只查现有 canonical sink,除非 owner 明确要求,不得启动完整 knowledge-intake。
+**AC-RUN-11** Web clipping 与 Agent Memory 由 Source Batch 独占处理,对应的 provider-managed raw capture 不能再作为 generic `capture-evidence` 重复筛选。Memory 每次只读合同列出的一个 Review Unit 及其 evidence pointer,不得顺手扫描完整源文件或下一单元;clipping 默认只查现有 canonical sink,除非 owner 明确要求,不得启动完整 knowledge-intake。
+
+**AC-RUN-12(Selection truth)** `candidate_conclusion=available` 仅表示已有 pending Candidate;`candidate_conclusion=none` 仅允许在 `selection_coverage=complete` 且 pending Candidate 为 0 时出现;只要仍有 Source Review Unit 或 standalone capture evidence 未分流就必须为 `unknown`。status、持久 Run report、close 终态必须共用同一待筛选清单计算,不能各自计数。Observation 已有明确 disposition,计入已筛选而非 backlog。
 
 ## 5. 资产晋升(AC-PROMOTION)
 

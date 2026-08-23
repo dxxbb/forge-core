@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "context-forge"
-version = "0.12.0"
+version = "0.13.0"
 description = "forge — an evidence-to-asset, review-gated context compiler for multi-runtime agent context."
 readme = "README.md"
 requires-python = ">=3.10"
