@@ -13,7 +13,7 @@ Status: accepted
 2. 新建 Observation 必须保存实际发生内容的 `source_context`、另一个独立事件怎样才算同一模式的 `repeat_if`,以及为什么当前不能走 covered、one-off、volatile-state、正确项目落点、closed 或 Candidate 的 `route_gap`。
 3. 单次成功调研、可复用任务知识、项目特定决定、一般专业底线、假设风险和“也许以后有用”不进入 Observation。raw evidence 继续由来源系统保留;Forge 给它们正确 disposition 后即可前进。
 4. Observation 仍按 theme 聚合 Evidence Event 并到期关闭;同一 theme 的 signal type 不允许静默漂移。历史 Observation 可读,再次刷新时必须补齐新合同。
-5. `classify-*` 的 owner 进度只能包含处理数、剩余数和是否出现 owner decision;不得暴露 disposition 类型、主题、理由或 Observation 细节。
+5. `classify-*` 对 owner 静默;长任务需要心跳时只能说明仍在后台运行以及当前是否出现 owner decision,不得暴露处理数、剩余数、disposition 类型、主题、理由或 Observation 细节。
 
 ## Consequences
 

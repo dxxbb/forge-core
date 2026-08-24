@@ -34,6 +34,16 @@ from forge.zone import (
 RUN_DIR = Path("system") / "run"
 DEFAULT_BUDGET = 3
 _FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---(?:\r?\n|\Z)", re.DOTALL)
+_CANONICAL_SINK_PREFIXES = (
+    "assist config/",
+    "context build/config/",
+    "context build/sections/",
+    "public knowledge base/",
+    "user space/",
+    "workbench/",
+    "workspace/",
+)
+_NON_AUTHORITATIVE_SINK_PARTS = {"capture", "output", "scratch", "temp", "tmp"}
 
 
 @dataclass
@@ -362,7 +372,7 @@ def close_run(
     scoped = list(dict.fromkeys(path for path in scoped if (root / path).exists()))
     try:
         _git.add(root, scoped)
-        commit = _git.commit(
+        _git.commit(
             root, f"run: close {record.id}", trailers={"Run-Id": record.id}
         )
     except Exception as exc:  # noqa: BLE001 — restore resumable run state, then fail loud
@@ -379,8 +389,24 @@ def close_run(
         if refresh_source_signals is not None
         else final_signals
     )
-    report["commit"] = commit
-    return _with_final_facts(root, report, post_commit_signals)
+    closure_report = _with_final_facts(root, report, post_commit_signals)
+    # Source providers whose truth depends on the close commit can change their
+    # remaining inventory between the preliminary report and the committed
+    # state. Persist that post-commit Closure Snapshot, then amend the same Run
+    # commit so the report and returned CLI facts cannot diverge.
+    _write_record(root, record, report=closure_report)
+    run_relpath = str((run_dir(root) / f"{record.id}.md").relative_to(root))
+    try:
+        _git.add(root, [run_relpath])
+        _git.git(root, ["commit", "--amend", "--no-edit"])
+    except Exception as exc:  # noqa: BLE001 — a stale persisted report is not success
+        raise RuntimeError(
+            f"failed to persist closure snapshot for {record.id}: {exc}"
+        ) from exc
+    final_commit = _git.head_hash(root)
+    assert final_commit is not None
+    closure_report["commit"] = final_commit
+    return closure_report
 
 
 def record_disposition(
@@ -442,6 +468,10 @@ def record_disposition(
         raise ValueError("cannot defer a Source Batch after Review Unit settlement started")
     if kind in {"covered", "one-off", "volatile-state"} and not sink.strip():
         raise ValueError(f"{kind} disposition requires a concrete sink")
+    if kind == "covered":
+        sink = _authoritative_canonical_sink(root, sink, disposition="covered")
+    if kind == "volatile-state":
+        sink = _volatile_state_receipt(root, record, sink)
     if kind == "observe":
         if not any(
             o.id == sink for o in promotion.list_observations(root, include_closed=True)
@@ -494,6 +524,67 @@ def record_disposition(
     record.dispositions.append(disposition)
     _write_record(root, record)
     return disposition
+
+
+def _authoritative_canonical_sink(
+    root: Path, sink: str, *, disposition: str,
+) -> str:
+    """Resolve a durable, non-private Canonical Source receipt inside ``root``."""
+    candidate = Path(sink).expanduser()
+    path = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
+    try:
+        relpath = path.relative_to(root.resolve()).as_posix()
+    except ValueError as exc:
+        raise ValueError(
+            f"{disposition} sink is not an authoritative canonical asset: {sink}"
+        ) from exc
+    parts = {part.casefold() for part in Path(relpath).parts}
+    if (
+        not path.is_file()
+        or not relpath.startswith(_CANONICAL_SINK_PREFIXES)
+        or relpath.startswith("user space/private/")
+        or "secret" in parts
+        or bool(parts & _NON_AUTHORITATIVE_SINK_PARTS)
+    ):
+        raise ValueError(
+            f"{disposition} sink is not an authoritative canonical asset: {sink}"
+        )
+    if _git.is_git_repo(root):
+        tracked = _git.git(
+            root, ["ls-files", "--error-unmatch", "--", relpath],
+            check=False, allow_empty_output=True,
+        ).strip()
+        if not tracked:
+            raise ValueError(
+                f"{disposition} sink is not an authoritative canonical asset: {sink}"
+            )
+    return relpath
+
+
+def _volatile_state_receipt(root: Path, record: RunRecord, sink: str) -> str:
+    relpath = _authoritative_canonical_sink(
+        root, sink, disposition="volatile-state"
+    )
+    dirty = False
+    if _git.is_git_repo(root):
+        dirty = bool(
+            _git.git(
+                root, ["status", "--porcelain", "--", relpath],
+                allow_empty_output=True,
+            ).strip()
+        )
+    ledgered = any(
+        entry.origin == f"run:{record.id}"
+        and entry.target == relpath
+        and entry.state not in {"failed", "stale"}
+        for entry in ledgerlib.list_entries(root)
+    )
+    if not dirty and not ledgered:
+        raise ValueError(
+            "volatile-state disposition requires a current Run write receipt: "
+            f"{relpath} is unchanged and has no run ledger entry"
+        )
+    return relpath
 
 
 def _settle_source_batch(
@@ -639,13 +730,15 @@ _SOURCE_PRIORITY = {
 }
 
 _BACKGROUND_PROGRESS = {
-    "progress_reporting": "aggregate-only",
-    "progress_scope": [
+    "progress_reporting": "heartbeat-only",
+    "safe_heartbeat": {
+        "running": True,
+        "owner_decision_ready": False,
+    },
+    "progress_scope": ["owner-decision-ready"],
+    "progress_forbidden": [
         "processed-count",
         "remaining-count",
-        "owner-decision-ready",
-    ],
-    "progress_forbidden": [
         "source-title",
         "disposition-kind",
         "theme",
@@ -704,7 +797,7 @@ def next_contract(root: Path, *, budget: int = DEFAULT_BUDGET) -> dict[str, Any]
             return {
                 "run_id": record.id,
                 "action": "classify-source-item",
-                "owner_visibility": "background",
+                "owner_visibility": "silent",
                 **_BACKGROUND_PROGRESS,
                 "input_ref": item.get("path", ""),
                 "source_kind": kind,
@@ -723,7 +816,7 @@ def next_contract(root: Path, *, budget: int = DEFAULT_BUDGET) -> dict[str, Any]
         return {
             "run_id": record.id,
             "action": "classify-source",
-            "owner_visibility": "background",
+            "owner_visibility": "silent",
             **_BACKGROUND_PROGRESS,
             "input_ref": item.get("path", ""),
             "source_kind": kind,
@@ -745,7 +838,7 @@ def next_contract(root: Path, *, budget: int = DEFAULT_BUDGET) -> dict[str, Any]
         return {
             "run_id": record.id,
             "action": "classify-evidence",
-            "owner_visibility": "background",
+            "owner_visibility": "silent",
             **_BACKGROUND_PROGRESS,
             "input_ref": item.get("path", ""),
             "constraints": ["record exactly one disposition for this evidence"],
@@ -807,6 +900,9 @@ def _source_constraints(kind: str, *, per_item: bool = False) -> list[str]:
             "high-risk is a priority signal, not a promotion ground; deterministically fix an actual control defect as one-off, observe only an actual unresolved signal, and close hypothetical risk",
             "observation is not the default for unpromoted material; require an owner correction, observed failure, unresolved conflict, or owner-deferred candidate plus source context, a concrete repeat test, and a route gap",
             "successful one-off research, reusable task knowledge, and project-specific decisions go to covered, volatile-state, a proper project sink, or closed unless the owner explicitly requested long-term promotion",
+            "do not read or search user space/private, secret config, credentials, or other protected paths while looking for a sink",
+            "covered requires a tracked authoritative canonical asset inside the current workspace; runtime projections, scratch, capture, system files, private paths, and external repositories do not qualify",
+            "volatile-state requires a real current Run state write or run ledger receipt; an unchanged existing state file is covered, not volatile-state",
             "before creating a candidate, compare related assets and explain why an owner-governed durable asset is the right sink instead of code, tests, volatile state, a reusable skill, platform baseline, or observation",
             "do not invoke another workflow without explicit owner request",
             unit_rule,

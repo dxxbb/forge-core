@@ -148,7 +148,7 @@ forge update
 
 ## 当前状态
 
-`0.16.0` Alpha,dogfood 阶段。除 Review Unit、Selection Coverage、Evidence Event 与 Owner Review Worthiness 外,Observation 现在只接收真实纠正/失败/冲突并要求明确复现条件和 route gap,不再作为未晋升内容池;Forge CLI 同时把当前任务 checkout 设为写入权限边界,拒绝隔离 worktree 逃逸到 canonical main。真实长期使用效果仍需连续 Run 验证。
+`0.17.0` Alpha,dogfood 阶段。除 Review Unit、Selection Coverage、Evidence Event 与 Owner Review Worthiness 外,后台分类现在受 Owner Attention Boundary 约束;covered/volatile-state 必须提供可核验 Disposition Receipt;close 用同一 post-commit Closure Snapshot 驱动持久报告和 CLI。Observation 继续只接收真实纠正/失败/冲突,当前任务 checkout 仍是唯一写入权限边界。真实长期使用效果仍需连续 Run 验证。
 
 ## 开发
 

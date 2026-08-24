@@ -11,6 +11,9 @@ forge-core 领域字典。一句话定义,只收本项目独有概念。
 - **Evidence Event(证据事件)** — 一次真实发生的 thread/session/incident/source encounter,用稳定 `scheme:value` id 标识。Task Group、rollout summary、raw session 和行号都只是它的 evidence pointer;多个指针指向同一经历时仍只算一个事件。
 - **Source Settlement(来源结算)** — disposition 对来源 provider 状态产生的持久效果,例如把已审 Memory 批次写入 seen checkpoint,或把已覆盖 clipping 标记到 canonical sink。只写 Run note 而 monitor 数量不减少不算结算。
 - **Run Contract(运行合同)** — CLI 根据 Run 状态给出的唯一下一步、范围上限、禁止扩展项与结束事实。Agent 负责批次内语义判断,不能自行扩大为另一套工作流;最终答复以合同返回的 open/dirty/remaining 状态为准。
+- **Owner Attention Boundary(Owner 注意力边界)** — Run Contract 对前台打扰的硬边界:`classify-*` 对 owner 静默,长任务需要心跳时只能说明仍在后台运行以及当前是否需要 owner 决策,不能暴露单元主题、来源、去向、理由或 Observation;只有 `decide-*` 和 close summary 可以呈现治理内容。
+- **Disposition Receipt(去向回执)** — disposition 不只是一枚分类标签,还要证明所选去向真实成立:`covered` 指向当前 workspace 内现存、持久、权威且非私密的 Canonical Source;`volatile-state` 指向同类状态资产并带本 Run 的真实写入或 ledger 记录。裸路径、runtime projection、scratch/capture/system 临时文件或未发生的状态写入都不是回执。
+- **Closure Snapshot(收口快照)** — Source Settlement 与 close commit 完成后取得的一份来源/候选/工作树终态快照。持久 Run 报告、CLI close 输出与紧随其后的状态判断必须从它派生,不能在 close 前后分别重新拼出两套计数。
 - **Workspace Authority(工作区权限边界)** — Forge 写入只属于当前任务所在的 Git checkout。detached worktree 仍是有效隔离根;当前 checkout 与显式 `--root` 若属于同一仓库的不同 worktree,CLI 必须拒绝跨越,不能因“canonical main 更持久”而替 Agent 扩权。
 - **Observation(观察)** — 一个由真实 owner correction、observed failure、unresolved conflict 或 owner-deferred Candidate 触发、尚未解决且等待另一独立事件验证的主题。必须保存实际来源情境、什么才算再次出现的 `repeat_if` 和为什么没有更合适去向的 `route_gap`;不接收成功任务摘要、一般正确原则、项目特定事实或“也许以后有用”的内容。观察按 Evidence Event 聚合,有到期日;到期无新事件即关闭,原始 evidence 不删除。
 - **Candidate Asset(候选资产)** — 已达到晋升门槛、等待 owner 质检的一张卡。卡片必须给出具体来源情境、Evidence Event、现有资产覆盖与缺口、Asset Fit、一般化问题、晋升理由、建议资产、适用/不适用范围、未来行为影响、准确 patch、验证方法与准确裁决问题。

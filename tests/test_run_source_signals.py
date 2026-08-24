@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 import yaml
+import pytest
 from click.testing import CliRunner
 
 from forge.cli import main as cli_main
@@ -231,14 +232,16 @@ def test_forge_run_next_returns_one_bounded_memory_contract(
     assert contract["source_batch_size"] == 10
     assert contract["remaining_in_batch"] == 10
     assert contract["remaining_count"] == 2
-    assert contract["owner_visibility"] == "background"
-    assert contract["progress_reporting"] == "aggregate-only"
-    assert contract["progress_scope"] == [
+    assert contract["owner_visibility"] == "silent"
+    assert contract["progress_reporting"] == "heartbeat-only"
+    assert contract["safe_heartbeat"] == {
+        "running": True,
+        "owner_decision_ready": False,
+    }
+    assert contract["progress_scope"] == ["owner-decision-ready"]
+    assert contract["progress_forbidden"] == [
         "processed-count",
         "remaining-count",
-        "owner-decision-ready",
-    ]
-    assert contract["progress_forbidden"] == [
         "source-title",
         "disposition-kind",
         "theme",
@@ -253,10 +256,124 @@ def test_forge_run_next_returns_one_bounded_memory_contract(
         "high-risk is a priority signal, not a promotion ground; deterministically fix an actual control defect as one-off, observe only an actual unresolved signal, and close hypothetical risk",
         "observation is not the default for unpromoted material; require an owner correction, observed failure, unresolved conflict, or owner-deferred candidate plus source context, a concrete repeat test, and a route gap",
         "successful one-off research, reusable task knowledge, and project-specific decisions go to covered, volatile-state, a proper project sink, or closed unless the owner explicitly requested long-term promotion",
+        "do not read or search user space/private, secret config, credentials, or other protected paths while looking for a sink",
+        "covered requires a tracked authoritative canonical asset inside the current workspace; runtime projections, scratch, capture, system files, private paths, and external repositories do not qualify",
+        "volatile-state requires a real current Run state write or run ledger receipt; an unchanged existing state file is covered, not volatile-state",
         "before creating a candidate, compare related assets and explain why an owner-governed durable asset is the right sink instead of code, tests, volatile state, a reusable skill, platform baseline, or observation",
         "do not invoke another workflow without explicit owner request",
         "record exactly one disposition for this Review Unit using --item",
     ]
+
+
+@pytest.mark.parametrize(
+    "sink_kind",
+    ["outside", "private", "runtime-projection", "scratch", "capture"],
+)
+def test_covered_disposition_requires_an_authoritative_canonical_receipt(
+    tmp_path: Path, monkeypatch, sink_kind: str,
+) -> None:
+    workspace = _workspace_with_new_codex_memory(tmp_path, monkeypatch)
+    sink_by_kind = {
+        "outside": tmp_path / "external-repo" / "notes.md",
+        "private": workspace / "user space" / "private" / "health.md",
+        "runtime-projection": (
+            workspace / "context build" / "runtime" / "agents-md" / "AGENTS.md"
+        ),
+        "scratch": workspace / "workbench" / "project" / "demo" / "scratch" / "note.md",
+        "capture": workspace / "capture" / "manual-note.md",
+    }
+    sink = sink_by_kind[sink_kind]
+    sink.parent.mkdir(parents=True, exist_ok=True)
+    sink.write_text("not an authoritative canonical sink\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(workspace), "init", "-q"], check=True)
+    subprocess.run(
+        ["git", "-C", str(workspace), "config", "user.email", "t@example.com"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(workspace), "config", "user.name", "t"], check=True
+    )
+    subprocess.run(["git", "-C", str(workspace), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(workspace), "commit", "-qm", "base"], check=True)
+    runner = CliRunner()
+    assert runner.invoke(
+        cli_main, ["run", "open", "--root", str(workspace)]
+    ).exit_code == 0
+    [run_path] = (workspace / "system" / "run").glob("run-*.md")
+    record = yaml.safe_load(run_path.read_text(encoding="utf-8").split("---", 2)[1])
+    signal = next(i for i in record["inputs"] if i["path"] == "source://agent-memory")
+    item_ref = signal["batch_items"][0]["unit_id"]
+
+    result = runner.invoke(
+        cli_main,
+        [
+            "run", "disposition", "source://agent-memory",
+            "--item", item_ref,
+            "--as", "covered",
+            "--sink", str(sink),
+            "--root", str(workspace),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "authoritative canonical asset" in str(result.exception)
+
+
+def test_volatile_state_disposition_requires_a_current_run_write_receipt(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    workspace = _workspace_with_new_codex_memory(tmp_path, monkeypatch)
+    sink = workspace / "workbench" / "project" / "demo" / "onepage.md"
+    sink.parent.mkdir(parents=True)
+    sink.write_text("# Demo\n\nStatus: unchanged\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(workspace), "init", "-q"], check=True)
+    subprocess.run(
+        ["git", "-C", str(workspace), "config", "user.email", "t@example.com"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(workspace), "config", "user.name", "t"], check=True
+    )
+    subprocess.run(["git", "-C", str(workspace), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(workspace), "commit", "-qm", "base"], check=True)
+    runner = CliRunner()
+    assert runner.invoke(
+        cli_main, ["run", "open", "--root", str(workspace)]
+    ).exit_code == 0
+    [run_path] = (workspace / "system" / "run").glob("run-*.md")
+    record = yaml.safe_load(run_path.read_text(encoding="utf-8").split("---", 2)[1])
+    signal = next(i for i in record["inputs"] if i["path"] == "source://agent-memory")
+    item_ref = signal["batch_items"][0]["unit_id"]
+
+    result = runner.invoke(
+        cli_main,
+        [
+            "run", "disposition", "source://agent-memory",
+            "--item", item_ref,
+            "--as", "volatile-state",
+            "--sink", "workbench/project/demo/onepage.md",
+            "--root", str(workspace),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "current Run write receipt" in str(result.exception)
+
+    sink.write_text("# Demo\n\nStatus: updated during this Run\n", encoding="utf-8")
+    accepted = runner.invoke(
+        cli_main,
+        [
+            "run", "disposition", "source://agent-memory",
+            "--item", item_ref,
+            "--as", "volatile-state",
+            "--sink", "workbench/project/demo/onepage.md",
+            "--root", str(workspace),
+        ],
+    )
+
+    assert accepted.exit_code == 0, accepted.output
+    receipt = yaml.safe_load(accepted.output)
+    assert receipt["sink"] == "workbench/project/demo/onepage.md"
 
 
 def test_agent_memory_source_settlement_advances_to_the_next_batch(
@@ -764,7 +881,7 @@ def test_web_clipping_source_settlement_rejects_sink_outside_workspace(
     )
 
     assert settled.exit_code != 0
-    assert "existing canonical asset" in str(settled.exception)
+    assert "authoritative canonical asset" in str(settled.exception)
 
 
 def test_forge_run_cannot_close_with_unclassified_source_signal(

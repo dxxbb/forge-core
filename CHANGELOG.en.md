@@ -2,6 +2,20 @@
 
 All notable changes to `forge-core` will be recorded in this file.
 
+## [0.17.0] — 2026-08-24
+
+### Changed
+
+- Background `classify-*` actions are owner-silent. Optional heartbeats may only state that work is running and whether an owner decision is ready; they cannot expose counts or unit semantics.
+- `covered` now requires an existing, Git-tracked, non-private authoritative Canonical Source inside the current checkout and rejects runtime projections, scratch/output/temp, capture/system paths, and external repositories.
+- `volatile-state` additionally requires a real state-file change in the current Run or an `origin=run:<id>` ledger receipt; unchanged existing state belongs under `covered`.
+- Close now persists and returns one post-commit Closure Snapshot so Selection Coverage, Candidate Conclusion, remaining units, and final state cannot diverge between the Run report and CLI.
+- Memory sink discovery explicitly excludes private, secret, and credential paths.
+
+### Tests
+
+- Added silent-heartbeat contract coverage, five non-authoritative covered-sink cases, volatile-state write receipts, and post-commit closure-snapshot consistency.
+
 ## [0.16.0] — 2026-08-24
 
 ### Changed

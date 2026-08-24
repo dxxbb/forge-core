@@ -8,6 +8,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import yaml
+
 from forge import ledger, run
 from forge.gate import actions as gate
 from forge.gate.sync import install_target
@@ -237,6 +239,48 @@ def test_run_close_reports_and_run_status_counts(tmp_path: Path) -> None:
     assert info["open_run"] is None
     assert info["days_since_last_run"] == 0
     assert info["ask_counts"]["conflict"] == 0
+
+
+def test_close_persists_the_same_post_commit_closure_snapshot_it_returns(
+    tmp_path: Path,
+) -> None:
+    ws = _workspace(tmp_path)
+    capture = ws / "capture" / "manual.md"
+    capture.parent.mkdir(parents=True)
+    capture.write_text("bounded evidence\n", encoding="utf-8")
+    _git(ws, "add", "capture/manual.md")
+    _git(ws, "commit", "-qm", "add bounded evidence")
+    opened = run.open_run(ws)
+    run.record_disposition(
+        ws, "capture/manual.md", "closed", note="no durable asset delta"
+    )
+    snapshots = iter(
+        [
+            [{"path": "source://agent-memory", "total_count": 2}],
+            [{"path": "source://agent-memory", "total_count": 1}],
+        ]
+    )
+
+    report = run.close_run(
+        ws,
+        current_source_signals=[],
+        refresh_source_signals=lambda: next(snapshots),
+    )
+
+    persisted = yaml.safe_load(
+        (ws / "system" / "run" / f"{opened.id}.md")
+        .read_text(encoding="utf-8")
+        .split("---", 2)[1]
+    )["report"]
+    assert report["unprocessed_review_units"] == 1
+    assert persisted["unprocessed_review_units"] == 1
+    assert persisted["selection_coverage"] == report["selection_coverage"]
+    assert persisted["candidate_conclusion"] == report["candidate_conclusion"]
+    assert persisted["final_state"] == report["final_state"]
+    assert subprocess.run(
+        ["git", "-C", str(ws), "status", "--porcelain"],
+        check=True, capture_output=True, text=True,
+    ).stdout == ""
 
 
 def test_clean_empty_run_creates_no_git_commit_or_audit_file(tmp_path: Path) -> None:

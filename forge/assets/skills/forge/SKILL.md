@@ -1,6 +1,6 @@
 ---
 name: forge
-version: 0.16.0
+version: 0.17.0
 description: "Initialize and operate a personalOS workspace with forge. Use when the user says they want to create/setup/build a forge or personalOS workspace, manage agent context, import existing CLAUDE.md/AGENTS.md/memory, review context changes, or approve/reject context updates. This skill is personalOS-layout-first and must not use legacy `forge new` / `sp` onboarding."
 metadata:
   requires:
@@ -97,9 +97,9 @@ topics proactively in work sessions.
    - `decide-candidate` → 一次只呈现这一张卡,等待 owner 裁决
    - `close` → 立即执行 `forge run close`
 4. classify action 必须且只能给当前 Review Unit 记录一个 disposition；来源批次使用 `forge run disposition <source> --item <unit-id> ...`，禁止整批共用一个判断:
-   - 已覆盖 → `forge run disposition <input> --as covered --sink <existing-asset>`
+   - 已覆盖 → `forge run disposition <input> --as covered --sink <existing-asset>`;sink 必须是当前 checkout 内现存、Git tracked、非私密的权威 canonical asset,不能用 runtime projection、scratch/output/temp、capture/system 或外部 repo 凑回执
    - 一次性缺陷 → 修代码/测试/Issue 后记 `one-off --sink <receipt>`;不建长期规则
-   - 易变项目事实 → ledger 写入带日期状态后记 `volatile-state --sink <path>`
+   - 易变项目事实 → 先在当前 checkout 真实更新权威状态资产或用 `origin=run:<id>` ledger 写入,再记 `volatile-state --sink <path>`;未变化的已有状态只能记 covered
    - 真实但尚未解决的模式 → 仅当存在 owner correction / observed failure / unresolved conflict 时,用 `forge observation record --signal-type ... --source-context ... --repeat-if ... --route-gap ... --event-id <stable-event-id>`,再记 `observe --sink <obs-id>`
    - 满足晋升依据 → `forge candidate create ... --event-id <stable-event-id>`,再记 `candidate --sink <cand-id>`
    - 无价值 → `closed --note <reason>`;raw evidence 仍保留
@@ -120,7 +120,7 @@ Source-specific hard bounds:
 - Web clipping:只读 contract 列出的最多 5 个文件。默认只搜索已有 canonical asset 作为 sink;未经 owner 明确要求,禁止启动 deep `knowledge-intake`、外部调研或逐篇全文走读。
 - Web clipping 已由 Source Batch 独占,不要再把同一路径当普通 capture evidence 分流。
 - Agent Memory 的 provider-managed raw capture 同样只是 evidence 副本,不要再作为 standalone capture 重复分流。
-- `classify-*` 是后台工作。进度只能报告已处理数量、剩余数量和当前是否出现 owner 决策;不得报告 source title、disposition 类型、主题、理由或 Observation 细节。owner 明确询问观察池时才展开。只有 `decide-integrity` / `decide-candidate` 进入前台。
+- `classify-*` 对 owner 静默。长任务确需心跳时只说仍在后台运行以及当前是否需要 owner 决策;不得报告处理数、剩余数、source title、disposition 类型、主题、理由或 Observation 细节。owner 明确询问观察池时才展开。只有 `decide-integrity` / `decide-candidate` 进入前台。
 
 ### Run 铁律
 
@@ -134,6 +134,7 @@ Source-specific hard bounds:
 - evidence path 只是证据指针,不能充当独立事件。同一 thread 的 Task Group、rollout summary、raw session 即使是三个文件也只算一个 event。不要用会漂移的 `MEMORY.md#Lx-Ly` 作为唯一来源;保留稳定 event id、具体来源情境和稳定 summary/session 指针。
 - `source-context` 只能描述真实发生的行为、纠正、决定或失败；“如果犯错可能有严重后果”不是事件证据,不能凭假设风险制造 Candidate。
 - Candidate 创建前必须读取目标及直接相关的 canonical asset,写清 `existing-coverage` 与未覆盖的 durable delta,并用 `asset-fit` 说明为什么 owner 管的长期资产是正确落点,而不是代码/测试、易变状态、可复用 Skill、平台/模型通用底线或 Observation。无法说明时用 covered/one-off/closed/observe,不要把比较工作留给 owner。
+- 查找 covered/volatile-state sink 时只搜索当前 checkout 的非私密 canonical 根;禁止读取或搜索 `user space/private/`、secret config、凭据及其他受保护路径。`covered` 和 `volatile-state` 的 CLI 回执门禁失败时重新选择真实去向,不得换一个看似能过的路径字符串。
 - Candidate 卡除原有 problem/proposal/scope/exclusions/patch/verification 外,必须给出 `source-context`、`existing-coverage`、`asset-fit`、`promotion-rationale`、`expected-effect`、`decision-question`。CLI 缺任何一项会拒绝创建。
 - 候选目标在 approve 前不得写入 canonical asset;规则区脱离候选卡的直接改动属于 unqualified-change。
 - close 前每条 Source Batch/capture input 必须有 disposition;非 defer 必须推进 provider checkpoint;观察池有期限,不是永久 backlog。

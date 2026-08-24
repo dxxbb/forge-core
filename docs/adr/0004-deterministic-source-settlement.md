@@ -11,10 +11,10 @@ ADR-0003 把 monitor 的外部变化接成聚合 Source Signal，并要求每条
 
 1. 每个支持的 Source Signal 必须提供一个稳定、有上限的 Source Batch。首版 Agent Memory 每批最多 10 个文件，Web clipping 每批最多 5 个文件。
 2. 批次 digest 只由批次内具体 item 的路径与内容 digest 决定，不包含不断变化的总 backlog 数；同一批在 Run 期间保持稳定。
-3. 非 defer disposition 必须触发 provider-specific Source Settlement。Memory 结算推进 seen checkpoint；clipping 的 covered 结算写入 canonical sink marker。只写 Run note 不算结算。
+3. 非 defer disposition 必须触发 provider-specific Source Settlement。Memory 结算推进 seen checkpoint；clipping 的 covered 结算写入 canonical sink marker。`covered` 只接受当前 workspace 内被跟踪的权威非私密 Canonical Source；`volatile-state` 还必须有本 Run 的真实状态写入或 ledger 回执。裸路径和只写 Run note 都不算结算。
 4. 一批处理完成但同类来源仍有剩余时，允许关闭 Run，状态称 `batch-complete`，并报告剩余来源；下一次 Run 获取下一批。未处理批次仍只能 defer，状态称 `incomplete`。
 5. `forge run next` 提供 Run Contract：唯一下一步、批次范围、允许动作和禁止扩展项。Memory 批次只做有界语义分流；clipping 默认只查 existing canonical sink，未经 owner 明确要求不得升级成完整 knowledge-intake。
-6. `forge run close` 返回机器核验的最终事实：Run 是否关闭、工作树是否干净、当前剩余来源。Agent 最终答复不得覆盖这些事实。
+6. `forge run close` 在 close commit 后形成唯一 Closure Snapshot,把同一份 Run 是否关闭、工作树是否干净、当前剩余来源与候选结论写回 Run commit并返回 CLI。Agent 最终答复不得覆盖这些事实。
 
 ## Alternatives considered
 

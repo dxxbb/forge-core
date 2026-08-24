@@ -2,6 +2,22 @@
 
 记录 `forge-core` 的所有显著变动。
 
+## 0.17.0 (Attention, Receipts, and Closure Truth) — 2026-08-24
+
+0.16.0 的一句话隔离验收仍在后台进度中泄露 Observation 细节,又允许裸路径冒充 covered/volatile-state 去向,并让持久 Run 报告与 close CLI 分别保留 158/157 两套计数。本版把三个症状统一收口到 owner 注意力、去向回执和收口快照合同。
+
+### Changed
+
+- `classify-*` 改为 owner `silent`;必要心跳只能表达仍在运行和当前是否出现 owner decision,不再报告处理数、剩余数或任何单元语义。
+- `covered` 只接受当前 checkout 内现存、Git tracked、非私密的权威 Canonical Source;拒绝 runtime projection、scratch/output/temp、capture/system 和外部仓库。
+- `volatile-state` 除同一权威路径门禁外,必须证明本 Run 真实修改了状态文件或存在 `origin=run:<id>` ledger 回执;未变化的已有状态应记 covered。
+- Run close commit 后生成唯一 Closure Snapshot,把同一份 Selection Coverage、Candidate Conclusion、剩余单元和最终状态写回该 Run commit并返回 CLI。
+- Agent Memory sink 搜索合同明确禁止读取或搜索 private/secret/credentials 路径。
+
+### Tests
+
+- 新增静默 heartbeat 合同、五类非权威 covered sink、volatile-state 真实写入回执和 post-commit Closure Snapshot 一致性测试。
+
 ## 0.16.0 (Bounded Observations and Checkout Authority) — 2026-08-24
 
 0.15.0 的一句话隔离验收没有再制造高风险 Candidate,但仍把成功任务内容塞进 Observation,并因 detached worktree 自行切到 canonical personalOS。两者都说明模型判断不能独自承担后台池质量和工作区权限边界。
