@@ -233,6 +233,10 @@ def test_forge_run_next_returns_one_bounded_memory_contract(
     assert contract["remaining_count"] == 2
     assert contract["constraints"] == [
         "inspect only the listed Review Unit and its evidence pointers",
+        "derive event ids from the underlying thread/session/source event, not from file paths; multiple pointers to the same event share one id",
+        "a request made for this one task is not an owner-directed long-term requirement",
+        "if long-term generalization is still uncertain, record an observation instead of a candidate",
+        "before creating a candidate, compare the target and related canonical assets and state the uncovered durable delta",
         "do not invoke another workflow without explicit owner request",
         "record exactly one disposition for this Review Unit using --item",
     ]

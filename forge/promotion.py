@@ -28,6 +28,7 @@ class Observation:
     created_at: str
     last_seen_at: str
     expires_at: str
+    event_ids: list[str] = field(default_factory=list)
     evidence: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     candidate_id: str = ""
@@ -36,7 +37,7 @@ class Observation:
 
     @property
     def independent_events(self) -> int:
-        return len(self.evidence)
+        return len(self.event_ids)
 
 
 @dataclass
@@ -47,7 +48,13 @@ class Candidate:
     ground: str
     created_at: str
     decided_at: str
+    event_ids: list[str]
     evidence: list[str]
+    source_context: str
+    existing_coverage: str
+    promotion_rationale: str
+    expected_effect: str
+    decision_question: str
     problem: str
     proposal: str
     scope: str
@@ -57,6 +64,9 @@ class Candidate:
     mode: str
     proposed_text: str
     verification: str
+    owner_request: str = ""
+    risk_invariant: str = ""
+    risk_failure: str = ""
     observation_id: str = ""
     decision_note: str = ""
     ledger_entry: str = ""
@@ -77,6 +87,7 @@ def record_observation(
     root: Path,
     *,
     theme: str,
+    event_ids: list[str],
     evidence: list[str],
     note: str = "",
     expires_days: int = 30,
@@ -87,6 +98,9 @@ def record_observation(
         raise ValueError("observation theme is required")
     if expires_days < 1:
         raise ValueError("expires_days must be at least 1")
+    event_ids = _clean_event_ids(event_ids)
+    if not event_ids:
+        raise ValueError("at least one stable event id is required")
     evidence = _clean_refs(evidence)
     if not evidence:
         raise ValueError("at least one evidence reference is required")
@@ -101,6 +115,7 @@ def record_observation(
             created_at=_iso(now),
             last_seen_at=_iso(now),
             expires_at=_iso(now + timedelta(days=expires_days)),
+            event_ids=event_ids,
             evidence=evidence,
             notes=[note.strip()] if note.strip() else [],
         )
@@ -114,6 +129,7 @@ def record_observation(
         obs.state = "open"
         obs.last_seen_at = _iso(now)
         obs.expires_at = _iso(now + timedelta(days=expires_days))
+        obs.event_ids = _clean_event_ids(obs.event_ids + event_ids)
         obs.evidence = _clean_refs(obs.evidence + evidence)
         if note.strip() and note.strip() not in obs.notes:
             obs.notes.append(note.strip())
@@ -131,14 +147,20 @@ def list_observations(root: Path, *, include_closed: bool = False) -> list[Obser
         fm = _load_frontmatter(path, "observation")
         if fm is None:
             continue
+        obs_id = str(fm.get("id") or path.stem)
+        evidence = _clean_refs([str(x) for x in (fm.get("evidence") or [])])
+        event_ids = _clean_event_ids([str(x) for x in (fm.get("event_ids") or [])])
+        if not event_ids and evidence:
+            event_ids = [f"legacy-observation:{obs_id}"]
         obs = Observation(
-            id=str(fm.get("id") or path.stem),
+            id=obs_id,
             theme=str(fm.get("theme") or ""),
             state=str(fm.get("state") or ""),
             created_at=str(fm.get("created_at") or ""),
             last_seen_at=str(fm.get("last_seen_at") or ""),
             expires_at=str(fm.get("expires_at") or ""),
-            evidence=_clean_refs([str(x) for x in (fm.get("evidence") or [])]),
+            event_ids=event_ids,
+            evidence=evidence,
             notes=[str(x) for x in (fm.get("notes") or [])],
             candidate_id=str(fm.get("candidate_id") or ""),
             closed_reason=str(fm.get("closed_reason") or ""),
@@ -177,7 +199,13 @@ def create_candidate(
     *,
     title: str,
     ground: str,
+    event_ids: list[str],
     evidence: list[str],
+    source_context: str,
+    existing_coverage: str,
+    promotion_rationale: str,
+    expected_effect: str,
+    decision_question: str,
     problem: str,
     proposal: str,
     scope: str,
@@ -187,20 +215,37 @@ def create_candidate(
     mode: str,
     proposed_text: str,
     verification: str,
+    owner_request: str = "",
+    risk_invariant: str = "",
+    risk_failure: str = "",
     observation_id: str = "",
     now: datetime | None = None,
 ) -> Candidate:
     """Admit one review card only when its evidence and boundaries are explicit."""
     ground = ground.strip()
-    if ground not in {"repeated", "explicit", "high-risk"}:
-        raise ValueError("ground must be repeated|explicit|high-risk")
+    if ground not in {"repeated", "owner-directed", "high-risk"}:
+        raise ValueError("ground must be repeated|owner-directed|high-risk")
+    event_ids = _clean_event_ids(event_ids)
+    if not event_ids:
+        raise ValueError("candidate requires at least one stable event id")
     evidence = _clean_refs(evidence)
-    if ground == "repeated" and len(evidence) < 2:
-        raise ValueError("repeated ground requires two independent evidence references")
-    if ground in {"explicit", "high-risk"} and not evidence:
+    if ground == "repeated" and len(event_ids) < 2:
+        raise ValueError("repeated ground requires two independent events")
+    if ground in {"owner-directed", "high-risk"} and not evidence:
         raise ValueError(f"{ground} ground requires evidence")
+    if ground == "owner-directed" and not owner_request.strip():
+        raise ValueError("owner-directed ground requires the exact long-term owner request")
+    if ground == "high-risk" and not (risk_invariant.strip() and risk_failure.strip()):
+        raise ValueError(
+            "high-risk ground requires a verifiable invariant and failure mode"
+        )
     required = {
         "title": title,
+        "source_context": source_context,
+        "existing_coverage": existing_coverage,
+        "promotion_rationale": promotion_rationale,
+        "expected_effect": expected_effect,
+        "decision_question": decision_question,
         "problem": problem,
         "proposal": proposal,
         "scope": scope,
@@ -223,6 +268,8 @@ def create_candidate(
         )
         if observation is None:
             raise ValueError(f"observation not found: {observation_id}")
+        if not set(event_ids).issubset(set(observation.event_ids)):
+            raise ValueError("candidate event ids must be present on its observation")
         if not set(evidence).issubset(set(observation.evidence)):
             raise ValueError("candidate evidence must be present on its observation")
     now = now or datetime.now().astimezone()
@@ -236,7 +283,13 @@ def create_candidate(
         ground=ground,
         created_at=_iso(now),
         decided_at="",
+        event_ids=event_ids,
         evidence=evidence,
+        source_context=source_context.strip(),
+        existing_coverage=existing_coverage.strip(),
+        promotion_rationale=promotion_rationale.strip(),
+        expected_effect=expected_effect.strip(),
+        decision_question=decision_question.strip(),
         problem=problem.strip(),
         proposal=proposal.strip(),
         scope=scope.strip(),
@@ -246,6 +299,9 @@ def create_candidate(
         mode=mode,
         proposed_text=proposed_text.rstrip("\n"),
         verification=verification.strip(),
+        owner_request=owner_request.strip(),
+        risk_invariant=risk_invariant.strip(),
+        risk_failure=risk_failure.strip(),
         observation_id=observation_id,
     )
     _write_candidate(root, candidate)
@@ -265,14 +321,25 @@ def list_candidates(root: Path, *, include_decided: bool = False) -> list[Candid
         if fm is None:
             continue
         patch = fm.get("patch") or {}
+        candidate_id = str(fm.get("id") or path.stem)
+        evidence = _clean_refs([str(x) for x in (fm.get("evidence") or [])])
+        event_ids = _clean_event_ids([str(x) for x in (fm.get("event_ids") or [])])
+        if not event_ids and evidence:
+            event_ids = [f"legacy-candidate:{candidate_id}"]
         candidate = Candidate(
-            id=str(fm.get("id") or path.stem),
+            id=candidate_id,
             title=str(fm.get("title") or ""),
             state=str(fm.get("state") or ""),
             ground=str(fm.get("ground") or ""),
             created_at=str(fm.get("created_at") or ""),
             decided_at=str(fm.get("decided_at") or ""),
-            evidence=_clean_refs([str(x) for x in (fm.get("evidence") or [])]),
+            event_ids=event_ids,
+            evidence=evidence,
+            source_context=str(fm.get("source_context") or "legacy candidate; inspect evidence"),
+            existing_coverage=str(fm.get("existing_coverage") or "legacy candidate; not recorded"),
+            promotion_rationale=str(fm.get("promotion_rationale") or "legacy candidate; not recorded"),
+            expected_effect=str(fm.get("expected_effect") or "legacy candidate; inspect proposed patch"),
+            decision_question=str(fm.get("decision_question") or "是否批准这张历史候选卡？"),
             problem=str(fm.get("problem") or ""),
             proposal=str(fm.get("proposal") or ""),
             scope=str(fm.get("scope") or ""),
@@ -282,6 +349,9 @@ def list_candidates(root: Path, *, include_decided: bool = False) -> list[Candid
             mode=str(patch.get("mode") or ""),
             proposed_text=str(patch.get("proposed_text") or ""),
             verification=str(fm.get("verification") or ""),
+            owner_request=str(fm.get("owner_request") or ""),
+            risk_invariant=str(fm.get("risk_invariant") or ""),
+            risk_failure=str(fm.get("risk_failure") or ""),
             observation_id=str(fm.get("observation_id") or ""),
             decision_note=str(fm.get("decision_note") or ""),
             ledger_entry=str(fm.get("ledger_entry") or ""),
@@ -306,6 +376,14 @@ def revise_candidate(
     candidate_id: str,
     *,
     problem: str | None = None,
+    source_context: str | None = None,
+    existing_coverage: str | None = None,
+    promotion_rationale: str | None = None,
+    expected_effect: str | None = None,
+    decision_question: str | None = None,
+    owner_request: str | None = None,
+    risk_invariant: str | None = None,
+    risk_failure: str | None = None,
     proposal: str | None = None,
     scope: str | None = None,
     exclusions: list[str] | None = None,
@@ -327,6 +405,14 @@ def revise_candidate(
         key: value
         for key, value in {
             "problem": problem,
+            "source_context": source_context,
+            "existing_coverage": existing_coverage,
+            "promotion_rationale": promotion_rationale,
+            "expected_effect": expected_effect,
+            "decision_question": decision_question,
+            "owner_request": owner_request,
+            "risk_invariant": risk_invariant,
+            "risk_failure": risk_failure,
             "proposal": proposal,
             "scope": scope,
             "target": target,
@@ -341,13 +427,38 @@ def revise_candidate(
         updates["exclusions"] = [x.strip() for x in exclusions if x.strip()]
     if not updates:
         raise ValueError("candidate revision has no changes")
-    for name in {"problem", "proposal", "scope", "target", "proposed_text", "verification"}:
+    for name in {
+        "problem",
+        "source_context",
+        "existing_coverage",
+        "promotion_rationale",
+        "expected_effect",
+        "decision_question",
+        "proposal",
+        "scope",
+        "target",
+        "proposed_text",
+        "verification",
+    }:
         if name in updates and not str(updates[name]).strip():
             raise ValueError(f"candidate revision cannot clear {name}")
     if "exclusions" in updates and not updates["exclusions"]:
         raise ValueError("candidate revision requires at least one exclusion")
     if "mode" in updates and updates["mode"] not in {"create", "replace", "append"}:
         raise ValueError("mode must be create|replace|append")
+    future_owner_request = str(updates.get("owner_request", candidate.owner_request)).strip()
+    if candidate.ground == "owner-directed" and not future_owner_request:
+        raise ValueError("owner-directed ground requires the exact long-term owner request")
+    future_risk_invariant = str(
+        updates.get("risk_invariant", candidate.risk_invariant)
+    ).strip()
+    future_risk_failure = str(updates.get("risk_failure", candidate.risk_failure)).strip()
+    if candidate.ground == "high-risk" and not (
+        future_risk_invariant and future_risk_failure
+    ):
+        raise ValueError(
+            "high-risk ground requires a verifiable invariant and failure mode"
+        )
     changed: list[str] = []
     for name, value in updates.items():
         normalized = value.rstrip("\n") if name == "proposed_text" else value
@@ -431,6 +542,7 @@ def return_candidate_to_observation(
     observation = record_observation(
         root,
         theme=existing.theme if existing is not None else candidate.problem,
+        event_ids=candidate.event_ids,
         evidence=candidate.evidence,
         note=note or f"候选 {candidate.id} 退回观察",
         expires_days=expires_days,
@@ -539,6 +651,7 @@ def _write_observation(root: Path, obs: Observation) -> None:
         "created_at": obs.created_at,
         "last_seen_at": obs.last_seen_at,
         "expires_at": obs.expires_at,
+        "event_ids": obs.event_ids,
         "evidence": obs.evidence,
         "notes": obs.notes,
         "candidate_id": obs.candidate_id,
@@ -566,7 +679,16 @@ def _write_candidate(root: Path, candidate: Candidate) -> None:
         "ground": candidate.ground,
         "created_at": candidate.created_at,
         "decided_at": candidate.decided_at,
+        "event_ids": candidate.event_ids,
         "evidence": candidate.evidence,
+        "source_context": candidate.source_context,
+        "existing_coverage": candidate.existing_coverage,
+        "promotion_rationale": candidate.promotion_rationale,
+        "expected_effect": candidate.expected_effect,
+        "decision_question": candidate.decision_question,
+        "owner_request": candidate.owner_request,
+        "risk_invariant": candidate.risk_invariant,
+        "risk_failure": candidate.risk_failure,
         "problem": candidate.problem,
         "proposal": candidate.proposal,
         "scope": candidate.scope,
@@ -589,9 +711,14 @@ def _write_candidate(root: Path, candidate: Candidate) -> None:
         + yaml.safe_dump(fm, sort_keys=False, allow_unicode=True).strip()
         + "\n---\n\n"
         + f"# {candidate.title}\n\n"
+        + f"## Source context\n\n{candidate.source_context}\n\n"
+        + f"## Existing coverage\n\n{candidate.existing_coverage}\n\n"
+        + f"## Promotion rationale\n\n{candidate.promotion_rationale}\n\n"
         + f"## Problem\n\n{candidate.problem}\n\n"
         + f"## Proposal\n\n{candidate.proposal}\n\n"
         + f"## Scope\n\n{candidate.scope}\n\n"
+        + f"## Expected effect\n\n{candidate.expected_effect}\n\n"
+        + f"## Decision question\n\n{candidate.decision_question}\n\n"
         + "## Exclusions\n\n"
         + "\n".join(f"- {item}" for item in candidate.exclusions)
         + "\n",
@@ -618,6 +745,20 @@ def _load_frontmatter(path: Path, kind: str) -> dict[str, Any] | None:
 
 def _clean_refs(refs: list[str]) -> list[str]:
     return list(dict.fromkeys(r.strip() for r in refs if r.strip()))
+
+
+_EVENT_ID_RE = re.compile(r"[a-z][a-z0-9-]*:[^\s]+\Z")
+
+
+def _clean_event_ids(event_ids: list[str]) -> list[str]:
+    cleaned = _clean_refs(event_ids)
+    invalid = [event_id for event_id in cleaned if not _EVENT_ID_RE.fullmatch(event_id)]
+    if invalid:
+        raise ValueError(
+            "event ids must be stable scheme:value identifiers, not evidence paths: "
+            + ", ".join(invalid)
+        )
+    return cleaned
 
 
 def _stable_id(prefix: str, text: str) -> str:

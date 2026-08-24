@@ -2,6 +2,20 @@
 
 All notable changes to `forge-core` will be recorded in this file.
 
+## [0.14.0] — 2026-08-24
+
+### Changed
+
+- Observations and Candidates now store stable event IDs separately from evidence pointers; independent occurrence counts use event IDs only.
+- Candidate grounds are `repeated`, `owner-directed`, or `high-risk`. Owner-directed cards require the exact request to govern future work; high-risk cards require a verifiable invariant and failure mode.
+- Candidate admission and review now carry source context, existing asset coverage, promotion rationale, future behavior effect, the exact patch, and the owner's concrete decision question.
+- The Run Contract forbids collapsing a Candidate into a single proposed-rule sentence. Acceptance checks decision sufficiency across several dimensions rather than matching fixed prose.
+- Legacy cards without event IDs conservatively count as one legacy event instead of inferring occurrences from file count.
+
+### Tests
+
+- Added event-pointer deduplication, owner-directed/high-risk admission, and complete review-card contract coverage. Full suite: 657 passed, 3 skipped.
+
 ## [0.13.0] — 2026-08-23
 
 ### Changed

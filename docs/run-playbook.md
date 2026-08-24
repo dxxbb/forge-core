@@ -49,12 +49,14 @@ owner 只有两个主动动作:
    forge run disposition <capture-input> --as <kind> --sink <receipt> [--note ...]
 
 4. next 返回 decide-integrity / decide-candidate 时,一次只讲一张卡
-   - 为什么这是跨场景问题;
-   - 独立 evidence;
+   - 为什么现在提出,来自哪些 Evidence Event;
+   - evidence pointer 只是来源入口,不作为独立事件计数;
+   - 现有资产覆盖了什么、真正未覆盖什么;
+   - 为什么这次晋升不是 case-by-case 过拟合;
    - 建议形成什么正式资产;
    - scope 与 exclusions;
-   - 准确 patch;
-   - 如何在真实任务中验证。
+   - 准确 patch 与写入后的行为影响;
+   - 如何在真实任务中验证,以及 owner 正在决定的准确问题。
 
 5. owner 一句话裁决
    同意     → forge run decide <id> --approve
@@ -78,11 +80,11 @@ owner 只有两个主动动作:
 
 至少满足一项:
 
-- `repeated`:两个以上独立事件支持;
-- `explicit`:owner 明确要求长期遵守;
-- `high-risk`:高风险且能确定性验证的不变量。
+- `repeated`:两个以上不同 `event-id` 支持;
+- `owner-directed`:owner 明确要求未来长期沉淀,并保存准确原话;
+- `high-risk`:高风险且能确定性验证的不变量,同时写明失败条件。
 
-并且必须完整提供 `problem / proposal / scope / exclusions / target patch / verification`。同一会话的重复摘要不算独立事件;频率不能替代抽象质量。
+并且必须完整提供 `source-context / existing-coverage / promotion-rationale / expected-effect / decision-question / problem / proposal / scope / exclusions / target patch / verification`。同一会话的 Task Group、rollout summary 和 raw session 共用一个 event id;用户只要求本次认真处理不算 owner-directed;频率不能替代抽象质量。
 
 ## 失败语义
 

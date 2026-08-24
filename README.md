@@ -149,7 +149,7 @@ forge update
 
 ## 当前状态
 
-`0.13.0` Alpha,dogfood 阶段。Review Unit、Selection Coverage 与 Candidate Conclusion 已把“本批 0”与“全局没有候选”分开;语义分类质量与真实长期使用效果仍需连续 Run 验证。
+`0.14.0` Alpha,dogfood 阶段。Review Unit、Selection Coverage 与 Candidate Conclusion 已把“本批 0”与“全局没有候选”分开;Evidence Event 与完整 owner decision context 进一步阻止同一经历重复计数和一句话候选卡。语义分类质量与真实长期使用效果仍需连续 Run 验证。
 
 ## 开发
 

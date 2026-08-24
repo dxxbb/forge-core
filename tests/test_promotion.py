@@ -28,6 +28,7 @@ def test_observation_merges_independent_evidence_and_expires_without_deleting_it
     first = record_observation(
         tmp_path,
         theme="一次性 Bug 不应晋升为长期规则",
+        event_ids=["codex-thread:session-a"],
         evidence=["capture/session-a.md"],
         note="第一次出现",
         expires_days=30,
@@ -36,6 +37,7 @@ def test_observation_merges_independent_evidence_and_expires_without_deleting_it
     second = record_observation(
         tmp_path,
         theme="一次性 Bug 不应晋升为长期规则",
+        event_ids=["codex-thread:session-b", "codex-thread:session-a"],
         evidence=["capture/session-b.md", "capture/session-a.md"],
         note="独立场景再次出现",
         expires_days=30,
@@ -43,6 +45,7 @@ def test_observation_merges_independent_evidence_and_expires_without_deleting_it
     )
 
     assert second.id == first.id
+    assert second.event_ids == ["codex-thread:session-a", "codex-thread:session-b"]
     assert second.evidence == ["capture/session-a.md", "capture/session-b.md"]
     assert second.independent_events == 2
 
@@ -52,14 +55,20 @@ def test_observation_merges_independent_evidence_and_expires_without_deleting_it
     stored = list_observations(tmp_path, include_closed=True)[0]
     assert stored.state == "closed"
     assert stored.closed_reason == "expired"
+    assert stored.event_ids == ["codex-thread:session-a", "codex-thread:session-b"]
     assert stored.evidence == ["capture/session-a.md", "capture/session-b.md"]
     assert stored.path is not None and stored.path.is_file()
 
 
-def test_candidate_admission_requires_a_real_promotion_ground(tmp_path: Path) -> None:
+def test_repeated_candidate_counts_events_not_evidence_pointers(tmp_path: Path) -> None:
     common = {
         "title": "把一次性 Bug 留在代码层解决",
         "ground": "repeated",
+        "source_context": "两个独立任务都把一次性缺陷直接写成了永久行为规则。",
+        "existing_coverage": "现有边界只禁止未核实事实，没有规定一次性缺陷的沉淀去向。",
+        "promotion_rationale": "两个不同任务暴露了同一跨场景错误，规则只约束可由代码确定性修复的缺陷。",
+        "expected_effect": "以后同类缺陷优先修代码和回归测试，不再制造永久提示词补丁。",
+        "decision_question": "是否把这条跨任务处理原则写入长期协作规则？",
         "problem": "多个独立任务把一次性缺陷直接写成了永久行为规则。",
         "proposal": "一次性缺陷默认修代码并增加回归测试，不晋升为长期规则。",
         "scope": "由实现缺陷导致、可通过代码或测试确定性解决的问题。",
@@ -71,19 +80,162 @@ def test_candidate_admission_requires_a_real_promotion_ground(tmp_path: Path) ->
         "verification": "后续同类缺陷不再产生新的永久规则。",
     }
 
-    with pytest.raises(ValueError, match="two independent evidence"):
-        create_candidate(tmp_path, evidence=["capture/session-a.md"], **common)
+    with pytest.raises(ValueError, match="two independent events"):
+        create_candidate(
+            tmp_path,
+            event_ids=["codex-thread:session-a"],
+            evidence=["capture/session-a.md", "rollout/session-a.md"],
+            **common,
+        )
 
     candidate = create_candidate(
         tmp_path,
+        event_ids=["codex-thread:session-a", "codex-thread:session-b"],
         evidence=["capture/session-a.md", "capture/session-b.md"],
         **common,
     )
 
     assert candidate.state == "pending"
     assert candidate.ground == "repeated"
+    assert candidate.event_ids == ["codex-thread:session-a", "codex-thread:session-b"]
     assert candidate.evidence == ["capture/session-a.md", "capture/session-b.md"]
     assert list_candidates(tmp_path)[0].id == candidate.id
+
+
+def test_owner_directed_candidate_requires_a_long_term_owner_quote(tmp_path: Path) -> None:
+    common = {
+        "title": "医疗回答采用分层结构",
+        "ground": "owner-directed",
+        "event_ids": ["codex-thread:medical-a"],
+        "evidence": ["rollout/medical-a.md"],
+        "source_context": "用户在一次无痰调研中要求先判断是否需要排痰，再给教程。",
+        "existing_coverage": "现有规则要求核实外部事实，但没有规定医疗回答结构。",
+        "promotion_rationale": "只有 owner 明确要求未来长期采用该结构时，才足以从一次事件晋升。",
+        "expected_effect": "以后所有医疗调研默认采用分层结构。",
+        "decision_question": "是否让未来所有医疗调研默认采用这一结构？",
+        "problem": "医疗回答结构尚未形成长期资产。",
+        "proposal": "使用分层医疗回答结构。",
+        "scope": "医疗资料调研。",
+        "exclusions": ["个人诊断"],
+        "target": "context build/sections/preference.md",
+        "anchor": "",
+        "mode": "append",
+        "proposed_text": "- 医疗问题采用分层结构。",
+        "verification": "运行时规则出现该结构。",
+    }
+
+    with pytest.raises(ValueError, match="exact long-term owner request"):
+        create_candidate(tmp_path, owner_request="", **common)
+
+    candidate = create_candidate(
+        tmp_path,
+        owner_request="以后所有医疗问题都按这个方式回答。",
+        **common,
+    )
+
+    assert candidate.ground == "owner-directed"
+    assert candidate.owner_request == "以后所有医疗问题都按这个方式回答。"
+
+
+def test_high_risk_candidate_requires_a_verifiable_invariant_and_failure_mode(
+    tmp_path: Path,
+) -> None:
+    common = {
+        "title": "禁止未批准的生产删除",
+        "ground": "high-risk",
+        "event_ids": ["incident:production-delete-a"],
+        "evidence": ["system/incidents/production-delete-a.md"],
+        "source_context": "一次生产删除请求缺少 owner 批准。",
+        "existing_coverage": "现有规则要求谨慎，但没有可验证的批准门禁。",
+        "promotion_rationale": "这是可在执行前确定性检查的高风险不变量。",
+        "expected_effect": "没有批准记录时，生产删除会被阻止。",
+        "decision_question": "是否把生产删除批准门禁设为长期不变量？",
+        "problem": "生产删除缺少可验证门禁。",
+        "proposal": "执行生产删除前校验 owner 批准记录。",
+        "scope": "生产环境删除。",
+        "exclusions": ["本地可恢复临时文件"],
+        "target": "context build/sections/preference.md",
+        "anchor": "",
+        "mode": "append",
+        "proposed_text": "- 生产删除必须有 owner 批准记录。",
+        "verification": "缺少批准记录的删除命令被门禁拒绝。",
+    }
+
+    with pytest.raises(ValueError, match="verifiable invariant and failure mode"):
+        create_candidate(tmp_path, risk_invariant="", risk_failure="", **common)
+
+    candidate = create_candidate(
+        tmp_path,
+        risk_invariant="生产删除前必须存在匹配目标和范围的 owner 批准记录。",
+        risk_failure="无批准、批准目标不匹配或批准已过期时拒绝执行。",
+        **common,
+    )
+
+    assert candidate.risk_invariant.startswith("生产删除前")
+    assert candidate.risk_failure.startswith("无批准")
+
+
+def test_review_card_explains_why_now_gap_ground_effect_question_and_patch(
+    tmp_path: Path,
+) -> None:
+    run.open_run(tmp_path)
+    candidate = create_candidate(
+        tmp_path,
+        title="跨任务缺陷在代码层闭环",
+        ground="repeated",
+        event_ids=["codex-thread:a", "codex-thread:b"],
+        evidence=["rollout/a.md", "rollout/b.md"],
+        source_context="任务 A 和任务 B 都把一次性缺陷写成了永久规则。",
+        existing_coverage="现有规则只要求事实核验，未规定一次性缺陷的去向。",
+        promotion_rationale="两个独立任务暴露同一模式，且范围限定为可确定性修复的缺陷。",
+        expected_effect="未来同类问题先修代码和测试，不再增加提示词补丁。",
+        decision_question="是否把这项跨任务处理原则写入长期规则？",
+        problem="一次性缺陷被错误沉淀成长期规则。",
+        proposal="一次性缺陷默认在代码和回归测试层闭环。",
+        scope="可确定性复现和修复的实现缺陷。",
+        exclusions=["owner 明确要求长期约束的行为"],
+        target="context build/sections/preference.md",
+        anchor="## 工作边界",
+        mode="replace",
+        proposed_text="## 工作边界\n\n- 一次性缺陷在代码和测试层闭环。",
+        verification="同类回归不再生成新的长期规则。",
+    )
+
+    [item] = run.ask(tmp_path)
+
+    assert item.id == candidate.id
+    for label in (
+        "为什么现在提出",
+        "现有资产对照",
+        "晋升为什么成立",
+        "写入后的影响",
+        "请你决定",
+        "准确写入内容",
+    ):
+        assert label in item.detail
+    assert "任务 A 和任务 B" in item.detail
+    assert "一次性缺陷在代码和测试层闭环" in item.detail
+
+    contract = run.next_contract(tmp_path)
+    assert contract["action"] == "decide-candidate"
+    assert contract["constraints"] == [
+        "present the complete card in simple language, including why now, source events, existing coverage, promotion ground, future effect, exact patch, and decision question",
+        "do not collapse the card into only the proposed rule",
+        "do not decide for the owner",
+    ]
+
+
+def _owner_directed_review(event: str) -> dict[str, object]:
+    return {
+        "ground": "owner-directed",
+        "event_ids": [f"owner-request:{event}"],
+        "source_context": "Owner 在一次任务中明确要求把该行为作为长期规则。",
+        "existing_coverage": "已检查目标资产；当前没有覆盖这项长期要求。",
+        "promotion_rationale": "一次事件能够晋升，是因为 owner 明确要求未来长期遵守。",
+        "expected_effect": "批准后，未来匹配范围的任务都会受这项规则约束。",
+        "decision_question": "是否把这项 owner 明确要求写入长期资产？",
+        "owner_request": "以后匹配范围的任务都按这项要求执行。",
+    }
 
 
 def test_run_asks_for_at_most_three_candidates_and_never_for_freshness(
@@ -106,7 +258,7 @@ def test_run_asks_for_at_most_three_candidates_and_never_for_freshness(
         create_candidate(
             tmp_path,
             title=f"候选 {index}",
-            ground="explicit",
+            **_owner_directed_review(f"candidate-{index}"),
             evidence=[f"capture/session-{index}.md"],
             problem=f"问题 {index}",
             proposal=f"建议 {index}",
@@ -168,7 +320,7 @@ def test_approving_candidate_promotes_it_through_the_existing_ledger(tmp_path: P
     candidate = create_candidate(
         ws,
         title="记录稳定的测试原则",
-        ground="explicit",
+        **_owner_directed_review("stable-testing-principle"),
         evidence=["capture/owner-request.md"],
         problem="测试原则目前没有正式资产。",
         proposal="建立一份经过确认的测试原则。",
@@ -198,7 +350,7 @@ def test_reject_or_observe_closes_review_without_losing_evidence(tmp_path: Path)
         return create_candidate(
             ws,
             title=title,
-            ground="explicit",
+            **_owner_directed_review(title),
             evidence=[evidence],
             problem=f"{title} 是否值得长期保留尚未确定。",
             proposal=f"把 {title} 写入知识资产。",
@@ -233,7 +385,7 @@ def test_run_next_stops_after_three_candidate_decisions(tmp_path: Path) -> None:
         create_candidate(
             ws,
             title=f"candidate-{index}",
-            ground="explicit",
+            **_owner_directed_review(f"budget-{index}"),
             evidence=[f"capture/owner-{index}.md"],
             problem="需要判断是否形成长期资产。",
             proposal=f"记录候选 {index}。",
@@ -269,7 +421,7 @@ def test_run_next_respects_zero_candidate_budget(tmp_path: Path) -> None:
     create_candidate(
         ws,
         title="not-now",
-        ground="explicit",
+        **_owner_directed_review("not-now"),
         evidence=["capture/owner.md"],
         problem="候选存在但 owner 本轮没有 review 时间。",
         proposal="保留候选到以后。",
@@ -297,7 +449,7 @@ def test_approved_rule_candidate_updates_verified_runtime_without_prior_rule_dri
     candidate = create_candidate(
         ws,
         title="加入经过质检的长期规则",
-        ground="explicit",
+        **_owner_directed_review("approved-rule"),
         evidence=["capture/owner-request.md"],
         problem="owner 明确提出了一项长期要求。",
         proposal="在规则区增加经过质检的要求。",
@@ -334,6 +486,7 @@ def test_run_cannot_close_until_every_new_input_has_an_explicit_disposition(
     observation = record_observation(
         ws,
         theme="可能重复出现的问题",
+        event_ids=["capture-event:session"],
         evidence=["capture/session.md"],
     )
     disposition = run.record_disposition(
@@ -374,6 +527,8 @@ def test_cli_records_observation_candidate_and_input_disposition(tmp_path: Path)
             str(ws),
             "--theme",
             "长期要求",
+            "--event-id",
+            "owner-request:cli-test",
             "--evidence",
             "capture/session.md",
         ],
@@ -390,9 +545,23 @@ def test_cli_records_observation_candidate_and_input_disposition(tmp_path: Path)
             "--title",
             "Reviewed asset",
             "--ground",
-            "explicit",
+            "owner-directed",
+            "--event-id",
+            "owner-request:cli-test",
             "--evidence",
             "capture/session.md",
+            "--source-context",
+            "Owner 明确要求长期建立该资产。",
+            "--existing-coverage",
+            "现有资产没有覆盖。",
+            "--promotion-rationale",
+            "Owner 明确要求未来长期遵守。",
+            "--expected-effect",
+            "未来任务能够引用该资产。",
+            "--decision-question",
+            "是否写入该长期资产？",
+            "--owner-request",
+            "以后都按该资产执行。",
             "--problem",
             "长期要求尚未进入资产。",
             "--proposal",
@@ -437,7 +606,7 @@ def test_promoted_asset_records_real_use_feedback_in_status_metrics(tmp_path: Pa
     candidate = create_candidate(
         ws,
         title="可验证资产",
-        ground="explicit",
+        **_owner_directed_review("verified-use"),
         evidence=["capture/request.md"],
         problem="需要验证资产是否真实产生作用。",
         proposal="记录使用后的有效、修正或退役信号。",
@@ -480,6 +649,7 @@ def test_open_run_automatically_closes_expired_observations(tmp_path: Path) -> N
     observation = record_observation(
         ws,
         theme="长期没有再次出现的主题",
+        event_ids=["capture-event:old"],
         evidence=["capture/old.md"],
         expires_days=1,
         now=old,
@@ -501,7 +671,7 @@ def test_portal_embeds_complete_read_only_candidate_card(tmp_path: Path) -> None
     candidate = create_candidate(
         ws,
         title="只读候选卡",
-        ground="explicit",
+        **_owner_directed_review("portal-card"),
         evidence=["capture/request.md"],
         problem="Owner 需要看到候选解决的普遍问题。",
         proposal="Portal 展示完整候选卡。",
@@ -535,7 +705,7 @@ def test_failed_rule_promotion_restores_rule_and_verified_snapshot(tmp_path: Pat
     candidate = create_candidate(
         ws,
         title="原子规则晋升",
-        ground="explicit",
+        **_owner_directed_review("atomic-rule"),
         evidence=["capture/request.md"],
         problem="规则写入失败时不能留下半套状态。",
         proposal="规则、snapshot、runtime 和 ledger 原子提交。",
@@ -566,26 +736,44 @@ def test_pending_candidate_pauses_observation_expiry_and_reject_closes_it(
     observation = record_observation(
         tmp_path,
         theme="跨事件主题",
+        event_ids=["codex-thread:a", "codex-thread:b"],
         evidence=["capture/a.md", "capture/b.md"],
         expires_days=1,
         now=now,
     )
+    common = {
+        "title": "跨事件候选",
+        "ground": "repeated",
+        "evidence": observation.evidence,
+        "source_context": "两个独立事件都显示了同一问题。",
+        "existing_coverage": "现有资产没有覆盖该跨事件问题。",
+        "promotion_rationale": "两个独立事件支持相同的受限抽象。",
+        "expected_effect": "未来匹配范围的事件应用该资产。",
+        "decision_question": "是否把该跨事件模式写入长期资产？",
+        "problem": "两个独立事件显示了同一问题。",
+        "proposal": "建立受限资产。",
+        "scope": "明确范围",
+        "exclusions": ["其他范围"],
+        "target": "public knowledge base/topic/cross-event.md",
+        "anchor": "",
+        "mode": "create",
+        "proposed_text": "# Cross event",
+        "verification": "真实任务验证。",
+        "observation_id": observation.id,
+        "now": now,
+    }
+
+    with pytest.raises(ValueError, match="event ids must be present on its observation"):
+        create_candidate(
+            tmp_path,
+            event_ids=["codex-thread:a", "codex-thread:not-observed"],
+            **common,
+        )
+
     candidate = create_candidate(
         tmp_path,
-        title="跨事件候选",
-        ground="repeated",
-        evidence=observation.evidence,
-        problem="两个独立事件显示了同一问题。",
-        proposal="建立受限资产。",
-        scope="明确范围",
-        exclusions=["其他范围"],
-        target="public knowledge base/topic/cross-event.md",
-        anchor="",
-        mode="create",
-        proposed_text="# Cross event",
-        verification="真实任务验证。",
-        observation_id=observation.id,
-        now=now,
+        event_ids=observation.event_ids,
+        **common,
     )
 
     assert expire_observations(tmp_path, now=now + timedelta(days=2)) == []
@@ -604,7 +792,7 @@ def test_pending_candidate_can_be_revised_without_creating_a_second_card(
     candidate = create_candidate(
         tmp_path,
         title="需要缩限的候选",
-        ground="explicit",
+        **_owner_directed_review("revise-scope"),
         evidence=["capture/request.md"],
         problem="初稿范围太宽。",
         proposal="建立一条受限规则。",
@@ -632,6 +820,9 @@ def test_pending_candidate_can_be_revised_without_creating_a_second_card(
     assert revised.exclusions == ["其他项目", "一次性缺陷"]
     assert revised.revisions[0]["note"] == "按 owner 意见缩小范围"
     assert len(list_candidates(tmp_path)) == 1
+
+    with pytest.raises(ValueError, match="exact long-term owner request"):
+        revise_candidate(tmp_path, candidate.id, owner_request="")
 
 
 def test_close_run_never_reports_success_when_its_scoped_commit_fails(

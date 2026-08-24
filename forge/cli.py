@@ -375,12 +375,14 @@ def observation_group() -> None:
 
 @observation_group.command("record")
 @click.option("--theme", required=True)
+@click.option("--event-id", "event_ids", multiple=True, required=True)
 @click.option("--evidence", multiple=True, required=True)
 @click.option("--note", default="")
 @click.option("--expires-days", type=int, default=30, show_default=True)
 @click.option("--root", type=click.Path(), default=None)
 def observation_record(
     theme: str,
+    event_ids: tuple[str, ...],
     evidence: tuple[str, ...],
     note: str,
     expires_days: int,
@@ -392,11 +394,12 @@ def observation_record(
     observation = record_observation(
         _root(root),
         theme=theme,
+        event_ids=list(event_ids),
         evidence=list(evidence),
         note=note,
         expires_days=expires_days,
     )
-    click.echo(f"{observation.id} {observation.state} · {observation.independent_events} evidence")
+    click.echo(f"{observation.id} {observation.state} · {observation.independent_events} event(s)")
 
 
 @observation_group.command("list")
@@ -409,7 +412,7 @@ def observation_list(include_closed: bool, root: str | None) -> None:
     for observation in list_observations(_root(root), include_closed=include_closed):
         click.echo(
             f"{observation.id} [{observation.state}] "
-            f"{observation.independent_events} evidence · {observation.theme}"
+            f"{observation.independent_events} event(s) · {observation.theme}"
         )
 
 
@@ -420,8 +423,21 @@ def candidate_group() -> None:
 
 @candidate_group.command("create")
 @click.option("--title", required=True)
-@click.option("--ground", type=click.Choice(["repeated", "explicit", "high-risk"]), required=True)
+@click.option(
+    "--ground",
+    type=click.Choice(["repeated", "owner-directed", "high-risk"]),
+    required=True,
+)
+@click.option("--event-id", "event_ids", multiple=True, required=True)
 @click.option("--evidence", multiple=True, required=True)
+@click.option("--source-context", required=True)
+@click.option("--existing-coverage", required=True)
+@click.option("--promotion-rationale", required=True)
+@click.option("--expected-effect", required=True)
+@click.option("--decision-question", required=True)
+@click.option("--owner-request", default="")
+@click.option("--risk-invariant", default="")
+@click.option("--risk-failure", default="")
 @click.option("--problem", required=True)
 @click.option("--proposal", required=True)
 @click.option("--scope", required=True)
@@ -436,7 +452,16 @@ def candidate_group() -> None:
 def candidate_create(
     title: str,
     ground: str,
+    event_ids: tuple[str, ...],
     evidence: tuple[str, ...],
+    source_context: str,
+    existing_coverage: str,
+    promotion_rationale: str,
+    expected_effect: str,
+    decision_question: str,
+    owner_request: str,
+    risk_invariant: str,
+    risk_failure: str,
     problem: str,
     proposal: str,
     scope: str,
@@ -456,7 +481,16 @@ def candidate_create(
         _root(root),
         title=title,
         ground=ground,
+        event_ids=list(event_ids),
         evidence=list(evidence),
+        source_context=source_context,
+        existing_coverage=existing_coverage,
+        promotion_rationale=promotion_rationale,
+        expected_effect=expected_effect,
+        decision_question=decision_question,
+        owner_request=owner_request,
+        risk_invariant=risk_invariant,
+        risk_failure=risk_failure,
         problem=problem,
         proposal=proposal,
         scope=scope,
@@ -494,18 +528,38 @@ def candidate_show(candidate_id: str, root: str | None) -> None:
         raise click.ClickException(f"candidate not found: {candidate_id}")
     click.echo(f"{candidate.id} [{candidate.state}] {candidate.title}")
     click.echo(f"晋升依据: {candidate.ground}")
+    click.echo("来源经历: " + "；".join(candidate.event_ids))
+    click.echo(f"为什么现在提出: {candidate.source_context}")
+    click.echo(f"现有资产对照: {candidate.existing_coverage}")
+    click.echo(f"晋升为什么成立: {candidate.promotion_rationale}")
+    if candidate.owner_request:
+        click.echo(f"owner 长期要求原话: {candidate.owner_request}")
+    if candidate.risk_invariant:
+        click.echo(f"高风险不变量: {candidate.risk_invariant}")
+        click.echo(f"失败条件: {candidate.risk_failure}")
     click.echo(f"问题: {candidate.problem}")
     click.echo(f"建议: {candidate.proposal}")
     click.echo(f"适用范围: {candidate.scope}")
     click.echo("不适用: " + "；".join(candidate.exclusions))
     click.echo("证据: " + "；".join(candidate.evidence))
+    click.echo(f"写入后的影响: {candidate.expected_effect}")
     click.echo(f"修改: {candidate.target} @ {candidate.anchor or '(whole file)'} [{candidate.mode}]")
+    click.echo("准确写入内容:\n" + candidate.proposed_text)
     click.echo(f"验证: {candidate.verification}")
+    click.echo(f"请你决定: {candidate.decision_question}")
 
 
 @candidate_group.command("revise")
 @click.argument("candidate_id")
 @click.option("--problem", default=None)
+@click.option("--source-context", default=None)
+@click.option("--existing-coverage", default=None)
+@click.option("--promotion-rationale", default=None)
+@click.option("--expected-effect", default=None)
+@click.option("--decision-question", default=None)
+@click.option("--owner-request", default=None)
+@click.option("--risk-invariant", default=None)
+@click.option("--risk-failure", default=None)
 @click.option("--proposal", default=None)
 @click.option("--scope", default=None)
 @click.option("--exclusion", "exclusions", multiple=True)
@@ -519,6 +573,14 @@ def candidate_show(candidate_id: str, root: str | None) -> None:
 def candidate_revise(
     candidate_id: str,
     problem: str | None,
+    source_context: str | None,
+    existing_coverage: str | None,
+    promotion_rationale: str | None,
+    expected_effect: str | None,
+    decision_question: str | None,
+    owner_request: str | None,
+    risk_invariant: str | None,
+    risk_failure: str | None,
     proposal: str | None,
     scope: str | None,
     exclusions: tuple[str, ...],
@@ -537,6 +599,14 @@ def candidate_revise(
         _root(root),
         candidate_id,
         problem=problem,
+        source_context=source_context,
+        existing_coverage=existing_coverage,
+        promotion_rationale=promotion_rationale,
+        expected_effect=expected_effect,
+        decision_question=decision_question,
+        owner_request=owner_request,
+        risk_invariant=risk_invariant,
+        risk_failure=risk_failure,
         proposal=proposal,
         scope=scope,
         exclusions=list(exclusions) if exclusions else None,

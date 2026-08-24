@@ -743,7 +743,11 @@ def next_contract(root: Path, *, budget: int = DEFAULT_BUDGET) -> dict[str, Any]
             "title": item.title,
             "detail": item.detail,
             "review_budget_remaining": candidate_budget,
-            "constraints": ["present this one candidate card to the owner"],
+            "constraints": [
+                "present the complete card in simple language, including why now, source events, existing coverage, promotion ground, future effect, exact patch, and decision question",
+                "do not collapse the card into only the proposed rule",
+                "do not decide for the owner",
+            ],
         }
 
     return {
@@ -772,6 +776,10 @@ def _source_constraints(kind: str, *, per_item: bool = False) -> list[str]:
     if kind == "agent-memory":
         return [
             "inspect only the listed Review Unit and its evidence pointers",
+            "derive event ids from the underlying thread/session/source event, not from file paths; multiple pointers to the same event share one id",
+            "a request made for this one task is not an owner-directed long-term requirement",
+            "if long-term generalization is still uncertain, record an observation instead of a candidate",
+            "before creating a candidate, compare the target and related canonical assets and state the uncovered durable delta",
             "do not invoke another workflow without explicit owner request",
             unit_rule,
         ]
@@ -985,23 +993,47 @@ def _ask_items(root: Path) -> list[AskItem]:
             )
         )
     for candidate in promotion.list_candidates(root):
-        exclusions = "；".join(candidate.exclusions)
         items.append(
             AskItem(
                 id=candidate.id,
                 type="candidate",
                 title=candidate.title,
-                detail=(
-                    f"问题:{candidate.problem}\n"
-                    f"建议:{candidate.proposal}\n"
-                    f"适用范围:{candidate.scope}\n"
-                    f"不适用:{exclusions}\n"
-                    f"目标:{candidate.target} @ {candidate.anchor or '(whole file)'}\n"
-                    f"验证:{candidate.verification}"
-                ),
+                detail=_candidate_review_detail(candidate),
             )
         )
     return items
+
+
+def _candidate_review_detail(candidate: promotion.Candidate) -> str:
+    ground_detail = {
+        "repeated": (
+            "两个以上独立经历: " + "；".join(candidate.event_ids)
+        ),
+        "owner-directed": (
+            "owner 明确要求长期沉淀: " + candidate.owner_request
+        ),
+        "high-risk": (
+            f"可验证的高风险不变量: {candidate.risk_invariant}；"
+            f"失败时: {candidate.risk_failure}"
+        ),
+    }.get(candidate.ground, f"历史候选依据: {candidate.ground}")
+    return (
+        f"为什么现在提出:{candidate.source_context}\n"
+        f"来源经历:{'；'.join(candidate.event_ids)}\n"
+        f"证据指针:{'；'.join(candidate.evidence)}\n"
+        f"现有资产对照:{candidate.existing_coverage}\n"
+        f"问题:{candidate.problem}\n"
+        f"晋升为什么成立:{ground_detail}；{candidate.promotion_rationale}\n"
+        f"建议:{candidate.proposal}\n"
+        f"适用范围:{candidate.scope}\n"
+        f"不适用:{'；'.join(candidate.exclusions)}\n"
+        f"写入后的影响:{candidate.expected_effect}\n"
+        f"准确写入位置:{candidate.target} @ {candidate.anchor or '(whole file)'} "
+        f"[{candidate.mode}]\n"
+        f"准确写入内容:\n{candidate.proposed_text}\n"
+        f"验证:{candidate.verification}\n"
+        f"请你决定:{candidate.decision_question}"
+    )
 
 
 def _certifiable(root: Path) -> list[tuple[str, int, int]]:

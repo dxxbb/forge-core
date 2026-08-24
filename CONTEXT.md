@@ -8,12 +8,13 @@ forge-core 领域字典。一句话定义,只收本项目独有概念。
 - **Source Signal(来源信号)** — `monitor` 从外部 Memory、待综合剪藏、Skill 投影等入口发现的一组待处理事实。它是带计数和证据指针的聚合输入,不是已复制进 `capture/` 的原始 evidence;每次 Run 必须明确处理或带理由顺延。
 - **Source Batch(来源批次)** — Source Signal 在一次 Run 中交给 Agent 的稳定、有上限子集。批次由具体文件指针及内容摘要确定;运行期间后来出现的新文件不能使已处理批次失效,剩余项留给下一次 Run。
 - **Review Unit(可筛选单元)** — 能够独立判断去向的最小语义单元。它可以是 Source Batch 中的单元或一条 standalone capture evidence;Codex Memory 使用 `MEMORY.md` 的 Task Group,Claude Memory 使用单个非索引 memory 文件;聚合索引、原始会话流和 provider 元数据不是 Review Unit,只作为 evidence pointer 或诊断信息。
+- **Evidence Event(证据事件)** — 一次真实发生的 thread/session/incident/source encounter,用稳定 `scheme:value` id 标识。Task Group、rollout summary、raw session 和行号都只是它的 evidence pointer;多个指针指向同一经历时仍只算一个事件。
 - **Source Settlement(来源结算)** — disposition 对来源 provider 状态产生的持久效果,例如把已审 Memory 批次写入 seen checkpoint,或把已覆盖 clipping 标记到 canonical sink。只写 Run note 而 monitor 数量不减少不算结算。
 - **Run Contract(运行合同)** — CLI 根据 Run 状态给出的唯一下一步、范围上限、禁止扩展项与结束事实。Agent 负责批次内语义判断,不能自行扩大为另一套工作流;最终答复以合同返回的 open/dirty/remaining 状态为准。
-- **Observation(观察)** — 一个可能复现、但证据尚不足以成为长期资产的主题。观察按独立 evidence 聚合,有到期日;到期无新证据即关闭,原始 evidence 不删除。
-- **Candidate Asset(候选资产)** — 已达到晋升门槛、等待 owner 质检的一张卡。卡片必须给出 evidence、一般化问题、建议资产、适用范围、不适用范围、准确 patch 与验证方法。
+- **Observation(观察)** — 一个可能复现、但证据尚不足以成为长期资产的主题。观察按 Evidence Event 聚合,有到期日;到期无新事件即关闭,原始 evidence 不删除。
+- **Candidate Asset(候选资产)** — 已达到晋升门槛、等待 owner 质检的一张卡。卡片必须给出具体来源情境、Evidence Event、现有资产覆盖与缺口、一般化问题、晋升理由、建议资产、适用/不适用范围、未来行为影响、准确 patch、验证方法与准确裁决问题。
 - **Promotion(资产晋升)** — owner 批准 Candidate Asset 后,通过既有 ledger / compile gate 把它写入 Canonical Source。频率本身不构成晋升理由。
-- **Promotion Ground(晋升依据)** — Candidate Asset 的准入依据,仅三类:两个以上独立事件、owner 明确要求长期遵守、可确定性验证的高风险不变量。
+- **Promotion Ground(晋升依据)** — Candidate Asset 的准入依据,仅三类:`repeated`(两个以上不同 Evidence Event)、`owner-directed`(owner 明确要求未来长期沉淀并保留原话)、`high-risk`(可确定性验证的不变量及失败条件)。一次任务中的强调或具体要求不等于 owner-directed。
 - **Rule Zone(行为规则区)** — 改变 agent 行为的内容(偏好/边界/工作规则)。delta-gated:每笔变更须 owner 在 run 中裁决;预算制(编译后默认 ≤150 行);由编译器结构性强制。
 - **State Zone(状态区)** — 信息类内容(项目状态/KB/调研结论)。agent 自由写入、逐笔记账,审阅方式是读即审 + 认证。
 - **Zones 配置** — owner 持有的分区声明(路径/段类 → 区);内容不能自我声明区属;本文件属规则区。
@@ -35,7 +36,8 @@ forge-core 领域字典。一句话定义,只收本项目独有概念。
 
 - 1 条 Source Signal → 1 个 Source Batch → 1..N 个 Review Unit → 每单元 1 条 disposition → 每单元 0..1 次 Source Settlement;仍有剩余项时下一次 Run 取得下一批
 - 1 次 run → N 条 Source Batch/capture evidence disposition + ≤budget 个 Candidate Asset + 必须处理的 conflict/unqualified-change + 0..1 份持久 run 记录(`system/run/<id>.md`;完全干净的空 Run 不落 Git)
-- 1 个 Observation → 1..N 个独立 evidence → 0..1 个 Candidate Asset
+- 1 个 Evidence Event → 1..N 个 evidence pointer;pointer 不参与独立事件计数
+- 1 个 Observation → 1..N 个 Evidence Event → 0..1 个 Candidate Asset
 - 1 个 Candidate Asset → reject|observe|promote;promote → 1 笔 Ledger Entry
 - 1 笔账本条目 ↔ 1 commit(`Ledger-Id:` trailer)
 - 1 个规则区文件 ↔ 1 份 verified 快照;快照仅经 run 裁决更新
@@ -50,12 +52,14 @@ forge-core 领域字典。一句话定义,只收本项目独有概念。
 - ~~proposal / workbench decision / approve log~~ — legacy,由账本与 run 记录取代。
 - ~~把每条 Memory 都蒸馏落账~~ — 输入不是资产;先分流,只有达到 Promotion Ground 的少数主题才能成为 Candidate Asset。
 - ~~候选 0 / 没有候选~~ — 批次局部统计不能充当全局结论;有未筛选 Review Unit 时只能说 Candidate Conclusion=unknown。
+- ~~explicit ground~~ — “明确”容易把本次任务要求误当长期要求;新建 Candidate 只使用 **owner-directed**,并保存明确要求未来长期沉淀的 owner 原话。
 
 ## Flagged ambiguities
 
 - "verified" 双义(规则区快照状态 vs 状态区认证)→ 解决:规则区用 **verified 快照**,状态区用 **certified/认证**,不混用。
 - "apply" 双义(裁决动作 vs 写盘动作)→ 解决:owner 的动作叫**裁决(decide/approve)**,写盘叫 apply,仅出现在机件层描述。
 - "review" 泛化 → 解决:规则区的 review = run 内裁决;状态区的 review = 读即审 + 认证;不再有第三种。
+- "evidence" 双义(证明材料 vs 独立发生次数)→ 解决:文件/摘要叫 **evidence pointer**,真实经历叫 **Evidence Event**;只有后者参与 repeated 准入计数。
 
 ## Example dialogue
 

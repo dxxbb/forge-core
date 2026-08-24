@@ -64,6 +64,40 @@ def test_skill_and_cli_align_on_review_unit_disposition() -> None:
     assert "--item" in result.output
 
 
+def test_skill_and_cli_align_on_event_grounded_candidate_review() -> None:
+    skill = _read_skill_md()
+    for term in (
+        "event-id",
+        "owner-directed",
+        "source-context",
+        "existing-coverage",
+        "promotion-rationale",
+        "expected-effect",
+        "decision-question",
+    ):
+        assert term in skill
+
+    runner = CliRunner()
+    candidate_help = runner.invoke(main, ["candidate", "create", "--help"])
+    assert candidate_help.exit_code == 0, candidate_help.output
+    for flag in (
+        "--event-id",
+        "--source-context",
+        "--existing-coverage",
+        "--promotion-rationale",
+        "--expected-effect",
+        "--decision-question",
+        "--owner-request",
+        "--risk-invariant",
+        "--risk-failure",
+    ):
+        assert flag in candidate_help.output
+
+    observation_help = runner.invoke(main, ["observation", "record", "--help"])
+    assert observation_help.exit_code == 0, observation_help.output
+    assert "--event-id" in observation_help.output
+
+
 def test_detect_recommendation_matches_skill_capture_command() -> None:
     """Bug 4 + Bug 1: detect's tail commands must match the skill's capture flow."""
     runner = CliRunner()

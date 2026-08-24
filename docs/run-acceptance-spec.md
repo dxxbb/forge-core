@@ -53,7 +53,7 @@
 
 **AC-RUN-3** 每个新 capture input、每个 Source Batch Review Unit 必须经 `forge run disposition` 记录且只能保留一个最新去向:`covered|one-off|volatile-state|observe|candidate|closed|defer`;批次单元用 `--item <unit-id>` 独立分流,批次级非 defer disposition 必须拒绝。`defer` 仅用于尚未开始单元结算的 Source Signal 且必须有理由。存在 unclassified input/unit 时 close 必须失败。
 
-**AC-RUN-4(问单)** `forge run ask [--budget N]` 默认 3:conflict 与 unqualified-change 全量置顶,其后最多 N 张 pending Candidate Asset。Candidate 卡携带 problem、proposal、scope、exclusions、target 与 verification;不返回超预算 Candidate,不生成 certification-due。
+**AC-RUN-4(问单)** `forge run ask [--budget N]` 默认 3:conflict 与 unqualified-change 全量置顶,其后最多 N 张 pending Candidate Asset。Candidate 卡携带为什么现在提出、Evidence Event/evidence pointer、现有资产覆盖与缺口、problem、Promotion Ground 理由、proposal、scope、exclusions、未来行为影响、准确 patch、verification 与准确裁决问题;不返回超预算 Candidate,不生成 certification-due。
 
 **AC-RUN-5(裁决执行)** `forge run decide <candidate-id> --approve|--reject|--observe [--note]`:approve 走 AC-LEDGER-5 全流水线(规则区同时更新 verified 快照);reject 关闭卡但保留 evidence;observe 回到 Observation。执行结果即时回写 run 记录。conflict/unqualified-change 只接受 approve/reject。
 
@@ -71,11 +71,13 @@
 
 **AC-RUN-12(Selection truth)** `candidate_conclusion=available` 仅表示已有 pending Candidate;`candidate_conclusion=none` 仅允许在 `selection_coverage=complete` 且 pending Candidate 为 0 时出现;只要仍有 Source Review Unit 或 standalone capture evidence 未分流就必须为 `unknown`。status、持久 Run report、close 终态必须共用同一待筛选清单计算,不能各自计数。Observation 已有明确 disposition,计入已筛选而非 backlog。
 
+**AC-RUN-13(Owner decision sufficiency)** `decide-candidate` 的合同要求 Agent 用简单自然语言呈现完整卡片,不得只复述 proposal。验收不匹配固定话术,而检查 owner 是否能回答:为什么现在出现、依据是哪几次独立经历、现有资产哪里不足、为什么不是 case-by-case、准确写什么、以后什么会改变、自己正在决定什么。
+
 ## 5. 资产晋升(AC-PROMOTION)
 
-**AC-PROMOTION-1** Observation 位于 `system/observations/`,同一 theme 合并去重后的 evidence reference,记录 created/last_seen/expires/state;到期只关闭记录,不删除 evidence。
+**AC-PROMOTION-1** Observation 位于 `system/observations/`,同一 theme 合并去重后的 `event_ids` 与 evidence pointer,记录 created/last_seen/expires/state;独立事件数只按 event id 计算,同一事件的多个 pointer 不增加计数;到期只关闭记录,不删除 evidence。
 
-**AC-PROMOTION-2** Candidate Asset 位于 `system/candidates/`;`repeated` 至少两个独立 evidence reference,`explicit/high-risk` 至少一个。所有 ground 都必须包含 problem、proposal、scope、至少一个 exclusion、target patch 与 verification,缺失即拒绝创建。
+**AC-PROMOTION-2** Candidate Asset 位于 `system/candidates/`;`repeated` 至少两个不同 event id,`owner-directed` 至少一个 event id + owner 明确要求未来长期沉淀的原话,`high-risk` 至少一个 event id + 可验证不变量 + 失败条件。所有 ground 都必须包含 source_context、existing_coverage、promotion_rationale、expected_effect、decision_question、problem、proposal、scope、至少一个 exclusion、target patch 与 verification,缺失即拒绝创建。
 
 **AC-PROMOTION-3** Candidate 状态仅 `pending → promoted|rejected|observing`;promoted 必有 ledger entry。已决定 Candidate 默认不再进入 ask。
 
@@ -103,7 +105,7 @@
 
 **AC-PORTAL-1** portal 为只读审计面:节点/段落展示区属标识、认证新鲜度(certified 日期 + 未认证笔数);不提供决策操作。账本溯源由 `forge ledger blame` 提供。
 
-**AC-PORTAL-2** Candidate 在 portal 以只读卡浏览,显示问题、建议、scope、exclusions、target 与 verification;卡上明示“一次只审一张,裁决在 forge run 中进行”。
+**AC-PORTAL-2** Candidate 在 portal 以只读卡浏览,显示完整 AC-RUN-4 owner decision context;卡上明示“一次只审一张,裁决在 forge run 中进行”。
 
 ## 9. 验收方法
 
@@ -112,9 +114,10 @@
 **手工走查**(v2 收尾,在真实 personalOS workspace):
 1. `forge zone init` → doctor 确认基线与覆盖完整;
 2. `forge migrate amnesty` → 确认 38 条积压按 AC-MIG-4 收敛;
-3. 准备两个独立 evidence → Observation → repeated Candidate;确认单 evidence 被准入拒绝、两份 evidence 可建卡;
+3. 准备同一事件的两个 evidence pointer 与第二个独立 event;确认两个 pointer 仍只算一个事件、repeated Candidate 被拒绝,加入第二 event id 后才可建卡;
 4. 完整跑一次 Forge Run:循环 `run next`,给全部 input disposition,确认稳定批次、最多三张卡、approve/reject/observe、三种 close 状态、最终机器事实和 commit trailer;
 5. 让 agent 绕过 Candidate 直接改规则区 → 编译产物仍是 verified 版本,问单显示 unqualified-change;
 6. 对 promoted asset 记录 effective/revise/retire feedback,再用 `ledger blame/revert` 验证溯源与单笔撤销。
+7. 新建真实隔离任务,唯一 prompt 使用自然用户短句(如“forge 一下”);按来源可追溯、准入成立、抽象质量、资产协调、决策可理解、状态真实性、治理边界、运行成本逐项留证,任何维度证据不足都不得称为符合预期。
 
 **v2 完成定义**:全部 AC 通过 + 手工走查 6 步通过 + packaged run playbook 可用 + CONTEXT.md 术语在测试名中可 grep 到。

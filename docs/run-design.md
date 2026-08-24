@@ -66,7 +66,7 @@ Source Signal 也不能直接等同于“一次要处理的全部 backlog”。C
 ### 3.2 Observation
 
 - 位置:`system/observations/`;
-- 以 theme 聚合独立 evidence reference;
+- 以 theme 聚合 Evidence Event,另存 1..N 个 evidence pointer;
 - 记录首次/最近出现、到期时间、状态和候选关联;
 - 到期无新证据自动 `closed: expired`;
 - 不是 owner 待办,不进入 Run 问单。
@@ -74,8 +74,8 @@ Source Signal 也不能直接等同于“一次要处理的全部 backlog”。C
 ### 3.3 Candidate Asset
 
 - 位置:`system/candidates/`;
-- 准入依据仅 `repeated / explicit / high-risk`;
-- 卡片必须含 evidence、problem、proposal、scope、exclusions、准确 patch、verification;
+- 准入依据仅 `repeated / owner-directed / high-risk`;
+- 卡片必须含 source context、event ids/evidence pointers、existing coverage、promotion rationale、problem、proposal、scope、exclusions、expected effect、准确 patch、verification 与 decision question;
 - 状态:`pending → promoted|rejected|observing`;
 - 每轮最多展示 3 张;完整性冲突不受候选预算压缩。
 
@@ -123,7 +123,9 @@ Forge 不以 imported、processed 或 promoted 数量为成功指标。首版记
 
 | 失败 | 最坏结果 | 保护 |
 |---|---|---|
-| 同一事件多份摘要被当成重复证据 | 错误 candidate | repeated 强制两个独立 evidence reference;card 仍需 scope/exclusions |
+| 同一事件多份摘要被当成重复证据 | 错误 candidate | 独立计数只看稳定 event id;多个 evidence pointer 不能增加事件数 |
+| 一次任务要求被当成长期开关 | case-by-case 规则进入 runtime | owner-directed 必须保留明确要求未来长期沉淀的 owner 原话;否则 observe |
+| 卡片只剩一句正确规则 | owner 无法理解为什么要审 | Run Contract 强制呈现来源、覆盖缺口、晋升依据、行为影响、准确 patch 与裁决问题 |
 | Observation 堆积 | 隐形垃圾堆 | 到期自动关闭,不进入 owner 待办 |
 | Candidate 过多 | review 再次爆炸 | 默认最多三张;不展示的不称为顺延债务 |
 | 错误抽象获批 | 正式资产误导 runtime | ledger/revert + verified gate + real-use feedback |

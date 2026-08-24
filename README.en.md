@@ -106,7 +106,7 @@ Legacy `system/pr`, proposal schemas, memory workbenches, and bulk Portal review
 
 ## Status
 
-`0.13.0` Alpha and dogfood-stage. Semantic Review Units, Selection Coverage, and Candidate Conclusion separate a zero-candidate batch from a globally complete selection; semantic candidate quality and long-term real-use outcomes still require repeated live Runs.
+`0.14.0` Alpha and dogfood-stage. Semantic Review Units, Selection Coverage, and Candidate Conclusion separate a zero-candidate batch from a globally complete selection; Evidence Events and complete owner decision context additionally prevent duplicate occurrence counts and one-sentence candidate cards. Semantic candidate quality and long-term real-use outcomes still require repeated live Runs.
 
 ## Development
 

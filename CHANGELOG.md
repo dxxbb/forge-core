@@ -2,6 +2,25 @@
 
 记录 `forge-core` 的所有显著变动。
 
+## 0.14.0 (Event-grounded Review Cards) — 2026-08-24
+
+第一次自然对话验收暴露出两个相连错误:同一 thread 的 Task Group 与 rollout summary 被当成两个独立事件;owner 对一次任务的具体要求被标成长期明确要求。最终 review 又把完整候选压缩成一句规则,owner 看不到为什么要审。
+
+### Changed
+
+- Observation/Candidate 将稳定 `event_ids` 与 evidence pointer 分开保存;独立事件数只按 event id 计算。
+- Candidate ground 收紧为 `repeated|owner-directed|high-risk`;owner-directed 必须保存明确要求未来长期沉淀的 owner 原话,high-risk 必须说明可验证不变量与失败条件。
+- Candidate 创建必须提供来源情境、现有资产覆盖与缺口、晋升理由、未来行为影响和准确裁决问题;原有范围、排除项、patch 和验证继续保留。
+- `run next` 要求 Agent 用自然语言呈现完整 decision context,禁止只复述 proposal;评价看信息维度,不匹配固定措辞。
+- 历史 Observation/Candidate 缺 event id 时保守计为一个 legacy event,不按证据文件数补造经历。
+
+### Tests
+
+- 新增同一事件多 pointer、owner-directed 原话门禁、high-risk 不变量/失败条件和完整 review card 合同测试。
+- 全量回归:657 passed,3 skipped。
+
+- [ADR-0006](docs/adr/0006-event-grounded-review-cards.md) 记录 Evidence Event 与 owner decision sufficiency。
+
 ## 0.13.0 (Semantic Review Units) — 2026-08-23
 
 连续真实 Run 证明“每批最多 10 个文件”仍是错误边界：Codex provider 把任务主题组、聚合索引、持续增长的历史流和数百 MB 归档会话混在同一文件列表中；整批一条 disposition 会掩埋差异，而候选池暂时为零又会被误说成“没有候选”。本版把候选筛选的真值下沉到 Review Unit 与 Selection Coverage。
