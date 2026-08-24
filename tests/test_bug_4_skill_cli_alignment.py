@@ -17,21 +17,30 @@ from click.testing import CliRunner
 from forge.cli import main
 
 
-def _read_skill_md() -> str:
-    skill_path = (
+def _skill_dir() -> Path:
+    return (
         Path(__file__).resolve().parent.parent
         / "forge"
         / "assets"
         / "skills"
         / "forge"
-        / "SKILL.md"
     )
-    return skill_path.read_text("utf-8")
+
+
+def _read_skill_md() -> str:
+    return (_skill_dir() / "SKILL.md").read_text("utf-8")
+
+
+def _read_skill_bundle() -> str:
+    return "\n".join(
+        path.read_text("utf-8")
+        for path in sorted(_skill_dir().rglob("*.md"))
+    )
 
 
 def test_skill_uses_forge_capture_for_import() -> None:
     """The skill must point at `forge capture` for the import flow."""
-    skill = _read_skill_md()
+    skill = _read_skill_bundle()
     assert "forge capture --root <path> --from <file>" in skill
     assert "forge capture --root <path> --from-claude-memory" in skill
     assert "forge capture --root <path> --from-codex-memory" in skill
@@ -54,18 +63,32 @@ def test_cli_capture_help_supports_skill_flags() -> None:
 
 
 def test_skill_and_cli_align_on_review_unit_disposition() -> None:
-    skill = _read_skill_md()
-    assert "classify-source-item" in skill
+    skill = _read_skill_bundle()
+    assert "classify-source-items" in skill
     assert "--item <unit-id>" in skill
     assert "Candidate Conclusion" in skill
+    assert "--coverage-claim" in skill
+    assert "--coverage-locator" in skill
+    assert "--coverage-excerpt" in skill
 
     result = CliRunner().invoke(main, ["run", "disposition", "--help"])
     assert result.exit_code == 0, result.output
     assert "--item" in result.output
 
 
+def test_run_cli_uses_the_one_candidate_default_budget() -> None:
+    runner = CliRunner()
+
+    next_help = runner.invoke(main, ["run", "next", "--help"])
+    ask_help = runner.invoke(main, ["run", "ask", "--help"])
+
+    assert next_help.exit_code == ask_help.exit_code == 0
+    assert "[default: 1]" in next_help.output
+    assert "[default: 1]" in ask_help.output
+
+
 def test_skill_and_cli_align_on_event_grounded_candidate_review() -> None:
-    skill = _read_skill_md()
+    skill = _read_skill_bundle()
     for term in (
         "event-id",
         "owner-directed",
@@ -116,3 +139,12 @@ def test_detect_recommendation_matches_skill_capture_command() -> None:
     assert result.exit_code == 0
     # Whatever detect tells the agent to run next, it should be a `forge capture` form.
     assert "forge capture --from" in result.output
+
+
+def test_skill_entrypoint_is_run_focused_and_routes_conditional_workflows() -> None:
+    skill = _read_skill_md()
+
+    assert len(skill.splitlines()) <= 360
+    assert "references/initialize-and-import.md" in skill
+    assert "references/legacy-workflows.md" in skill
+    assert "## Forge Run" in skill

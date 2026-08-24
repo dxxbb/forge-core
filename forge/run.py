@@ -32,18 +32,13 @@ from forge.zone import (
 )
 
 RUN_DIR = Path("system") / "run"
-DEFAULT_BUDGET = 3
+DEFAULT_BUDGET = 1
+BACKGROUND_REVIEW_SLICE_LIMIT = 3
 _FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---(?:\r?\n|\Z)", re.DOTALL)
-_CANONICAL_SINK_PREFIXES = (
-    "assist config/",
-    "context build/config/",
-    "context build/sections/",
-    "public knowledge base/",
-    "user space/",
-    "workbench/",
-    "workspace/",
-)
 _NON_AUTHORITATIVE_SINK_PARTS = {"capture", "output", "scratch", "temp", "tmp"}
+_NON_CANONICAL_TOP_LEVELS = {
+    ".codex", ".forge", "capture", "node_modules", "output", "system", "vendor",
+}
 
 
 @dataclass
@@ -65,6 +60,7 @@ class RunRecord:
     dispositions: list[dict[str, Any]] = field(default_factory=list)
     decisions: list[dict[str, str]] = field(default_factory=list)
     expired_observations: list[str] = field(default_factory=list)
+    dirty_baseline: list[str] = field(default_factory=list)
     path: Path | None = None
 
 
@@ -88,7 +84,7 @@ def status(
     candidates = promotion.list_candidates(root, include_decided=True)
     observations = promotion.list_observations(root, include_closed=True)
     signals = source_signals or []
-    pending_candidates = sum(1 for c in candidates if c.state == "pending")
+    pending_candidates = sum(1 for c in candidates if c.reviewable)
     selection = _selection_facts(
         root,
         signals,
@@ -125,8 +121,16 @@ def status(
             for t in ("conflict", "candidate", "unqualified-change")
         },
         "candidate_counts": {
-            state: sum(1 for c in candidates if c.state == state)
-            for state in ("pending", "promoted", "rejected", "observing")
+            "pending": pending_candidates,
+            "reviewable_pending": pending_candidates,
+            "legacy_unqualified": sum(
+                1 for c in candidates
+                if c.state == "pending" and c.qualification == "legacy-unqualified"
+            ),
+            **{
+                state: sum(1 for c in candidates if c.state == state)
+                for state in ("promoted", "rejected", "observing")
+            },
         },
         "observation_counts": {
             state: sum(1 for o in observations if o.state == state)
@@ -204,6 +208,7 @@ def open_run(
         closed_at="",
         inputs=inputs,
         expired_observations=expired,
+        dirty_baseline=_dirty_paths(root),
     )
     _write_record(root, record)
     return record
@@ -226,6 +231,7 @@ def close_run(
     if unclassified:
         paths = ", ".join(i.get("path", "") for i in unclassified[:3])
         raise RuntimeError(f"unclassified input(s): {paths}")
+    _validate_run_owned_writes(root, record)
     current_signals_by_path = {
         signal.get("path", ""): signal for signal in (current_source_signals or [])
     }
@@ -356,6 +362,8 @@ def close_run(
             scoped.append(f"system/observations/{sink}.md")
         elif sink.startswith("cand-"):
             scoped.append(f"system/candidates/{sink}.md")
+        elif disposition.get("run_owned_write") is True:
+            scoped.append(sink)
         scoped.extend(str(path) for path in disposition.get("settled_paths", []))
     for decision in record.decisions:
         if decision.get("type") != "candidate":
@@ -417,6 +425,9 @@ def record_disposition(
     sink: str = "",
     note: str = "",
     item_ref: str = "",
+    coverage_claim: str = "",
+    coverage_locator: str = "",
+    coverage_excerpt: str = "",
 ) -> dict[str, Any]:
     """Give one newly collected input exactly one terminal or promotion route."""
     root = Path(root).resolve()
@@ -469,9 +480,17 @@ def record_disposition(
     if kind in {"covered", "one-off", "volatile-state"} and not sink.strip():
         raise ValueError(f"{kind} disposition requires a concrete sink")
     if kind == "covered":
-        sink = _authoritative_canonical_sink(root, sink, disposition="covered")
+        sink = _covered_receipt(
+            root,
+            sink,
+            claim=coverage_claim,
+            locator=coverage_locator,
+            excerpt=coverage_excerpt,
+        )
+    volatile_receipt: dict[str, Any] = {}
     if kind == "volatile-state":
-        sink = _volatile_state_receipt(root, record, sink)
+        volatile_receipt = _volatile_state_receipt(root, record, sink)
+        sink = str(volatile_receipt["sink"])
     if kind == "observe":
         if not any(
             o.id == sink for o in promotion.list_observations(root, include_closed=True)
@@ -490,6 +509,16 @@ def record_disposition(
         "note": note.strip(),
         "at": datetime.now().astimezone().isoformat(timespec="seconds"),
     }
+    if kind == "covered":
+        disposition.update(
+            {
+                "coverage_claim": coverage_claim.strip(),
+                "coverage_locator": coverage_locator.strip(),
+                "coverage_excerpt": coverage_excerpt.strip(),
+            }
+        )
+    if kind == "volatile-state":
+        disposition.update(volatile_receipt)
     if batch_item is not None:
         disposition.update(
             {
@@ -539,10 +568,13 @@ def _authoritative_canonical_sink(
             f"{disposition} sink is not an authoritative canonical asset: {sink}"
         ) from exc
     parts = {part.casefold() for part in Path(relpath).parts}
+    first_part = Path(relpath).parts[0].casefold() if Path(relpath).parts else ""
     if (
         not path.is_file()
-        or not relpath.startswith(_CANONICAL_SINK_PREFIXES)
+        or first_part in _NON_CANONICAL_TOP_LEVELS
+        or first_part.startswith(".")
         or relpath.startswith("user space/private/")
+        or relpath.startswith("context build/runtime/")
         or "secret" in parts
         or bool(parts & _NON_AUTHORITATIVE_SINK_PARTS)
     ):
@@ -561,7 +593,41 @@ def _authoritative_canonical_sink(
     return relpath
 
 
-def _volatile_state_receipt(root: Path, record: RunRecord, sink: str) -> str:
+def _covered_receipt(
+    root: Path,
+    sink: str,
+    *,
+    claim: str,
+    locator: str,
+    excerpt: str,
+) -> str:
+    """Prove semantic coverage with content, not merely an allowed path."""
+    missing = [
+        label
+        for label, value in (
+            ("coverage claim", claim),
+            ("coverage locator", locator),
+            ("coverage excerpt", excerpt),
+        )
+        if not value.strip()
+    ]
+    if missing:
+        raise ValueError("covered disposition requires " + ", ".join(missing))
+    relpath = _authoritative_canonical_sink(root, sink, disposition="covered")
+    content = (root / relpath).read_text(encoding="utf-8")
+    normalized = " ".join(content.split())
+    for label, value in (
+        ("coverage locator", locator.strip()),
+        ("coverage excerpt", excerpt.strip()),
+    ):
+        if value not in content and " ".join(value.split()) not in normalized:
+            raise ValueError(f"{label} is not present in covered sink: {relpath}")
+    return relpath
+
+
+def _volatile_state_receipt(
+    root: Path, record: RunRecord, sink: str,
+) -> dict[str, Any]:
     relpath = _authoritative_canonical_sink(
         root, sink, disposition="volatile-state"
     )
@@ -573,18 +639,56 @@ def _volatile_state_receipt(root: Path, record: RunRecord, sink: str) -> str:
                 allow_empty_output=True,
             ).strip()
         )
-    ledgered = any(
-        entry.origin == f"run:{record.id}"
-        and entry.target == relpath
-        and entry.state not in {"failed", "stale"}
-        for entry in ledgerlib.list_entries(root)
+    ledger_entry = next(
+        (
+            entry for entry in ledgerlib.list_entries(root)
+            if entry.origin == f"run:{record.id}"
+            and entry.target == relpath
+            and entry.state not in {"failed", "stale"}
+        ),
+        None,
     )
-    if not dirty and not ledgered:
+    if ledger_entry is not None:
+        return {
+            "sink": relpath,
+            "run_owned_write": False,
+            "ledger_receipt": ledger_entry.id,
+        }
+    if relpath in record.dirty_baseline:
+        raise ValueError(
+            "volatile-state sink was dirty before this Run opened and is not a "
+            f"Run-Owned Write: {relpath}"
+        )
+    if not dirty:
         raise ValueError(
             "volatile-state disposition requires a current Run write receipt: "
             f"{relpath} is unchanged and has no run ledger entry"
         )
-    return relpath
+    return {
+        "sink": relpath,
+        "run_owned_write": True,
+        "sink_digest": hashlib.sha256((root / relpath).read_bytes()).hexdigest(),
+    }
+
+
+def _validate_run_owned_writes(root: Path, record: RunRecord) -> None:
+    for disposition in record.dispositions:
+        if disposition.get("run_owned_write") is not True:
+            continue
+        relpath = str(disposition.get("sink") or "")
+        path = root / relpath
+        expected = str(disposition.get("sink_digest") or "")
+        current = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else ""
+        dirty = bool(
+            _git.git(
+                root, ["status", "--porcelain", "--", relpath],
+                allow_empty_output=True,
+            ).strip()
+        ) if _git.is_git_repo(root) else path.is_file()
+        if not expected or current != expected or not dirty:
+            raise RuntimeError(
+                f"volatile-state sink drifted after its receipt: {relpath}"
+            )
 
 
 def _settle_source_batch(
@@ -793,17 +897,37 @@ def next_contract(root: Path, *, budget: int = DEFAULT_BUDGET) -> dict[str, Any]
         kind = _source_kind(item)
         pending_batch_items = _pending_batch_items(record, item)
         if pending_batch_items:
-            review_unit = pending_batch_items[0]
+            review_units = pending_batch_items[:BACKGROUND_REVIEW_SLICE_LIMIT]
+            if len(review_units) == 1:
+                return {
+                    "run_id": record.id,
+                    "action": "classify-source-item",
+                    "owner_visibility": "silent",
+                    **_BACKGROUND_PROGRESS,
+                    "input_ref": item.get("path", ""),
+                    "source_kind": kind,
+                    "handler": item.get("handler", "source-review"),
+                    "summary": item.get("summary", ""),
+                    "review_unit": review_units[0],
+                    "source_batch_size": int(item.get("batch_size") or 0),
+                    "remaining_in_batch": len(pending_batch_items),
+                    "total_count": int(item.get("total_count") or 0),
+                    "remaining_count": int(item.get("remaining_count") or 0),
+                    "excluded_source_counts": dict(
+                        item.get("excluded_source_counts") or {}
+                    ),
+                    "constraints": _source_constraints(kind, per_item=True),
+                }
             return {
                 "run_id": record.id,
-                "action": "classify-source-item",
+                "action": "classify-source-items",
                 "owner_visibility": "silent",
                 **_BACKGROUND_PROGRESS,
                 "input_ref": item.get("path", ""),
                 "source_kind": kind,
                 "handler": item.get("handler", "source-review"),
                 "summary": item.get("summary", ""),
-                "review_unit": review_unit,
+                "review_units": review_units,
                 "source_batch_size": int(item.get("batch_size") or 0),
                 "remaining_in_batch": len(pending_batch_items),
                 "total_count": int(item.get("total_count") or 0),
@@ -811,7 +935,9 @@ def next_contract(root: Path, *, budget: int = DEFAULT_BUDGET) -> dict[str, Any]
                 "excluded_source_counts": dict(
                     item.get("excluded_source_counts") or {}
                 ),
-                "constraints": _source_constraints(kind, per_item=True),
+                "constraints": _source_constraints(
+                    kind, per_item=True, slice_size=len(review_units)
+                ),
             }
         return {
             "run_id": record.id,
@@ -851,6 +977,8 @@ def next_contract(root: Path, *, budget: int = DEFAULT_BUDGET) -> dict[str, Any]
     candidates = [item for item in _ask_items(root) if item.type == "candidate"]
     if candidates and candidate_budget:
         item = candidates[0]
+        candidate = promotion.get_candidate(root, item.id)
+        assert candidate is not None and candidate.reviewable
         return {
             "run_id": record.id,
             "action": "decide-candidate",
@@ -859,6 +987,7 @@ def next_contract(root: Path, *, budget: int = DEFAULT_BUDGET) -> dict[str, Any]
             "ask_type": item.type,
             "title": item.title,
             "detail": item.detail,
+            "review_card": _candidate_review_card(candidate),
             "review_budget_remaining": candidate_budget,
             "constraints": [
                 "present the complete card in simple language, including why now, actual source events, existing coverage, why this belongs in an owner-governed durable asset, promotion ground, future effect, exact patch, and decision question",
@@ -885,15 +1014,26 @@ def _source_kind(item: dict[str, Any]) -> str:
     )
 
 
-def _source_constraints(kind: str, *, per_item: bool = False) -> list[str]:
+def _source_constraints(
+    kind: str, *, per_item: bool = False, slice_size: int = 1,
+) -> list[str]:
     unit_rule = (
-        "record exactly one disposition for this Review Unit using --item"
+        (
+            f"record exactly one disposition for each of these {slice_size} "
+            "Review Units using --item"
+            if slice_size > 1 else
+            "record exactly one disposition for this Review Unit using --item"
+        )
         if per_item else
         "record exactly one disposition for this source"
     )
     if kind == "agent-memory":
         return [
-            "inspect only the listed Review Unit and its evidence pointers",
+            (
+                "inspect only the listed Review Units and their evidence pointers"
+                if slice_size > 1 else
+                "inspect only the listed Review Unit and its evidence pointers"
+            ),
             "derive event ids from the underlying thread/session/source event, not from file paths; multiple pointers to the same event share one id",
             "source context must describe what actually happened; a hypothetical harm is not evidence of a problem",
             "a request made for this one task is not an owner-directed long-term requirement",
@@ -1117,6 +1257,8 @@ def _ask_items(root: Path) -> list[AskItem]:
             )
         )
     for candidate in promotion.list_candidates(root):
+        if not candidate.reviewable:
+            continue
         items.append(
             AskItem(
                 id=candidate.id,
@@ -1129,6 +1271,28 @@ def _ask_items(root: Path) -> list[AskItem]:
 
 
 def _candidate_review_detail(candidate: promotion.Candidate) -> str:
+    card = _candidate_review_card(candidate)
+    return (
+        f"为什么现在提出:{card['why_now']}\n"
+        f"来源经历:{'；'.join(card['source_events'])}\n"
+        f"证据指针:{'；'.join(card['evidence'])}\n"
+        f"现有资产对照:{card['existing_coverage']}\n"
+        f"为什么值得成为长期资产:{card['asset_fit']}\n"
+        f"问题:{card['problem']}\n"
+        f"晋升为什么成立:{card['promotion_ground']}；{card['promotion_rationale']}\n"
+        f"建议:{card['proposal']}\n"
+        f"适用范围:{card['scope']}\n"
+        f"不适用:{'；'.join(card['exclusions'])}\n"
+        f"写入后的影响:{card['expected_effect']}\n"
+        f"准确写入位置:{card['patch']['target']} @ "
+        f"{card['patch']['anchor'] or '(whole file)'} [{card['patch']['mode']}]\n"
+        f"准确写入内容:\n{card['patch']['proposed_text']}\n"
+        f"验证:{card['verification']}\n"
+        f"请你决定:{card['decision_question']}"
+    )
+
+
+def _candidate_review_card(candidate: promotion.Candidate) -> dict[str, Any]:
     ground_detail = {
         "repeated": (
             "两个以上独立经历: " + "；".join(candidate.event_ids)
@@ -1141,24 +1305,28 @@ def _candidate_review_detail(candidate: promotion.Candidate) -> str:
             f"失败时: {candidate.risk_failure}"
         ),
     }.get(candidate.ground, f"历史候选依据: {candidate.ground}")
-    return (
-        f"为什么现在提出:{candidate.source_context}\n"
-        f"来源经历:{'；'.join(candidate.event_ids)}\n"
-        f"证据指针:{'；'.join(candidate.evidence)}\n"
-        f"现有资产对照:{candidate.existing_coverage}\n"
-        f"为什么值得成为长期资产:{candidate.asset_fit}\n"
-        f"问题:{candidate.problem}\n"
-        f"晋升为什么成立:{ground_detail}；{candidate.promotion_rationale}\n"
-        f"建议:{candidate.proposal}\n"
-        f"适用范围:{candidate.scope}\n"
-        f"不适用:{'；'.join(candidate.exclusions)}\n"
-        f"写入后的影响:{candidate.expected_effect}\n"
-        f"准确写入位置:{candidate.target} @ {candidate.anchor or '(whole file)'} "
-        f"[{candidate.mode}]\n"
-        f"准确写入内容:\n{candidate.proposed_text}\n"
-        f"验证:{candidate.verification}\n"
-        f"请你决定:{candidate.decision_question}"
-    )
+    return {
+        "why_now": candidate.source_context,
+        "source_events": candidate.event_ids,
+        "evidence": candidate.evidence,
+        "existing_coverage": candidate.existing_coverage,
+        "asset_fit": candidate.asset_fit,
+        "promotion_ground": ground_detail,
+        "promotion_rationale": candidate.promotion_rationale,
+        "problem": candidate.problem,
+        "proposal": candidate.proposal,
+        "scope": candidate.scope,
+        "exclusions": candidate.exclusions,
+        "expected_effect": candidate.expected_effect,
+        "patch": {
+            "target": candidate.target,
+            "anchor": candidate.anchor,
+            "mode": candidate.mode,
+            "proposed_text": candidate.proposed_text,
+        },
+        "verification": candidate.verification,
+        "decision_question": candidate.decision_question,
+    }
 
 
 def _certifiable(root: Path) -> list[tuple[str, int, int]]:
@@ -1277,6 +1445,7 @@ def _records(root: Path) -> list[RunRecord]:
                 dispositions=[dict(d) for d in (fm.get("dispositions") or [])],
                 decisions=[dict(d) for d in (fm.get("decisions") or [])],
                 expired_observations=[str(x) for x in (fm.get("expired_observations") or [])],
+                dirty_baseline=[str(x) for x in (fm.get("dirty_baseline") or [])],
                 path=path,
             )
         )
@@ -1294,6 +1463,7 @@ def _write_record(root: Path, record: RunRecord, report: dict[str, Any] | None =
         "dispositions": record.dispositions,
         "decisions": record.decisions,
         "expired_observations": record.expired_observations,
+        "dirty_baseline": record.dirty_baseline,
     }
     body = "# Forge run " + record.id + "\n"
     if report:
@@ -1332,6 +1502,20 @@ def _count_by(rows: list[dict[str, Any]], key: str) -> dict[str, int]:
     return counts
 
 
+def _dirty_paths(root: Path) -> list[str]:
+    if not _git.is_git_repo(root):
+        return []
+    paths: set[str] = set()
+    for args in (
+        ["diff", "--name-only"],
+        ["diff", "--cached", "--name-only"],
+        ["ls-files", "--others", "--exclude-standard"],
+    ):
+        output = _git.git(root, args, allow_empty_output=True)
+        paths.update(line for line in output.splitlines() if line)
+    return sorted(paths)
+
+
 def _with_final_facts(
     root: Path,
     report: dict[str, Any],
@@ -1349,7 +1533,7 @@ def _with_final_facts(
         porcelain = "<status unavailable>"
     pending_candidates = sum(
         1 for candidate in promotion.list_candidates(root, include_decided=True)
-        if candidate.state == "pending"
+        if candidate.reviewable
     )
     observing = sum(
         1 for observation in promotion.list_observations(root, include_closed=True)

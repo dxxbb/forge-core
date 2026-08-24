@@ -2,6 +2,21 @@
 
 记录 `forge-core` 的所有显著变动。
 
+## 0.18.0 (Qualified Review and Run-Owned Settlement) — 2026-08-24
+
+### Changed
+
+- Candidate Qualification 与 lifecycle 分轴：不符合现行合同的历史卡标记 `legacy-unqualified`，只保留审计，不进入 Owner Review 或 Candidate Conclusion。
+- 合格 Candidate 的 Run Contract 返回结构化 Review Card，明确真实事件、已有覆盖、资产适配、晋升理由、准确 patch、未来影响和裁决问题。
+- Codex Memory 从 Task Group 收紧为 Task Review Unit；无法归属 Task 的组级内容形成独立 Group Summary，单任务旧 checkpoint 仅在摘要完全一致时兼容迁移。
+- `covered` 强制保存真实 claim、locator、excerpt；Canonical Source 改按 tracked/authoritative 属性判断，不再维护有限顶层 allowlist。
+- Run 保存 dirty baseline，`volatile-state` 只接受 Run ledger 或 stale-check 后的 Run-Owned Write，close 原子提交本轮拥有的状态 sink。
+- 后台筛选片最多 3 个独立单元，默认 Owner Candidate budget 为 1；Forge 主 Skill 聚焦 Run，初始化和 legacy 流程按需安装为 references。
+
+### Tests
+
+- 新增旧 Candidate 审计隔离、结构化 Review Card、Task/Group Summary 单元、covered 内容回执、dirty baseline、digest stale-check、Run-Owned close commit 和 Skill bundle self-install 回归。
+
 ## 0.17.0 (Attention, Receipts, and Closure Truth) — 2026-08-24
 
 0.16.0 的一句话隔离验收仍在后台进度中泄露 Observation 细节,又允许裸路径冒充 covered/volatile-state 去向,并让持久 Run 报告与 close CLI 分别保留 158/157 两套计数。本版把三个症状统一收口到 owner 注意力、去向回执和收口快照合同。

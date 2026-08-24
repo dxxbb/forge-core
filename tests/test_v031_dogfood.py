@@ -20,6 +20,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import yaml
 from click.testing import CliRunner
 
 from forge.cli import main
@@ -466,7 +467,8 @@ def test_skill_md_carries_current_version():
     # The packaged asset's frontmatter version should match the package version.
     src = Path(__file__).resolve().parent.parent / "forge" / "assets" / "skills" / "forge" / "SKILL.md"
     text = src.read_text(encoding="utf-8")
-    m = re.search(r"^version:\s*(\S+)", text, re.MULTILINE)
-    assert m, "SKILL.md missing `version:` frontmatter key"
-    assert m.group(1) == __version__, \
-        f"SKILL.md version is {m.group(1)}, expected {__version__}"
+    frontmatter = yaml.safe_load(text.split("---", 2)[1])
+    skill_version = frontmatter.get("metadata", {}).get("version")
+    assert skill_version, "SKILL.md missing `metadata.version` frontmatter key"
+    assert str(skill_version) == __version__, \
+        f"SKILL.md version is {skill_version}, expected {__version__}"

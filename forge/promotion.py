@@ -84,6 +84,12 @@ class Candidate:
     revisions: list[dict[str, Any]] = field(default_factory=list)
     feedback: list[dict[str, Any]] = field(default_factory=list)
     path: Path | None = None
+    qualification: str = "qualified"
+    qualification_issues: list[str] = field(default_factory=list)
+
+    @property
+    def reviewable(self) -> bool:
+        return self.state == "pending" and self.qualification == "qualified"
 
 
 def observation_dir(root: Path) -> Path:
@@ -277,10 +283,10 @@ def create_candidate(
     if not event_ids:
         raise ValueError("candidate requires at least one stable event id")
     evidence = _clean_refs(evidence)
+    if not evidence:
+        raise ValueError("candidate requires at least one evidence reference")
     if ground == "repeated" and len(event_ids) < 2:
         raise ValueError("repeated ground requires two independent events")
-    if ground == "owner-directed" and not evidence:
-        raise ValueError(f"{ground} ground requires evidence")
     if ground == "owner-directed" and not owner_request.strip():
         raise ValueError("owner-directed ground requires the exact long-term owner request")
     required = {
@@ -381,12 +387,12 @@ def list_candidates(root: Path, *, include_decided: bool = False) -> list[Candid
             decided_at=str(fm.get("decided_at") or ""),
             event_ids=event_ids,
             evidence=evidence,
-            source_context=str(fm.get("source_context") or "legacy candidate; inspect evidence"),
-            existing_coverage=str(fm.get("existing_coverage") or "legacy candidate; not recorded"),
-            asset_fit=str(fm.get("asset_fit") or "legacy candidate; not recorded"),
-            promotion_rationale=str(fm.get("promotion_rationale") or "legacy candidate; not recorded"),
-            expected_effect=str(fm.get("expected_effect") or "legacy candidate; inspect proposed patch"),
-            decision_question=str(fm.get("decision_question") or "是否批准这张历史候选卡？"),
+            source_context=str(fm.get("source_context") or ""),
+            existing_coverage=str(fm.get("existing_coverage") or ""),
+            asset_fit=str(fm.get("asset_fit") or ""),
+            promotion_rationale=str(fm.get("promotion_rationale") or ""),
+            expected_effect=str(fm.get("expected_effect") or ""),
+            decision_question=str(fm.get("decision_question") or ""),
             problem=str(fm.get("problem") or ""),
             proposal=str(fm.get("proposal") or ""),
             scope=str(fm.get("scope") or ""),
@@ -405,6 +411,10 @@ def list_candidates(root: Path, *, include_decided: bool = False) -> list[Candid
             revisions=[dict(x) for x in (fm.get("revisions") or [])],
             feedback=[dict(x) for x in (fm.get("feedback") or [])],
             path=path,
+        )
+        candidate.qualification_issues = _candidate_qualification_issues(candidate)
+        candidate.qualification = (
+            "legacy-unqualified" if candidate.qualification_issues else "qualified"
         )
         if include_decided or candidate.state == "pending":
             out.append(candidate)
@@ -809,6 +819,44 @@ def _load_frontmatter(path: Path, kind: str) -> dict[str, Any] | None:
 
 def _clean_refs(refs: list[str]) -> list[str]:
     return list(dict.fromkeys(r.strip() for r in refs if r.strip()))
+
+
+def _candidate_qualification_issues(candidate: Candidate) -> list[str]:
+    """Return current review-publication failures without rewriting history."""
+    issues: list[str] = []
+    required = {
+        "title": candidate.title,
+        "source_context": candidate.source_context,
+        "existing_coverage": candidate.existing_coverage,
+        "asset_fit": candidate.asset_fit,
+        "promotion_rationale": candidate.promotion_rationale,
+        "expected_effect": candidate.expected_effect,
+        "decision_question": candidate.decision_question,
+        "problem": candidate.problem,
+        "proposal": candidate.proposal,
+        "scope": candidate.scope,
+        "target": candidate.target,
+        "proposed_text": candidate.proposed_text,
+        "verification": candidate.verification,
+    }
+    issues.extend(name for name, value in required.items() if not value.strip())
+    if candidate.ground not in {"repeated", "owner-directed"}:
+        issues.append("ground")
+    if not candidate.event_ids:
+        issues.append("event_ids")
+    if any(event_id.startswith("legacy-candidate:") for event_id in candidate.event_ids):
+        issues.append("event_ids")
+    if not candidate.evidence:
+        issues.append("evidence")
+    if candidate.ground == "repeated" and len(set(candidate.event_ids)) < 2:
+        issues.append("ground")
+    if candidate.ground == "owner-directed" and not candidate.owner_request.strip():
+        issues.append("owner_request")
+    if not candidate.exclusions:
+        issues.append("exclusions")
+    if candidate.mode not in {"create", "replace", "append"}:
+        issues.append("mode")
+    return list(dict.fromkeys(issues))
 
 
 _EVENT_ID_RE = re.compile(r"[a-z][a-z0-9-]*:[^\s]+\Z")

@@ -275,11 +275,93 @@ def test_review_card_explains_why_now_gap_ground_effect_question_and_patch(
 
     contract = run.next_contract(tmp_path)
     assert contract["action"] == "decide-candidate"
+    assert contract["review_card"] == {
+        "why_now": candidate.source_context,
+        "source_events": candidate.event_ids,
+        "evidence": candidate.evidence,
+        "existing_coverage": candidate.existing_coverage,
+        "asset_fit": candidate.asset_fit,
+        "promotion_ground": "两个以上独立经历: codex-thread:a；codex-thread:b",
+        "promotion_rationale": candidate.promotion_rationale,
+        "problem": candidate.problem,
+        "proposal": candidate.proposal,
+        "scope": candidate.scope,
+        "exclusions": candidate.exclusions,
+        "expected_effect": candidate.expected_effect,
+        "patch": {
+            "target": candidate.target,
+            "anchor": candidate.anchor,
+            "mode": candidate.mode,
+            "proposed_text": candidate.proposed_text,
+        },
+        "verification": candidate.verification,
+        "decision_question": candidate.decision_question,
+    }
     assert contract["constraints"] == [
         "present the complete card in simple language, including why now, actual source events, existing coverage, why this belongs in an owner-governed durable asset, promotion ground, future effect, exact patch, and decision question",
         "do not collapse the card into only the proposed rule",
         "do not decide for the owner",
     ]
+
+
+def test_legacy_unqualified_candidate_is_audit_only_not_owner_review(
+    tmp_path: Path,
+) -> None:
+    from click.testing import CliRunner
+
+    from forge.cli import main
+
+    directory = tmp_path / "system" / "candidates"
+    directory.mkdir(parents=True)
+    path = directory / "cand-medical.md"
+    path.write_text(
+        """---
+kind: candidate-asset
+id: cand-medical
+title: 医疗问题给可核查的分层指导和停止边界
+state: pending
+ground: explicit
+created_at: '2026-08-23T21:00:00+08:00'
+decided_at: ''
+evidence:
+  - rollout/medical-a.md
+problem: 一次医疗调研没有形成长期回答规则。
+proposal: 医疗问题采用分层回答。
+scope: 医疗资料调研。
+exclusions:
+  - 个人诊断
+verification: runtime 出现该规则。
+patch:
+  target: assist config/work preference/working-style.md
+  anchor: ''
+  mode: append
+  proposed_text: 医疗问题采用分层回答。
+---
+""",
+        encoding="utf-8",
+    )
+
+    [candidate] = list_candidates(tmp_path)
+
+    assert candidate.state == "pending"
+    assert candidate.qualification == "legacy-unqualified"
+    assert candidate.reviewable is False
+    assert "ground" in candidate.qualification_issues
+    assert "source_context" in candidate.qualification_issues
+    assert candidate.source_context == ""
+    assert run.ask(tmp_path) == []
+    status = run.status(tmp_path)
+    assert status["ask_counts"]["candidate"] == 0
+    assert status["candidate_counts"]["reviewable_pending"] == 0
+    assert status["candidate_counts"]["legacy_unqualified"] == 1
+    assert status["candidate_conclusion"] == "none"
+    shown = CliRunner().invoke(
+        main, ["candidate", "show", "cand-medical", "--root", str(tmp_path)]
+    )
+    assert shown.exit_code == 0
+    assert "不具备当前候选资格" in shown.output
+    assert "不会进入 Owner Review" in shown.output
+    assert "请你决定" not in shown.output
 
 
 def _owner_directed_review(event: str) -> dict[str, object]:
@@ -296,7 +378,7 @@ def _owner_directed_review(event: str) -> dict[str, object]:
     }
 
 
-def test_run_asks_for_at_most_three_candidates_and_never_for_freshness(
+def test_run_asks_for_one_candidate_by_default_and_never_for_freshness(
     tmp_path: Path,
 ) -> None:
     from forge.zone import certify, zone_init
@@ -331,11 +413,13 @@ def test_run_asks_for_at_most_three_candidates_and_never_for_freshness(
 
     items = run.ask(tmp_path)
 
-    assert len(items) == 3
+    assert len(items) == 1
     assert all(item.type == "candidate" for item in items)
     assert all("问题" in item.detail and "适用范围" in item.detail for item in items)
     assert run.status(tmp_path)["candidate_counts"] == {
         "pending": 4,
+        "reviewable_pending": 4,
+        "legacy_unqualified": 0,
         "promoted": 0,
         "rejected": 0,
         "observing": 0,
@@ -459,12 +543,12 @@ def test_run_next_stops_after_three_candidate_decisions(tmp_path: Path) -> None:
     ]
 
     for remaining in (3, 2, 1):
-        contract = run.next_contract(ws)
+        contract = run.next_contract(ws, budget=3)
         assert contract["action"] == "decide-candidate"
         assert contract["review_budget_remaining"] == remaining
         run.decide(ws, contract["ask_id"], "reject", "test budget")
 
-    assert run.next_contract(ws)["action"] == "close"
+    assert run.next_contract(ws, budget=3)["action"] == "close"
     pending = [
         candidate
         for candidate in list_candidates(ws)

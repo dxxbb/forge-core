@@ -25,6 +25,7 @@ from forge.governance.rollback import rollback as rollback_fn
 from forge.ingest.classifier import classify, write_sections, IngestError
 from forge.layout import detect
 from forge.audit import write_portal
+from forge.run import DEFAULT_BUDGET as RUN_DEFAULT_BUDGET
 
 
 def _root(path: str | None) -> Path:
@@ -580,7 +581,10 @@ def candidate_list(include_decided: bool, root: str | None) -> None:
     from forge.promotion import list_candidates
 
     for candidate in list_candidates(_root(root), include_decided=include_decided):
-        click.echo(f"{candidate.id} [{candidate.state}] {candidate.title}")
+        state_label = candidate.state
+        if candidate.qualification != "qualified":
+            state_label += f"/{candidate.qualification}"
+        click.echo(f"{candidate.id} [{state_label}] {candidate.title}")
 
 
 @candidate_group.command("show")
@@ -593,7 +597,18 @@ def candidate_show(candidate_id: str, root: str | None) -> None:
     candidate = get_candidate(_root(root), candidate_id)
     if candidate is None:
         raise click.ClickException(f"candidate not found: {candidate_id}")
-    click.echo(f"{candidate.id} [{candidate.state}] {candidate.title}")
+    state_label = candidate.state
+    if candidate.qualification != "qualified":
+        state_label += f"/{candidate.qualification}"
+    click.echo(f"{candidate.id} [{state_label}] {candidate.title}")
+    if not candidate.reviewable and candidate.state == "pending":
+        click.echo("这是一条历史审计记录，不具备当前候选资格，不会进入 Owner Review。")
+        click.echo("缺少或不符合: " + "、".join(candidate.qualification_issues))
+        click.echo("它不会因为文件仍存在就要求你批准；原始来源以后若满足当前门槛，会生成一张新的合格候选卡。")
+        click.echo("历史问题: " + candidate.problem)
+        click.echo("历史建议: " + candidate.proposal)
+        click.echo("历史证据: " + "；".join(candidate.evidence))
+        return
     click.echo(f"晋升依据: {candidate.ground}")
     click.echo("来源经历: " + "；".join(candidate.event_ids))
     click.echo(f"为什么现在提出: {candidate.source_context}")
@@ -853,7 +868,7 @@ def run_open(root: str | None) -> None:
 
 
 @run_group.command("ask")
-@click.option("--budget", type=int, default=3, show_default=True)
+@click.option("--budget", type=int, default=RUN_DEFAULT_BUDGET, show_default=True)
 @click.option("--root", type=click.Path(), default=None)
 def run_ask(budget: int, root: str | None) -> None:
     """Integrity issues plus at most N asset candidates, one card at a time."""
@@ -871,7 +886,7 @@ def run_ask(budget: int, root: str | None) -> None:
 
 
 @run_group.command("next")
-@click.option("--budget", type=int, default=3, show_default=True)
+@click.option("--budget", type=int, default=RUN_DEFAULT_BUDGET, show_default=True)
 @click.option("--root", type=click.Path(), default=None)
 def run_next(budget: int, root: str | None) -> None:
     """Return the single deterministic next action for the open Run."""
@@ -917,6 +932,9 @@ def run_decide(ask_id: str, decision: str | None, note: str, root: str | None) -
 @click.option("--sink", default="")
 @click.option("--note", default="")
 @click.option("--item", "item_ref", default="")
+@click.option("--coverage-claim", default="")
+@click.option("--coverage-locator", default="")
+@click.option("--coverage-excerpt", default="")
 @click.option("--root", type=click.Path(), default=None)
 def run_disposition(
     input_ref: str,
@@ -924,13 +942,22 @@ def run_disposition(
     sink: str,
     note: str,
     item_ref: str,
+    coverage_claim: str,
+    coverage_locator: str,
+    coverage_excerpt: str,
     root: str | None,
 ) -> None:
     """Record one explicit destination for an input or Source Review Unit."""
     from forge.run import record_disposition
 
     result = record_disposition(
-        _root(root), input_ref, kind, sink=sink, note=note, item_ref=item_ref
+        _root(root), input_ref, kind,
+        sink=sink,
+        note=note,
+        item_ref=item_ref,
+        coverage_claim=coverage_claim,
+        coverage_locator=coverage_locator,
+        coverage_excerpt=coverage_excerpt,
     )
     click.echo(json.dumps(result, ensure_ascii=False))
 

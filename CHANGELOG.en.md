@@ -2,6 +2,20 @@
 
 All notable changes to `forge-core` will be recorded in this file.
 
+## [0.18.0] — 2026-08-24
+
+### Qualified Review and Run-Owned Settlement
+
+- Historical Candidate files that do not satisfy the current qualification contract are audit-only and never reach Owner Review or Candidate Conclusion.
+- Qualified Candidate contracts expose real source events, existing coverage, asset fit, promotion rationale, exact patch, expected effect, and the owner decision question.
+- Codex Memory is screened by Task, with unassigned group content preserved as a separate Group Summary unit and exact single-task legacy checkpoints migrated safely.
+- Covered receipts require a real claim, locator, and excerpt; volatile state must be a stale-checked Run-Owned Write or a Run ledger receipt.
+- Background screening is capped at three independent units, the default Owner Candidate budget is one, and conditional Skill workflows install as references.
+
+### Tests
+
+- Added qualification isolation, structured cards, Task/Group Summary units, semantic covered receipts, dirty-baseline and digest guards, Run-owned close commits, and Skill bundle installation coverage.
+
 ## [0.17.0] — 2026-08-24
 
 ### Changed

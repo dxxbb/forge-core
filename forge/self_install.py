@@ -53,7 +53,12 @@ def _sha256(text: str) -> str:
 
 def _packaged_skill_source() -> Path:
     """Path to packaged SKILL.md asset shipped with the wheel."""
-    return Path(__file__).parent / "assets" / "skills" / "forge" / "SKILL.md"
+    return _packaged_skill_dir() / "SKILL.md"
+
+
+def _packaged_skill_dir() -> Path:
+    """Directory containing the complete packaged Forge skill."""
+    return Path(__file__).parent / "assets" / "skills" / "forge"
 
 
 def _inject_marker(skill_text: str, runtime_name: str) -> str:
@@ -103,6 +108,26 @@ class SkillRuntime(ABC):
     def render(self) -> str:
         """Skill content with managed marker applied."""
 
+    def render_bundle(self) -> dict[str, str]:
+        """All packaged skill files, marked for this runtime."""
+        source_dir = _packaged_skill_dir()
+        if not source_dir.is_dir():
+            raise FileNotFoundError(
+                f"packaged skill asset missing at {source_dir}. "
+                "Reinstall forge from a release wheel or `pip install -e .` from source."
+            )
+        bundle: dict[str, str] = {}
+        for source in sorted(path for path in source_dir.rglob("*") if path.is_file()):
+            relative = source.relative_to(source_dir).as_posix()
+            bundle[relative] = _inject_marker(
+                source.read_text(encoding="utf-8"), self.name
+            )
+        if "SKILL.md" not in bundle:
+            raise FileNotFoundError(
+                f"packaged skill asset missing at {source_dir / 'SKILL.md'}"
+            )
+        return bundle
+
 
 class ClaudeCodeRuntime(SkillRuntime):
     name = "claude-code"
@@ -114,13 +139,7 @@ class ClaudeCodeRuntime(SkillRuntime):
         return home / ".claude" / "skills" / "forge" / "SKILL.md"
 
     def render(self) -> str:
-        src = _packaged_skill_source()
-        if not src.exists():
-            raise FileNotFoundError(
-                f"packaged skill asset missing at {src}. "
-                "Reinstall forge from a release wheel or `pip install -e .` from source."
-            )
-        return _inject_marker(src.read_text(encoding="utf-8"), self.name)
+        return self.render_bundle()["SKILL.md"]
 
 
 class CodexRuntime(SkillRuntime):
@@ -133,13 +152,7 @@ class CodexRuntime(SkillRuntime):
         return home / ".codex" / "skills" / "forge" / "SKILL.md"
 
     def render(self) -> str:
-        src = _packaged_skill_source()
-        if not src.exists():
-            raise FileNotFoundError(
-                f"packaged skill asset missing at {src}. "
-                "Reinstall forge from a release wheel or `pip install -e .` from source."
-            )
-        return _inject_marker(src.read_text(encoding="utf-8"), self.name)
+        return self.render_bundle()["SKILL.md"]
 
 
 # Registry of supported runtimes. To add a new one, subclass SkillRuntime
@@ -216,7 +229,8 @@ def self_install(
             continue
 
         try:
-            new_content = rt.render()
+            bundle = rt.render_bundle()
+            new_content = bundle["SKILL.md"]
         except FileNotFoundError as e:
             actions.append(RuntimeAction(rt.name, target, "conflict", str(e)))
             continue
@@ -235,17 +249,16 @@ def self_install(
         if existing is None:
             status = "detected" if dry_run else "installed"
             if not dry_run:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(new_content, encoding="utf-8")
+                _write_skill_bundle(target.parent, bundle)
             actions.append(RuntimeAction(rt.name, target, status, "fresh install"))
-        elif _sha256(existing) == _sha256(new_content):
+        elif _skill_bundle_matches(target.parent, bundle):
             actions.append(RuntimeAction(rt.name, target, "unchanged", "already up-to-date"))
             # still record presence in manifest below
         elif MANAGED_MARKER_RE.search(existing) or _was_managed_previously(manifest, rt.name, target) or legacy_match or force:
             status = "detected" if dry_run else "updated"
             if not dry_run:
-                target.write_text(new_content, encoding="utf-8")
-            note = "managed file refreshed"
+                _write_skill_bundle(target.parent, bundle)
+            note = "managed skill directory refreshed"
             if legacy_match:
                 note = "migrated legacy `install-skill` output"
             elif force and not MANAGED_MARKER_RE.search(existing):
@@ -266,7 +279,7 @@ def self_install(
             manifest["runtimes"][rt.name] = {
                 "path": str(target),
                 "forge_version": __version__,
-                "content_sha": _sha256(new_content),
+                "content_sha": _skill_bundle_sha(bundle),
                 "installed_at": _now_iso(),
             }
 
@@ -275,6 +288,34 @@ def self_install(
         _write_manifest(home, manifest)
 
     return actions
+
+
+def _write_skill_bundle(target_dir: Path, bundle: dict[str, str]) -> None:
+    for relative, content in bundle.items():
+        target = target_dir / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+
+
+def _skill_bundle_matches(target_dir: Path, bundle: dict[str, str]) -> bool:
+    for relative, content in bundle.items():
+        target = target_dir / relative
+        if not target.is_file():
+            return False
+        try:
+            existing = target.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return False
+        if _sha256(existing) != _sha256(content):
+            return False
+    return True
+
+
+def _skill_bundle_sha(bundle: dict[str, str]) -> str:
+    serialized = "\0".join(
+        f"{relative}\0{bundle[relative]}" for relative in sorted(bundle)
+    )
+    return _sha256(serialized)
 
 
 def _matches_packaged_asset(existing: str) -> bool:

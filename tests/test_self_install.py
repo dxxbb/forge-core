@@ -70,7 +70,23 @@ def test_fresh_install_writes_codex_skill_with_marker(tmp_path: Path) -> None:
     body = codex.target.read_text("utf-8")
     assert MANAGED_MARKER_RE.search(body), "managed-by marker missing"
     assert "forge-runtime: codex" in body
-    assert "forge audit portal --diff" in body
+    assert "references/legacy-workflows.md" in body
+
+
+def test_fresh_install_writes_supporting_references(tmp_path: Path) -> None:
+    home = _make_codex_home(tmp_path)
+
+    actions = self_install(home=home, only=["codex"])
+
+    codex = actions[0]
+    assert codex.status == "installed"
+    skill_dir = codex.target.parent
+    initialize = skill_dir / "references" / "initialize-and-import.md"
+    legacy = skill_dir / "references" / "legacy-workflows.md"
+    assert initialize.is_file()
+    assert legacy.is_file()
+    assert MANAGED_MARKER_RE.search(initialize.read_text("utf-8"))
+    assert MANAGED_MARKER_RE.search(legacy.read_text("utf-8"))
 
 
 def test_rerun_is_idempotent(tmp_path: Path) -> None:
@@ -79,6 +95,25 @@ def test_rerun_is_idempotent(tmp_path: Path) -> None:
     actions = self_install(home=home)
     cc = next(a for a in actions if a.runtime == "claude-code")
     assert cc.status == "unchanged"
+
+
+def test_rerun_restores_a_missing_supporting_reference(tmp_path: Path) -> None:
+    home = _make_codex_home(tmp_path)
+    self_install(home=home, only=["codex"])
+    reference = (
+        home
+        / ".codex"
+        / "skills"
+        / "forge"
+        / "references"
+        / "initialize-and-import.md"
+    )
+    reference.unlink()
+
+    actions = self_install(home=home, only=["codex"])
+
+    assert actions[0].status == "updated"
+    assert reference.is_file()
 
 
 def test_managed_file_drift_is_refreshed(tmp_path: Path) -> None:

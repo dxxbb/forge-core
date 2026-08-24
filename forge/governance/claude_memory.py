@@ -121,6 +121,9 @@ class MemoryReviewUnit:
     end_line: int
     size: int
     sha256: str
+    content: str = ""
+    legacy_parent_id: str = ""
+    legacy_parent_sha256: str = ""
 
     @property
     def display(self) -> str:
@@ -131,7 +134,7 @@ class MemoryReviewUnit:
         return f"{self.title} · {self.source_path}#{location}"
 
     def to_batch_item(self, category: str) -> dict[str, object]:
-        return {
+        item: dict[str, object] = {
             "unit_id": self.id,
             "title": self.title,
             "unit_kind": self.kind,
@@ -143,6 +146,11 @@ class MemoryReviewUnit:
             "category": category,
             "size": self.size,
         }
+        if self.content:
+            item["content"] = self.content
+        if self.legacy_parent_id:
+            item["legacy_parent_id"] = self.legacy_parent_id
+        return item
 
 
 def _hash_file(path: Path) -> str:
@@ -254,9 +262,153 @@ def discover_codex_files() -> list[MemoryFile]:
 
 
 _TASK_GROUP_RE = re.compile(r"^# Task Group:\s*(.+?)\s*$", re.MULTILINE)
+_TASK_RE = re.compile(r"^## Task\s+(\d+)\s*:\s*(.+?)\s*$", re.MULTILINE)
+_LEVEL_TWO_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 _CODEX_AGGREGATE_NAMES = frozenset(
     {"memory_summary.md", "raw_memories.md"}
 )
+
+
+def _codex_task_units(
+    group_text: str,
+    *,
+    title: str,
+    group_identity: str,
+    legacy_parent_id: str,
+    source_path: Path,
+    group_start_offset: int,
+    line_number,
+) -> list[MemoryReviewUnit]:
+    """Split one curated Task Group into Tasks plus any unassigned summary."""
+    headings = list(_LEVEL_TWO_RE.finditer(group_text))
+    tasks = [heading for heading in headings if _TASK_RE.fullmatch(heading.group(0))]
+    if not tasks:
+        return []
+    first_task = tasks[0]
+    prefix = group_text[:first_task.start()].rstrip()
+    group_sections: list[tuple[str, str]] = []
+    for index, heading in enumerate(headings):
+        if _TASK_RE.fullmatch(heading.group(0)):
+            continue
+        section_end = headings[index + 1].start() if index + 1 < len(headings) else len(group_text)
+        group_sections.append((heading.group(0).strip(), group_text[heading.end():section_end]))
+
+    task_numbers = {
+        parsed.group(1)
+        for heading in tasks
+        if (parsed := _TASK_RE.fullmatch(heading.group(0))) is not None
+    }
+    units: list[MemoryReviewUnit] = []
+    for task in tasks:
+        parsed = _TASK_RE.fullmatch(task.group(0))
+        assert parsed is not None
+        task_number, task_title = parsed.group(1), parsed.group(2).strip()
+        heading_index = headings.index(task)
+        task_end = (
+            headings[heading_index + 1].start()
+            if heading_index + 1 < len(headings)
+            else len(group_text)
+        )
+        task_body = group_text[task.start():task_end].rstrip()
+        tagged_sections: list[str] = []
+        tag = re.compile(rf"\[Task\s+{re.escape(task_number)}\]")
+        for section_heading, section_body in group_sections:
+            blocks = _markdown_bullet_blocks(section_body)
+            selected = [block for block in blocks if tag.search(block)]
+            if selected:
+                tagged_sections.append(
+                    section_heading + "\n\n" + "\n".join(selected).strip()
+                )
+        assembled_parts = [prefix, task_body, *tagged_sections]
+        assembled = "\n\n".join(part for part in assembled_parts if part).rstrip() + "\n"
+        identity = hashlib.sha1(
+            f"{group_identity}\0task:{task_number}".encode("utf-8")
+        ).hexdigest()[:16]
+        absolute_start = group_start_offset + task.start()
+        absolute_end = group_start_offset + max(task.start(), task_end - 1)
+        units.append(
+            MemoryReviewUnit(
+                id=f"codex-task:{identity}",
+                title=f"{title} · Task {task_number}: {task_title}",
+                kind="codex-task",
+                source_path=source_path,
+                start_line=line_number(absolute_start),
+                end_line=line_number(absolute_end),
+                size=len(assembled.encode("utf-8")),
+                sha256=hashlib.sha256(assembled.encode("utf-8")).hexdigest(),
+                content=assembled,
+                legacy_parent_id=legacy_parent_id,
+                legacy_parent_sha256=hashlib.sha256(group_text.encode("utf-8")).hexdigest(),
+            )
+        )
+    unassigned_sections: list[str] = []
+    for section_heading, section_body in group_sections:
+        preamble, blocks = _markdown_section_parts(section_body)
+        unassigned_blocks = [
+            block
+            for block in blocks
+            if not any(
+                re.search(rf"\[Task\s+{re.escape(number)}\]", block)
+                for number in task_numbers
+            )
+        ]
+        unassigned_body = "\n\n".join(
+            part for part in (preamble, *unassigned_blocks) if part
+        ).strip()
+        if unassigned_body:
+            unassigned_sections.append(
+                section_heading + "\n\n" + unassigned_body
+            )
+    if unassigned_sections:
+        assembled = "\n\n".join((prefix, *unassigned_sections)).rstrip() + "\n"
+        identity = hashlib.sha1(
+            f"{group_identity}\0summary".encode("utf-8")
+        ).hexdigest()[:16]
+        units.append(
+            MemoryReviewUnit(
+                id=f"codex-task-group-summary:{identity}",
+                title=f"{title} · Group summary",
+                kind="codex-task-group-summary",
+                source_path=source_path,
+                start_line=line_number(group_start_offset),
+                end_line=line_number(
+                    group_start_offset + max(0, len(group_text) - 1)
+                ),
+                size=len(assembled.encode("utf-8")),
+                sha256=hashlib.sha256(assembled.encode("utf-8")).hexdigest(),
+                content=assembled,
+                legacy_parent_id=legacy_parent_id,
+                legacy_parent_sha256=hashlib.sha256(
+                    group_text.encode("utf-8")
+                ).hexdigest(),
+            )
+        )
+    return units
+
+
+def _markdown_section_parts(text: str) -> tuple[str, list[str]]:
+    preamble: list[str] = []
+    blocks: list[list[str]] = []
+    current: list[str] = []
+    for line in text.splitlines():
+        if line.startswith("- "):
+            if current:
+                blocks.append(current)
+            current = [line]
+        elif current:
+            current.append(line)
+        else:
+            preamble.append(line)
+    if current:
+        blocks.append(current)
+    return (
+        "\n".join(preamble).strip(),
+        ["\n".join(block).rstrip() for block in blocks],
+    )
+
+
+def _markdown_bullet_blocks(text: str) -> list[str]:
+    return _markdown_section_parts(text)[1]
 
 
 def discover_codex_review_units(
@@ -298,18 +450,32 @@ def discover_codex_review_units(
             identity = hashlib.sha1(
                 f"{title}\0{occurrence}".encode("utf-8")
             ).hexdigest()[:16]
-            units.append(
-                MemoryReviewUnit(
-                    id=f"codex-task-group:{identity}",
-                    title=title,
-                    kind="codex-task-group",
-                    source_path=registry.resolve(),
-                    start_line=line_number(match.start()),
-                    end_line=line_number(max(match.start(), end - 1)),
-                    size=len(body.encode("utf-8")),
-                    sha256=hashlib.sha256(body.encode("utf-8")).hexdigest(),
-                )
+            legacy_parent_id = f"codex-task-group:{identity}"
+            task_units = _codex_task_units(
+                body,
+                title=title,
+                group_identity=identity,
+                legacy_parent_id=legacy_parent_id,
+                source_path=registry.resolve(),
+                group_start_offset=match.start(),
+                line_number=line_number,
             )
+            if task_units:
+                units.extend(task_units)
+            else:
+                units.append(
+                    MemoryReviewUnit(
+                        id=legacy_parent_id,
+                        title=title,
+                        kind="codex-task-group",
+                        source_path=registry.resolve(),
+                        start_line=line_number(match.start()),
+                        end_line=line_number(max(match.start(), end - 1)),
+                        size=len(body.encode("utf-8")),
+                        sha256=hashlib.sha256(body.encode("utf-8")).hexdigest(),
+                        content=body,
+                    )
+                )
         referenced = 0
         for directory in (
             memories / "rollout_summaries",
@@ -346,6 +512,7 @@ def discover_codex_review_units(
                     end_line=max(1, data.count(b"\n") + 1),
                     size=stat.st_size,
                     sha256=digest,
+                    content=data.decode("utf-8"),
                 )
             )
 
@@ -388,6 +555,7 @@ def discover_review_units(
                 end_line=max(1, memory_file.path.read_bytes().count(b"\n") + 1),
                 size=memory_file.size,
                 sha256=memory_file.sha256,
+                content=memory_file.path.read_text(encoding="utf-8"),
             )
         )
     codex_units, excluded = discover_codex_review_units()
@@ -961,12 +1129,37 @@ def build_run_source_signal(
         save_state(workspace, state)
     modified: list[MemoryReviewUnit] = []
     unseen: list[MemoryReviewUnit] = []
+    parent_counts: dict[str, int] = {}
+    for unit in units:
+        if unit.legacy_parent_id:
+            parent_counts[unit.legacy_parent_id] = (
+                parent_counts.get(unit.legacy_parent_id, 0) + 1
+            )
+    checkpoint_migrated = False
     for unit in units:
         previous = state.settled_units.get(unit.id)
+        if (
+            previous is None
+            and unit.legacy_parent_id
+            and parent_counts.get(unit.legacy_parent_id) == 1
+        ):
+            legacy = state.settled_units.get(unit.legacy_parent_id)
+            if legacy and legacy.get("hash") == unit.legacy_parent_sha256:
+                state.settled_units[unit.id] = {
+                    "hash": unit.sha256,
+                    "size": unit.size,
+                    "seen_at": legacy.get("seen_at") or _now_iso(),
+                    "source_path": str(unit.source_path),
+                    "migrated_from": unit.legacy_parent_id,
+                }
+                previous = state.settled_units[unit.id]
+                checkpoint_migrated = True
         if previous is None:
             unseen.append(unit)
         elif previous.get("hash") != unit.sha256:
             modified.append(unit)
+    if checkpoint_migrated:
+        save_state(workspace, state)
     categorized = (
         [("modified", item) for item in modified]
         + [("unseen", item) for item in unseen]

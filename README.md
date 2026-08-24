@@ -88,13 +88,13 @@ Candidate 的准入依据只有两种:
 ```bash
 forge run status
 forge run open
-forge run next --budget 3
+forge run next --budget 1
 
 forge observation record --theme "..." --evidence capture/a.md
 forge candidate create --help
 forge run disposition <input> --as covered|one-off|volatile-state|observe|candidate|closed|defer
 
-forge run ask --budget 3  # 兼容的只读问单;主流程由 run next 驱动
+forge run ask --budget 1  # 兼容的只读问单;主流程由 run next 驱动
 forge candidate show <candidate-id>
 forge candidate revise <candidate-id> --scope "..." --exclusion "..."
 forge run decide <candidate-id> --approve|--reject|--observe
@@ -148,7 +148,7 @@ forge update
 
 ## 当前状态
 
-`0.17.0` Alpha,dogfood 阶段。除 Review Unit、Selection Coverage、Evidence Event 与 Owner Review Worthiness 外,后台分类现在受 Owner Attention Boundary 约束;covered/volatile-state 必须提供可核验 Disposition Receipt;close 用同一 post-commit Closure Snapshot 驱动持久报告和 CLI。Observation 继续只接收真实纠正/失败/冲突,当前任务 checkout 仍是唯一写入权限边界。真实长期使用效果仍需连续 Run 验证。
+`0.18.0` Alpha,dogfood 阶段。Owner Review 只接收符合当前 Candidate Qualification 的卡；历史缺字段卡保留审计但不再伪装成 pending Candidate。Codex Memory 按 Task 筛选，未归属内容单列 Group Summary；covered/volatile-state 需要可核验回执，Run-Owned Write 在 close 原子提交。主 Forge Skill 聚焦日常 Run，初始化和 legacy 流程按需加载。真实长期使用效果仍需连续 Run 验证。
 
 ## 开发
 
