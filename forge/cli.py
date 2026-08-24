@@ -501,6 +501,13 @@ def candidate_group() -> None:
 @click.option("--promotion-rationale", required=True)
 @click.option("--expected-effect", required=True)
 @click.option("--decision-question", required=True)
+@click.option(
+    "--owner-correction",
+    "owner_corrections",
+    type=(str, str, str),
+    multiple=True,
+    metavar="EVENT_ID CONTEXT QUOTE",
+)
 @click.option("--owner-request", default="")
 @click.option("--risk-invariant", default="")
 @click.option("--risk-failure", default="")
@@ -526,6 +533,7 @@ def candidate_create(
     promotion_rationale: str,
     expected_effect: str,
     decision_question: str,
+    owner_corrections: tuple[tuple[str, str, str], ...],
     owner_request: str,
     risk_invariant: str,
     risk_failure: str,
@@ -556,6 +564,10 @@ def candidate_create(
         promotion_rationale=promotion_rationale,
         expected_effect=expected_effect,
         decision_question=decision_question,
+        owner_corrections=[
+            {"event_id": event_id, "context": context, "quote": quote}
+            for event_id, context, quote in owner_corrections
+        ],
         owner_request=owner_request,
         risk_invariant=risk_invariant,
         risk_failure=risk_failure,
@@ -592,9 +604,10 @@ def candidate_list(include_decided: bool, root: str | None) -> None:
 @click.option("--root", type=click.Path(), default=None)
 def candidate_show(candidate_id: str, root: str | None) -> None:
     """Show one complete owner review card."""
-    from forge.promotion import get_candidate
+    from forge.promotion import get_candidate, target_authority
 
-    candidate = get_candidate(_root(root), candidate_id)
+    workspace = _root(root)
+    candidate = get_candidate(workspace, candidate_id)
     if candidate is None:
         raise click.ClickException(f"candidate not found: {candidate_id}")
     state_label = candidate.state
@@ -614,7 +627,15 @@ def candidate_show(candidate_id: str, root: str | None) -> None:
     click.echo(f"为什么现在提出: {candidate.source_context}")
     click.echo(f"现有资产对照: {candidate.existing_coverage}")
     click.echo(f"为什么值得成为长期资产: {candidate.asset_fit}")
+    authority = target_authority(workspace, candidate.target)
+    authority_label = "全局偏好" if authority["kind"] == "preference" else "其他资产"
+    click.echo(f"目标权威: {authority_label}")
     click.echo(f"晋升为什么成立: {candidate.promotion_rationale}")
+    for correction in candidate.owner_corrections:
+        click.echo(
+            "用户纠偏: "
+            f"{correction['context']} · {correction['event_id']} · {correction['quote']}"
+        )
     if candidate.owner_request:
         click.echo(f"owner 长期要求原话: {candidate.owner_request}")
     if candidate.risk_invariant:
@@ -641,6 +662,13 @@ def candidate_show(candidate_id: str, root: str | None) -> None:
 @click.option("--promotion-rationale", default=None)
 @click.option("--expected-effect", default=None)
 @click.option("--decision-question", default=None)
+@click.option(
+    "--owner-correction",
+    "owner_corrections",
+    type=(str, str, str),
+    multiple=True,
+    metavar="EVENT_ID CONTEXT QUOTE",
+)
 @click.option("--owner-request", default=None)
 @click.option("--risk-invariant", default=None)
 @click.option("--risk-failure", default=None)
@@ -663,6 +691,7 @@ def candidate_revise(
     promotion_rationale: str | None,
     expected_effect: str | None,
     decision_question: str | None,
+    owner_corrections: tuple[tuple[str, str, str], ...],
     owner_request: str | None,
     risk_invariant: str | None,
     risk_failure: str | None,
@@ -690,6 +719,14 @@ def candidate_revise(
         promotion_rationale=promotion_rationale,
         expected_effect=expected_effect,
         decision_question=decision_question,
+        owner_corrections=(
+            [
+                {"event_id": event_id, "context": context, "quote": quote}
+                for event_id, context, quote in owner_corrections
+            ]
+            if owner_corrections
+            else None
+        ),
         owner_request=owner_request,
         risk_invariant=risk_invariant,
         risk_failure=risk_failure,

@@ -23,6 +23,8 @@ forge-core 领域字典。一句话定义,只收本项目独有概念。
 - **Promotion(资产晋升)** — owner 批准 Candidate Asset 后,通过既有 ledger / compile gate 把它写入 Canonical Source。频率本身不构成晋升理由。
 - **Promotion Ground(晋升依据)** — Candidate Asset 的准入依据,仅两类:`repeated`(两个以上不同 Evidence Event)或 `owner-directed`(owner 明确要求未来长期沉淀并保留原话)。`high-risk` 只改变处理优先级与控制路径,不替代长期资产证据。
 - **Asset Fit(资产适配性)** — 为什么 owner 管的某个 Canonical Source 是当前 durable delta 的正确权威落点,而不是代码/测试、易变状态、可复用 Skill、平台/模型通用底线或 Observation。无法说明 Asset Fit 的主题不是 Candidate Asset。
+- **Preference Authority(全局偏好权威)** — 由当前 checkout 的编译关系确定：目标本身是 rule-zone 的 `type: preference` Section，或是该 Section 明示的 upstream，才属于全局偏好权威。它不是 Agent 可自报的标签，也不靠目录名猜测。
+- **Owner Correction Evidence(用户纠偏证据)** — 一次用户实际纠偏的准确原话，绑定一个 Evidence Event 和该纠偏发生的 bounded operational context（有边界的实际工作情境）。`repeated` 只有在两个不同事件、两个不同情境中各有用户原话时，才能支持全局偏好 Candidate；同一工作流的事故或内部测试失败只支持该工作流自己的 Skill、代码、测试、状态资产或 closed。
 - **Rule Zone(行为规则区)** — 改变 agent 行为的内容(偏好/边界/工作规则)。delta-gated:每笔变更须 owner 在 run 中裁决;预算制(编译后默认 ≤150 行);由编译器结构性强制。
 - **State Zone(状态区)** — 信息类内容(项目状态/KB/调研结论)。agent 自由写入、逐笔记账,审阅方式是读即审 + 认证。
 - **Zones 配置** — owner 持有的分区声明(路径/段类 → 区);内容不能自我声明区属;本文件属规则区。
@@ -51,6 +53,7 @@ forge-core 领域字典。一句话定义,只收本项目独有概念。
 - 1 个规则区文件 ↔ 1 份 verified 快照;快照仅经 run 裁决更新
 - 1 个状态文件 ↔ 1 个 certified 日期 + 0..N 笔未认证变更
 - Candidate Qualification:qualified|legacy-unqualified；只有 qualified 卡进入 Candidate Asset 生命周期 `pending → promoted|rejected|observing`
+- 1 个 repeated 全局偏好 Candidate → ≥2 条 Owner Correction Evidence → ≥2 个 Evidence Event + ≥2 个 operational context；owner-directed 仍由一次准确长期要求成立
 - Observation 状态:open → promoted|closed(expired|covered|no-generalizable-value)
 
 ## Aliases to avoid
@@ -63,6 +66,7 @@ forge-core 领域字典。一句话定义,只收本项目独有概念。
 - ~~explicit ground~~ — “明确”容易把本次任务要求误当长期要求;新建 Candidate 只使用 **owner-directed**,并保存明确要求未来长期沉淀的 owner 原话。
 - ~~历史 Candidate 默认继续待审~~ — 历史文件存在不等于符合当前 Candidate Qualification；缺当前准入字段或仍用旧 ground 的记录只保留审计，不进入 Owner Review。
 - ~~high-risk ground~~ — 严重后果不等于长期资产证据;高风险单次事件优先走确定性控制修复或 Observation,不能凭假设风险占用 owner review。
+- ~~同一工作流反复出错 = 全局偏好~~ — 复发只证明问题真实，不证明资产权威；同一工作流内的纠偏进入其 Skill/代码/测试/状态资产。只有跨情境用户纠偏或 owner 明确长期指定，才有资格占用全局偏好 Review。
 - ~~不确定就 Observation~~ — Observation 不是未晋升内容的默认池;没有真实纠正/失败/冲突与可检验复现条件时,应进入已有资产、代码/测试、项目状态或 closed,raw evidence 仍保留。
 - ~~detached worktree 不持久所以切回 main~~ — 任务 checkout 就是本轮权限边界;隔离验收不得自行写入 sibling canonical checkout。
 

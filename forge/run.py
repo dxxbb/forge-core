@@ -990,10 +990,10 @@ def next_contract(root: Path, *, budget: int = DEFAULT_BUDGET) -> dict[str, Any]
             "ask_type": item.type,
             "title": item.title,
             "detail": item.detail,
-            "review_card": _candidate_review_card(candidate),
+            "review_card": _candidate_review_card(root, candidate),
             "review_budget_remaining": candidate_budget,
             "constraints": [
-                "present the complete card in simple language, including why now, actual source events, existing coverage, why this belongs in an owner-governed durable asset, promotion ground, future effect, exact patch, and decision question",
+                "present the complete card in simple language, including why now, actual source events, existing coverage, resolved target authority, applicable owner correction evidence, why this belongs in an owner-governed durable asset, promotion ground, future effect, exact patch, and decision question",
                 "do not collapse the card into only the proposed rule",
                 "do not decide for the owner",
             ],
@@ -1267,20 +1267,29 @@ def _ask_items(root: Path) -> list[AskItem]:
                 id=candidate.id,
                 type="candidate",
                 title=candidate.title,
-                detail=_candidate_review_detail(candidate),
+                detail=_candidate_review_detail(root, candidate),
             )
         )
     return items
 
 
-def _candidate_review_detail(candidate: promotion.Candidate) -> str:
-    card = _candidate_review_card(candidate)
+def _candidate_review_detail(root: Path, candidate: promotion.Candidate) -> str:
+    card = _candidate_review_card(root, candidate)
+    correction_detail = "".join(
+        f"用户纠偏:{item['context']} · {item['event_id']} · {item['quote']}\n"
+        for item in card["owner_corrections"]
+    )
+    authority_label = (
+        "全局偏好" if card["target_authority"]["kind"] == "preference" else "其他资产"
+    )
     return (
         f"为什么现在提出:{card['why_now']}\n"
         f"来源经历:{'；'.join(card['source_events'])}\n"
         f"证据指针:{'；'.join(card['evidence'])}\n"
         f"现有资产对照:{card['existing_coverage']}\n"
         f"为什么值得成为长期资产:{card['asset_fit']}\n"
+        f"目标权威:{authority_label}\n"
+        f"{correction_detail}"
         f"问题:{card['problem']}\n"
         f"晋升为什么成立:{card['promotion_ground']}；{card['promotion_rationale']}\n"
         f"建议:{card['proposal']}\n"
@@ -1295,7 +1304,7 @@ def _candidate_review_detail(candidate: promotion.Candidate) -> str:
     )
 
 
-def _candidate_review_card(candidate: promotion.Candidate) -> dict[str, Any]:
+def _candidate_review_card(root: Path, candidate: promotion.Candidate) -> dict[str, Any]:
     ground_detail = {
         "repeated": (
             "两个以上独立经历: " + "；".join(candidate.event_ids)
@@ -1314,6 +1323,8 @@ def _candidate_review_card(candidate: promotion.Candidate) -> dict[str, Any]:
         "evidence": candidate.evidence,
         "existing_coverage": candidate.existing_coverage,
         "asset_fit": candidate.asset_fit,
+        "target_authority": promotion.target_authority(root, candidate.target),
+        "owner_corrections": candidate.owner_corrections,
         "promotion_ground": ground_detail,
         "promotion_rationale": candidate.promotion_rationale,
         "problem": candidate.problem,

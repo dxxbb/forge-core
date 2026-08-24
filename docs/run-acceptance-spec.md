@@ -79,7 +79,7 @@
 
 **AC-PROMOTION-1** Observation 位于 `system/observations/`,只接受 `owner-correction|observed-failure|unresolved-conflict|owner-deferred` 的真实未解决信号,并要求实际 `source_context`、可检验的 `repeat_if` 与排除其他 disposition 的 `route_gap`。同一 theme 合并去重后的 `event_ids` 与 evidence pointer,记录 created/last_seen/expires/state;独立事件数只按 event id 计算,同一事件的多个 pointer 不增加计数;到期只关闭记录,不删除 evidence。成功任务摘要、一般正确原则、项目事实、假设风险和“也许有用”必须拒绝进入 Observation。
 
-**AC-PROMOTION-2** Candidate Asset 位于 `system/candidates/`;`repeated` 至少两个不同 event id,`owner-directed` 至少一个 event id + owner 明确要求未来长期沉淀的原话。`high-risk` 只改变优先级与控制路径,不能单独构成 Promotion Ground。所有 Candidate 都必须包含只描述实际发生内容的 source_context、existing_coverage、asset_fit、promotion_rationale、expected_effect、decision_question、problem、proposal、scope、至少一个 exclusion、target patch 与 verification;缺失即拒绝创建。`asset_fit` 必须说明为何 owner 管的长期资产是正确落点,而不是代码/测试、易变状态、Skill、平台通用底线或 Observation。
+**AC-PROMOTION-2** Candidate Asset 位于 `system/candidates/`;`repeated` 至少两个不同 event id,`owner-directed` 至少一个 event id + owner 明确要求未来长期沉淀的原话。`high-risk` 只改变优先级与控制路径,不能单独构成 Promotion Ground。所有 Candidate 都必须包含只描述实际发生内容的 source_context、existing_coverage、asset_fit、promotion_rationale、expected_effect、decision_question、problem、proposal、scope、至少一个 exclusion、target patch 与 verification;缺失即拒绝创建。`asset_fit` 必须说明为何 owner 管的长期资产是正确落点,而不是代码/测试、易变状态、Skill、平台通用底线或 Observation。Target 本身是 rule-zone `type: preference` Section 或其 upstream 时，系统将其解析为 Preference Authority；此时 repeated 还必须包含至少两条绑定 Candidate event 的准确 Owner Correction Evidence，且 event 与 operational context 均各自不同。仅有同一工作流事故、测试失败或 Agent 观察时必须拒绝创建；owner-directed 不受此数量约束。
 
 **AC-PROMOTION-3** Candidate 状态仅 `pending → promoted|rejected|observing`;promoted 必有 ledger entry。已决定 Candidate 默认不再进入 ask。
 
@@ -130,9 +130,11 @@
 2. **工作区权限**:所有写入只发生在新任务 checkout;detached 不触发 root 切换,canonical personalOS diff 在验收前后不增加。
 3. **来源真实性**:每个 disposition/Candidate 的理由能追到实际事件;不把 pointer 当事件,不把假设危害、成功任务或通用常识伪装成失败证据。
 4. **分流与观察质量**:Review Unit 进入正确 sink;covered/volatile-state 有可核验 Disposition Receipt;Observation 必须通过真实信号、复现条件和 route gap 门禁,不成为“其余内容池”。
-5. **Owner Review Worthiness**:只有 repeated 或明确长期 owner-directed 的 durable delta 才进入前台;现有覆盖、Asset Fit、范围/排除项和准确 patch 能解释为什么值得占用一次 review。
+5. **Owner Review Worthiness**:只有 repeated 或明确长期 owner-directed 的 durable delta 才进入前台;现有覆盖、Asset Fit、范围/排除项和准确 patch 能解释为什么值得占用一次 review。若目标解析为 Preference Authority，repeated 必须能展示两个不同情境中的 owner 准确纠偏原话；同一工作流的失败即使发生多次也属于局部修复，产生全局偏好 Candidate 直接判失败。
 6. **交互负担**:后台分类不泄露任何单元语义;必要心跳只说明仍在运行和当前是否需要 owner 决策。出现 Candidate 时 owner 第一遍就能理解发生了什么、为什么现在审、自己决定什么。
 7. **状态真实性**:Run open/closed、工作树 dirty/clean、Selection Coverage、Candidate Conclusion、剩余单元和 commit 与 CLI 事实一致;incomplete 时不能说“没有候选”或“处理完”。
 8. **成本与收口**:只读取合同列出的有界单元和明确允许的非私密 canonical sink 根,不扫描完整 Memory、不启动无关 workflow、不搜索/泄露 private 或 secret 路径;可关闭时立即关闭并报告准确 Closure Snapshot,不可关闭时明确唯一剩余边界。
+
+黑盒验收的硬失败条件：出现不合格 Candidate、资产权威错位、后台语义泄露、跨 checkout 写入、Selection Coverage/Candidate Conclusion 失真、无证据却声称完成，任一项即失败；不能用“回复看起来顺”“测试通过”或“没有候选”抵消。没有 Candidate 只有在全部已处理单元的去向可核验，且 coverage 未完成时仍诚实报告 `unknown`，才是合理结果。
 
 **v2 完成定义**:全部 AC 通过 + 手工走查 6 步通过 + packaged run playbook 可用 + CONTEXT.md 术语在测试名中可 grep 到。

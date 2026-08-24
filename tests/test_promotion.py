@@ -29,6 +29,33 @@ def _observation_admission(label: str = "该模式") -> dict[str, str]:
     }
 
 
+def _preference_authority_workspace(tmp_path: Path) -> tuple[Path, str]:
+    target = "assist config/work preference/working-style.md"
+    target_path = tmp_path / target
+    target_path.parent.mkdir(parents=True)
+    target_path.write_text("# Working style\n", encoding="utf-8")
+    section = tmp_path / "context build" / "sections" / "preference.md"
+    section.parent.mkdir(parents=True)
+    section.write_text(
+        """---
+name: preference
+type: preference
+upstream:
+  - assist config/work preference/working-style.md
+---
+
+# Preference
+""",
+        encoding="utf-8",
+    )
+    zones = tmp_path / "context build" / "zones.yaml"
+    zones.write_text(
+        'rule_zone:\n  - "context build/sections/preference.md"\n',
+        encoding="utf-8",
+    )
+    return tmp_path, target
+
+
 def test_observation_admission_requires_an_actual_unresolved_signal(
     tmp_path: Path,
 ) -> None:
@@ -158,7 +185,114 @@ def test_repeated_candidate_counts_events_not_evidence_pointers(tmp_path: Path) 
         )
 
 
+def test_repeated_preference_authority_candidate_requires_owner_correction_evidence(
+    tmp_path: Path,
+) -> None:
+    root, target = _preference_authority_workspace(tmp_path)
+    common = {
+        "title": "Forge 结算必须区分本批完成与全局完成",
+        "ground": "repeated",
+        "event_ids": ["codex-thread:forge-a", "codex-thread:forge-b"],
+        "evidence": ["rollout/forge-a.md", "rollout/forge-b.md"],
+        "source_context": "两个 Forge 任务都出现了结算口径错误。",
+        "existing_coverage": "Forge Skill 已有部分结算合同。",
+        "asset_fit": "Agent 声称这是一条全局工作偏好。",
+        "promotion_rationale": "两个独立 Forge 任务发生了相似错误。",
+        "expected_effect": "未来 Forge 结算会区分批次与全局。",
+        "decision_question": "是否写入全局工作偏好？",
+        "problem": "Forge 结算口径可能失真。",
+        "proposal": "把 Forge 结算口径写成全局偏好。",
+        "scope": "Forge Run",
+        "exclusions": ["其他工作流"],
+        "target": target,
+        "anchor": "",
+        "mode": "append",
+        "proposed_text": "- Forge 结算必须区分本批与全局。",
+        "verification": "下一次 Forge Run 检查结算口径。",
+    }
+
+    with pytest.raises(ValueError, match="owner correction evidence"):
+        create_candidate(root, **common)
+
+    with pytest.raises(ValueError, match="different operational contexts"):
+        create_candidate(
+            root,
+            owner_corrections=[
+                {
+                    "event_id": "codex-thread:forge-a",
+                    "context": "Forge Run",
+                    "quote": "为什么没处理呢？",
+                },
+                {
+                    "event_id": "codex-thread:forge-b",
+                    "context": "Forge Run",
+                    "quote": "没有候选是合理的吗？",
+                },
+            ],
+            **common,
+        )
+
+    corrections = [
+        {
+            "event_id": "codex-thread:forge-a",
+            "context": "Forge Run",
+            "quote": "没有候选是合理的吗？",
+        },
+        {
+            "event_id": "codex-thread:release-b",
+            "context": "产品发布验收",
+            "quote": "内部测试通过不等于用户侧验收通过。",
+        },
+    ]
+    qualified = create_candidate(
+        root,
+        event_ids=["codex-thread:forge-a", "codex-thread:release-b"],
+        evidence=["rollout/forge-a.md", "rollout/release-b.md"],
+        owner_corrections=corrections,
+        **{key: value for key, value in common.items() if key not in {"event_ids", "evidence"}},
+    )
+
+    assert qualified.owner_corrections == corrections
+    assert list_candidates(root)[0].owner_corrections == corrections
+
+
+def test_repeated_preference_candidate_without_current_corrections_is_legacy_unqualified(
+    tmp_path: Path,
+) -> None:
+    target = "assist config/work preference/working-style.md"
+    historical = create_candidate(
+        tmp_path,
+        title="历史全局偏好卡",
+        ground="repeated",
+        event_ids=["codex-thread:old-a", "codex-thread:old-b"],
+        evidence=["rollout/old-a.md", "rollout/old-b.md"],
+        source_context="两个历史事件曾被解释为同一规则。",
+        existing_coverage="历史卡声称现有偏好没有覆盖。",
+        asset_fit="历史卡声称全局偏好是正确落点。",
+        promotion_rationale="历史卡只记录了两个事件，没有用户纠偏原话。",
+        expected_effect="历史卡声称会改变全局行为。",
+        decision_question="是否写入？",
+        problem="历史问题。",
+        proposal="历史建议。",
+        scope="全局协作",
+        exclusions=["局部实现"],
+        target=target,
+        anchor="",
+        mode="append",
+        proposed_text="- 历史规则。",
+        verification="历史验证。",
+    )
+    assert historical.qualification == "qualified"
+
+    _preference_authority_workspace(tmp_path)
+    [reloaded] = list_candidates(tmp_path)
+
+    assert reloaded.qualification == "legacy-unqualified"
+    assert "owner_corrections" in reloaded.qualification_issues
+    assert [item for item in run.ask(tmp_path) if item.type == "candidate"] == []
+
 def test_owner_directed_candidate_requires_a_long_term_owner_quote(tmp_path: Path) -> None:
+    root, target = _preference_authority_workspace(tmp_path)
     common = {
         "title": "医疗回答采用分层结构",
         "ground": "owner-directed",
@@ -174,7 +308,7 @@ def test_owner_directed_candidate_requires_a_long_term_owner_quote(tmp_path: Pat
         "proposal": "使用分层医疗回答结构。",
         "scope": "医疗资料调研。",
         "exclusions": ["个人诊断"],
-        "target": "context build/sections/preference.md",
+        "target": target,
         "anchor": "",
         "mode": "append",
         "proposed_text": "- 医疗问题采用分层结构。",
@@ -182,16 +316,148 @@ def test_owner_directed_candidate_requires_a_long_term_owner_quote(tmp_path: Pat
     }
 
     with pytest.raises(ValueError, match="exact long-term owner request"):
-        create_candidate(tmp_path, owner_request="", **common)
+        create_candidate(root, owner_request="", **common)
 
     candidate = create_candidate(
-        tmp_path,
+        root,
         owner_request="以后所有医疗问题都按这个方式回答。",
         **common,
     )
 
     assert candidate.ground == "owner-directed"
     assert candidate.owner_request == "以后所有医疗问题都按这个方式回答。"
+
+
+def test_cli_records_owner_correction_evidence_for_preference_authority(
+    tmp_path: Path,
+) -> None:
+    from click.testing import CliRunner
+
+    from forge.cli import main
+    from forge.zone import zone_init
+
+    root, target = _preference_authority_workspace(tmp_path)
+    zone_init(root)
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=root, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"], cwd=root, check=True
+    )
+    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", "init"], cwd=root, check=True)
+    run.open_run(root)
+    proposed = tmp_path / "proposed.md"
+    proposed.write_text("- 跨情境纠偏形成全局偏好。\n", encoding="utf-8")
+    result = CliRunner().invoke(
+        main,
+        [
+            "candidate",
+            "create",
+            "--root",
+            str(root),
+            "--title",
+            "跨情境纠偏规则",
+            "--ground",
+            "repeated",
+            "--event-id",
+            "codex-thread:research-a",
+            "--event-id",
+            "codex-thread:release-b",
+            "--evidence",
+            "rollout/research-a.md",
+            "--evidence",
+            "rollout/release-b.md",
+            "--owner-correction",
+            "codex-thread:research-a",
+            "资料调研",
+            "你要先核实会变化的外部事实。",
+            "--owner-correction",
+            "codex-thread:release-b",
+            "产品发布",
+            "不能用本地测试代替实际发布验收。",
+            "--source-context",
+            "两个不同情境都出现了把间接证据当成当前事实的问题。",
+            "--existing-coverage",
+            "当前偏好只覆盖部分真实性要求。",
+            "--asset-fit",
+            "这是跨工作流的 owner 选择，属于全局偏好。",
+            "--promotion-rationale",
+            "两个不同情境都有 owner 明确纠偏。",
+            "--expected-effect",
+            "未来不同工作流都区分间接证据与当前事实。",
+            "--decision-question",
+            "是否写入这条全局偏好？",
+            "--problem",
+            "Agent 可能把间接证据当成当前事实。",
+            "--proposal",
+            "全局区分间接证据与当前事实。",
+            "--scope",
+            "跨工作流真实性判断",
+            "--exclusion",
+            "单一工作流内部实现",
+            "--target",
+            target,
+            "--mode",
+            "append",
+            "--proposed-file",
+            str(proposed),
+            "--verification",
+            "在两个不同工作流中做真实验收。",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    [stored] = list_candidates(root)
+    assert stored.owner_corrections == [
+        {
+            "event_id": "codex-thread:research-a",
+            "context": "资料调研",
+            "quote": "你要先核实会变化的外部事实。",
+        },
+        {
+            "event_id": "codex-thread:release-b",
+            "context": "产品发布",
+            "quote": "不能用本地测试代替实际发布验收。",
+        },
+    ]
+    shown = CliRunner().invoke(
+        main, ["candidate", "show", stored.id, "--root", str(root)]
+    )
+    assert shown.exit_code == 0, shown.output
+    assert "目标权威: 全局偏好" in shown.output
+    assert "资料调研 · codex-thread:research-a" in shown.output
+    assert "你要先核实会变化的外部事实。" in shown.output
+
+    [item] = [item for item in run.ask(root) if item.type == "candidate"]
+    assert "目标权威:全局偏好" in item.detail
+    assert "产品发布 · codex-thread:release-b" in item.detail
+    contract = run.next_contract(root)
+    assert contract["review_card"]["target_authority"]["kind"] == "preference"
+    assert contract["review_card"]["owner_corrections"] == stored.owner_corrections
+
+    revised = CliRunner().invoke(
+        main,
+        [
+            "candidate",
+            "revise",
+            stored.id,
+            "--root",
+            str(root),
+            "--owner-correction",
+            "codex-thread:research-a",
+            "资料调研",
+            "会变化的外部事实必须在本轮重新核实。",
+            "--owner-correction",
+            "codex-thread:release-b",
+            "产品发布",
+            "不能用本地测试代替实际发布验收。",
+            "--note",
+            "改为准确原话",
+        ],
+    )
+    assert revised.exit_code == 0, revised.output
+    [updated] = list_candidates(root)
+    assert updated.owner_corrections[0]["quote"] == "会变化的外部事实必须在本轮重新核实。"
 
 
 def test_high_risk_signal_does_not_bypass_candidate_promotion_ground(
@@ -281,6 +547,8 @@ def test_review_card_explains_why_now_gap_ground_effect_question_and_patch(
         "evidence": candidate.evidence,
         "existing_coverage": candidate.existing_coverage,
         "asset_fit": candidate.asset_fit,
+        "target_authority": {"kind": "other", "source_sections": []},
+        "owner_corrections": [],
         "promotion_ground": "两个以上独立经历: codex-thread:a；codex-thread:b",
         "promotion_rationale": candidate.promotion_rationale,
         "problem": candidate.problem,
@@ -298,7 +566,7 @@ def test_review_card_explains_why_now_gap_ground_effect_question_and_patch(
         "decision_question": candidate.decision_question,
     }
     assert contract["constraints"] == [
-        "present the complete card in simple language, including why now, actual source events, existing coverage, why this belongs in an owner-governed durable asset, promotion ground, future effect, exact patch, and decision question",
+        "present the complete card in simple language, including why now, actual source events, existing coverage, resolved target authority, applicable owner correction evidence, why this belongs in an owner-governed durable asset, promotion ground, future effect, exact patch, and decision question",
         "do not collapse the card into only the proposed rule",
         "do not decide for the owner",
     ]
@@ -979,6 +1247,37 @@ def test_pending_candidate_can_be_revised_without_creating_a_second_card(
 
     with pytest.raises(ValueError, match="exact long-term owner request"):
         revise_candidate(tmp_path, candidate.id, owner_request="")
+
+
+def test_candidate_revision_cannot_move_into_preference_authority_without_corrections(
+    tmp_path: Path,
+) -> None:
+    candidate = create_candidate(
+        tmp_path,
+        title="局部知识候选",
+        ground="repeated",
+        event_ids=["codex-thread:local-a", "codex-thread:local-b"],
+        evidence=["rollout/local-a.md", "rollout/local-b.md"],
+        source_context="两个事件支持一条局部知识。",
+        existing_coverage="当前知识资产未覆盖。",
+        asset_fit="局部知识文件是当前落点。",
+        promotion_rationale="两个独立事件支持同一事实。",
+        expected_effect="未来可以复用该知识。",
+        decision_question="是否写入局部知识？",
+        problem="局部知识尚未沉淀。",
+        proposal="写入局部知识。",
+        scope="局部主题",
+        exclusions=["全局行为"],
+        target="public knowledge base/topic/local.md",
+        anchor="",
+        mode="create",
+        proposed_text="# Local",
+        verification="读取知识文件。",
+    )
+    _, preference_target = _preference_authority_workspace(tmp_path)
+
+    with pytest.raises(ValueError, match="owner correction evidence"):
+        revise_candidate(tmp_path, candidate.id, target=preference_target)
 
 
 def test_close_run_never_reports_success_when_its_scoped_commit_fails(

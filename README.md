@@ -148,7 +148,7 @@ forge update
 
 ## 当前状态
 
-`0.18.1` Alpha,dogfood 阶段。Owner Review 只接收符合当前 Candidate Qualification 的卡；历史缺字段卡保留审计但不再伪装成 pending Candidate。Codex Memory 按 Task 筛选，未归属内容单列 Group Summary；covered/volatile-state 需要可核验回执，Run-Owned Write 按 sink 归并并在 close 验证最后正式 receipt 后原子提交。主 Forge Skill 聚焦日常 Run，初始化和 legacy 流程按需加载。真实长期使用效果仍需连续 Run 验证。
+`0.19.0` Alpha,dogfood 阶段。Owner Review 只接收符合当前 Candidate Qualification 的卡；目标属于全局 Preference Authority 时，`repeated` 必须保存两个不同情境中的 owner 准确纠偏，单一工作流事故回到该工作流自己的 Skill、代码、测试或状态资产。历史缺当前证据的卡保留审计但不再进入 Review。covered/volatile-state 继续要求可核验回执，真实长期使用效果仍需连续 Run 验证。
 
 ## 开发
 

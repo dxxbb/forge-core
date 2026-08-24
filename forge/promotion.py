@@ -76,6 +76,7 @@ class Candidate:
     proposed_text: str
     verification: str
     owner_request: str = ""
+    owner_corrections: list[dict[str, str]] = field(default_factory=list)
     risk_invariant: str = ""
     risk_failure: str = ""
     observation_id: str = ""
@@ -266,6 +267,7 @@ def create_candidate(
     proposed_text: str,
     verification: str,
     asset_fit: str = "",
+    owner_corrections: list[dict[str, str]] | None = None,
     owner_request: str = "",
     risk_invariant: str = "",
     risk_failure: str = "",
@@ -287,6 +289,10 @@ def create_candidate(
         raise ValueError("candidate requires at least one evidence reference")
     if ground == "repeated" and len(event_ids) < 2:
         raise ValueError("repeated ground requires two independent events")
+    owner_corrections = _clean_owner_corrections(owner_corrections or [], event_ids)
+    _require_preference_owner_corrections(
+        root, ground, target, owner_corrections
+    )
     if ground == "owner-directed" and not owner_request.strip():
         raise ValueError("owner-directed ground requires the exact long-term owner request")
     required = {
@@ -352,6 +358,7 @@ def create_candidate(
         proposed_text=proposed_text.rstrip("\n"),
         verification=verification.strip(),
         owner_request=owner_request.strip(),
+        owner_corrections=owner_corrections,
         risk_invariant=risk_invariant.strip(),
         risk_failure=risk_failure.strip(),
         observation_id=observation_id,
@@ -403,6 +410,15 @@ def list_candidates(root: Path, *, include_decided: bool = False) -> list[Candid
             proposed_text=str(patch.get("proposed_text") or ""),
             verification=str(fm.get("verification") or ""),
             owner_request=str(fm.get("owner_request") or ""),
+            owner_corrections=[
+                {
+                    "event_id": str(item.get("event_id") or ""),
+                    "context": str(item.get("context") or ""),
+                    "quote": str(item.get("quote") or ""),
+                }
+                for item in (fm.get("owner_corrections") or [])
+                if isinstance(item, dict)
+            ],
             risk_invariant=str(fm.get("risk_invariant") or ""),
             risk_failure=str(fm.get("risk_failure") or ""),
             observation_id=str(fm.get("observation_id") or ""),
@@ -412,7 +428,7 @@ def list_candidates(root: Path, *, include_decided: bool = False) -> list[Candid
             feedback=[dict(x) for x in (fm.get("feedback") or [])],
             path=path,
         )
-        candidate.qualification_issues = _candidate_qualification_issues(candidate)
+        candidate.qualification_issues = _candidate_qualification_issues(root, candidate)
         candidate.qualification = (
             "legacy-unqualified" if candidate.qualification_issues else "qualified"
         )
@@ -439,6 +455,7 @@ def revise_candidate(
     promotion_rationale: str | None = None,
     expected_effect: str | None = None,
     decision_question: str | None = None,
+    owner_corrections: list[dict[str, str]] | None = None,
     owner_request: str | None = None,
     risk_invariant: str | None = None,
     risk_failure: str | None = None,
@@ -454,11 +471,16 @@ def revise_candidate(
     now: datetime | None = None,
 ) -> Candidate:
     """Revise the same pending card after owner feedback; its id stays stable."""
+    root = Path(root).resolve()
     candidate = get_candidate(root, candidate_id)
     if candidate is None:
         raise ValueError(f"candidate not found: {candidate_id}")
     if candidate.state != "pending":
         raise ValueError(f"candidate is {candidate.state}, not pending")
+    if candidate.qualification != "qualified":
+        raise ValueError(
+            "candidate is legacy-unqualified; create a new card from current evidence"
+        )
     updates: dict[str, Any] = {
         key: value
         for key, value in {
@@ -484,6 +506,10 @@ def revise_candidate(
     }
     if exclusions is not None:
         updates["exclusions"] = [x.strip() for x in exclusions if x.strip()]
+    if owner_corrections is not None:
+        updates["owner_corrections"] = _clean_owner_corrections(
+            owner_corrections, candidate.event_ids
+        )
     if not updates:
         raise ValueError("candidate revision has no changes")
     for name in {
@@ -519,6 +545,12 @@ def revise_candidate(
         raise ValueError(
             "high-risk ground requires a verifiable invariant and failure mode"
         )
+    _require_preference_owner_corrections(
+        root,
+        candidate.ground,
+        str(updates.get("target", candidate.target)),
+        list(updates.get("owner_corrections", candidate.owner_corrections)),
+    )
     changed: list[str] = []
     for name, value in updates.items():
         normalized = value.rstrip("\n") if name == "proposed_text" else value
@@ -760,6 +792,7 @@ def _write_candidate(root: Path, candidate: Candidate) -> None:
         "expected_effect": candidate.expected_effect,
         "decision_question": candidate.decision_question,
         "owner_request": candidate.owner_request,
+        "owner_corrections": candidate.owner_corrections,
         "risk_invariant": candidate.risk_invariant,
         "risk_failure": candidate.risk_failure,
         "problem": candidate.problem,
@@ -821,7 +854,110 @@ def _clean_refs(refs: list[str]) -> list[str]:
     return list(dict.fromkeys(r.strip() for r in refs if r.strip()))
 
 
-def _candidate_qualification_issues(candidate: Candidate) -> list[str]:
+def _clean_owner_corrections(
+    corrections: list[dict[str, str]], event_ids: list[str]
+) -> list[dict[str, str]]:
+    cleaned: list[dict[str, str]] = []
+    seen_events: set[str] = set()
+    for correction in corrections:
+        event_id = str(correction.get("event_id") or "").strip()
+        context = str(correction.get("context") or "").strip()
+        quote = str(correction.get("quote") or "").strip()
+        missing = [
+            name
+            for name, value in {
+                "event_id": event_id,
+                "context": context,
+                "quote": quote,
+            }.items()
+            if not value
+        ]
+        if missing:
+            raise ValueError(
+                "owner correction evidence missing required field(s): " + ", ".join(missing)
+            )
+        _clean_event_ids([event_id])
+        if event_id not in event_ids:
+            raise ValueError(
+                f"owner correction event id is not a candidate event: {event_id}"
+            )
+        if event_id in seen_events:
+            raise ValueError(
+                f"owner correction evidence must use distinct event ids: {event_id}"
+            )
+        seen_events.add(event_id)
+        cleaned.append({"event_id": event_id, "context": context, "quote": quote})
+    return cleaned
+
+
+def _require_preference_owner_corrections(
+    root: Path,
+    ground: str,
+    target: str,
+    corrections: list[dict[str, str]],
+) -> None:
+    if ground != "repeated" or not _is_preference_authority_target(root, target):
+        return
+    if len({item["event_id"] for item in corrections}) < 2:
+        raise ValueError(
+            "repeated preference authority candidate requires two owner correction evidence items"
+        )
+    if len({item["context"].casefold() for item in corrections}) < 2:
+        raise ValueError(
+            "repeated preference authority candidate requires owner corrections "
+            "from two different operational contexts"
+        )
+
+
+def _is_preference_authority_target(root: Path, target: str) -> bool:
+    return target_authority(root, target)["kind"] == "preference"
+
+
+def target_authority(root: Path, target: str) -> dict[str, Any]:
+    """Resolve target authority from the current compile graph, never path labels."""
+    from forge.compiler.loader import load_sections
+    from forge.zone import load_zones
+
+    root = Path(root).resolve()
+    target_ref = _workspace_reference(root, target)
+    if target_ref is None:
+        return {"kind": "other", "source_sections": []}
+    zones = load_zones(root)
+    matched_sections: list[str] = []
+    for section in load_sections(root).values():
+        if section.type != "preference" or section.path is None:
+            continue
+        try:
+            section_ref = section.path.resolve().relative_to(root).as_posix()
+        except ValueError:
+            continue
+        if zones.zone_for(section_ref) != "rule":
+            continue
+        upstream_refs = {
+            ref
+            for value in section.upstream
+            if (ref := _workspace_reference(root, value)) is not None
+        }
+        if target_ref == section_ref or target_ref in upstream_refs:
+            matched_sections.append(section_ref)
+    return {
+        "kind": "preference" if matched_sections else "other",
+        "source_sections": sorted(matched_sections),
+    }
+
+
+def _workspace_reference(root: Path, value: str) -> str | None:
+    if "://" in value:
+        return None
+    path = Path(value)
+    resolved = path.resolve() if path.is_absolute() else (root / path).resolve()
+    try:
+        return resolved.relative_to(root).as_posix()
+    except ValueError:
+        return None
+
+
+def _candidate_qualification_issues(root: Path, candidate: Candidate) -> list[str]:
     """Return current review-publication failures without rewriting history."""
     issues: list[str] = []
     required = {
@@ -852,6 +988,25 @@ def _candidate_qualification_issues(candidate: Candidate) -> list[str]:
         issues.append("ground")
     if candidate.ground == "owner-directed" and not candidate.owner_request.strip():
         issues.append("owner_request")
+    if candidate.ground == "repeated" and _is_preference_authority_target(
+        root, candidate.target
+    ):
+        correction_events = {
+            item.get("event_id", "").strip()
+            for item in candidate.owner_corrections
+            if item.get("event_id", "").strip() in candidate.event_ids
+            and item.get("quote", "").strip()
+            and item.get("context", "").strip()
+        }
+        correction_contexts = {
+            item.get("context", "").strip().casefold()
+            for item in candidate.owner_corrections
+            if item.get("event_id", "").strip() in correction_events
+            and item.get("quote", "").strip()
+            and item.get("context", "").strip()
+        }
+        if len(correction_events) < 2 or len(correction_contexts) < 2:
+            issues.append("owner_corrections")
     if not candidate.exclusions:
         issues.append("exclusions")
     if candidate.mode not in {"create", "replace", "append"}:

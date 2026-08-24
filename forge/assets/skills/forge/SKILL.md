@@ -2,7 +2,7 @@
 name: forge
 description: "Operate a personalOS workspace with forge: run review-gated context settlement, inspect pending governance, initialize a workspace, import memory, or review legacy proposals."
 metadata:
-  version: 0.18.1
+  version: 0.19.0
   requires:
     bins: ["forge"]
   cliHelp: "forge --help"
@@ -77,6 +77,14 @@ A Candidate may enter Owner Review only with one of these Promotion Grounds:
 
 `high-risk` affects priority, not qualification. A single important task, successful research result, or request such as “这次认真做 / 先判断 / 给教程” is not owner-directed. Route a confirmed single defect to code/test/control; route a real unresolved recurrence hypothesis to Observation; otherwise use covered, the proper project/state sink, or closed.
 
+For `repeated`, target authority changes the evidence requirement. If the target is a rule-zone `type: preference` Section or one of that Section's declared upstream sources, Forge treats it as a global Preference Authority. It then requires at least two exact owner corrections from two different Evidence Events **and two different bounded operational contexts**:
+
+```bash
+--owner-correction '<event-id>' '<operational-context>' '<exact owner quote>'
+```
+
+Repeated failures, tests, or corrections inside one workflow prove that workflow needs repair; they do not prove a global owner preference. Route them to that workflow's Skill, code, tests, current-state asset, or closed. `owner-directed` remains valid from one exact request that explicitly applies in future.
+
 Historical Candidate files missing current grounds, events, Review Card fields, or executable patch are `legacy-unqualified`: audit-only, excluded from pending Candidate counts, Candidate Conclusion, and Owner Review. Never fill missing fields with placeholders or ask the owner to qualify them. If later evidence independently meets the current contract, create a new qualified card.
 
 Before candidate creation, read the target and directly related Canonical Sources. The card must contain:
@@ -84,6 +92,7 @@ Before candidate creation, read the target and directly related Canonical Source
 - `source-context` and stable `event-id` values: what actually happened;
 - `existing-coverage`: what already exists and the exact durable gap;
 - `asset-fit`: why this belongs in an owner-governed asset rather than code/test, volatile state, reusable Skill, platform baseline, or Observation;
+- applicable `owner-correction` evidence: each bounded context, event id, and exact owner quote when a repeated global preference is proposed;
 - `promotion-rationale`: why the stated ground is satisfied now;
 - problem, proposal, scope, exclusions, exact patch target/anchor/mode/text, verification;
 - `expected-effect`: what future behavior changes;
@@ -98,9 +107,10 @@ Do not lead with the proposed rule. Explain, in simple language:
 1. which real experiences caused the card to exist;
 2. why the current assets or engineering controls do not already solve it;
 3. why it is a durable cross-situation asset rather than a case-specific patch;
-4. why its Promotion Ground is satisfied now;
-5. the exact text and location to be written;
-6. what future behavior changes and what remains out of scope.
+4. which target authority Forge resolved and, for a repeated global preference, the two cross-context owner corrections;
+5. why its Promotion Ground is satisfied now;
+6. the exact text and location to be written;
+7. what future behavior changes and what remains out of scope.
 
 Then ask the card's exact decision question. Owner outcomes:
 
