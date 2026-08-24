@@ -82,9 +82,12 @@ owner 只有两个主动动作:
 
 - `repeated`:两个以上不同 `event-id` 支持;
 - `owner-directed`:owner 明确要求未来长期沉淀,并保存准确原话;
-- `high-risk`:高风险且能确定性验证的不变量,同时写明失败条件。
 
-并且必须完整提供 `source-context / existing-coverage / promotion-rationale / expected-effect / decision-question / problem / proposal / scope / exclusions / target patch / verification`。同一会话的 Task Group、rollout summary 和 raw session 共用一个 event id;用户只要求本次认真处理不算 owner-directed;频率不能替代抽象质量。
+`high-risk` 只改变优先级和控制路径,不单独构成 Promotion Ground。单次高风险事件若存在确定性控制缺陷,走 one-off 的代码/测试/门禁闭环;否则进入 Observation;只有 owner 明确要求未来长期沉淀时才能从一次事件建 Candidate。
+
+并且必须完整提供 `source-context / existing-coverage / asset-fit / promotion-rationale / expected-effect / decision-question / problem / proposal / scope / exclusions / target patch / verification`。`source-context` 只能写真实发生的行为、纠正、决定或失败,不能把假设风险当事件证据;`asset-fit` 必须说明为什么 owner 管的长期资产是正确落点,而不是代码/测试、易变状态、Skill、平台通用底线或继续观察。同一会话的 Task Group、rollout summary 和 raw session 共用一个 event id;用户只要求本次认真处理不算 owner-directed;频率不能替代抽象质量。
+
+分类与 Observation 是后台工作,进度只报聚合数量和是否出现 owner 决策;只有 Candidate / conflict / unqualified change 进入前台。
 
 ## 失败语义
 

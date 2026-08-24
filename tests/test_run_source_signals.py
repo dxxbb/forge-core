@@ -231,12 +231,16 @@ def test_forge_run_next_returns_one_bounded_memory_contract(
     assert contract["source_batch_size"] == 10
     assert contract["remaining_in_batch"] == 10
     assert contract["remaining_count"] == 2
+    assert contract["owner_visibility"] == "background"
+    assert contract["progress_reporting"] == "aggregate-only"
     assert contract["constraints"] == [
         "inspect only the listed Review Unit and its evidence pointers",
         "derive event ids from the underlying thread/session/source event, not from file paths; multiple pointers to the same event share one id",
+        "source context must describe what actually happened; a hypothetical harm is not evidence of a problem",
         "a request made for this one task is not an owner-directed long-term requirement",
+        "high-risk is a priority signal, not a promotion ground; a single event goes to one-off/control or observation unless owner-directed",
         "if long-term generalization is still uncertain, record an observation instead of a candidate",
-        "before creating a candidate, compare the target and related canonical assets and state the uncovered durable delta",
+        "before creating a candidate, compare related assets and explain why an owner-governed durable asset is the right sink instead of code, tests, volatile state, a reusable skill, platform baseline, or observation",
         "do not invoke another workflow without explicit owner request",
         "record exactly one disposition for this Review Unit using --item",
     ]

@@ -12,9 +12,10 @@ forge-core 领域字典。一句话定义,只收本项目独有概念。
 - **Source Settlement(来源结算)** — disposition 对来源 provider 状态产生的持久效果,例如把已审 Memory 批次写入 seen checkpoint,或把已覆盖 clipping 标记到 canonical sink。只写 Run note 而 monitor 数量不减少不算结算。
 - **Run Contract(运行合同)** — CLI 根据 Run 状态给出的唯一下一步、范围上限、禁止扩展项与结束事实。Agent 负责批次内语义判断,不能自行扩大为另一套工作流;最终答复以合同返回的 open/dirty/remaining 状态为准。
 - **Observation(观察)** — 一个可能复现、但证据尚不足以成为长期资产的主题。观察按 Evidence Event 聚合,有到期日;到期无新事件即关闭,原始 evidence 不删除。
-- **Candidate Asset(候选资产)** — 已达到晋升门槛、等待 owner 质检的一张卡。卡片必须给出具体来源情境、Evidence Event、现有资产覆盖与缺口、一般化问题、晋升理由、建议资产、适用/不适用范围、未来行为影响、准确 patch、验证方法与准确裁决问题。
+- **Candidate Asset(候选资产)** — 已达到晋升门槛、等待 owner 质检的一张卡。卡片必须给出具体来源情境、Evidence Event、现有资产覆盖与缺口、Asset Fit、一般化问题、晋升理由、建议资产、适用/不适用范围、未来行为影响、准确 patch、验证方法与准确裁决问题。
 - **Promotion(资产晋升)** — owner 批准 Candidate Asset 后,通过既有 ledger / compile gate 把它写入 Canonical Source。频率本身不构成晋升理由。
-- **Promotion Ground(晋升依据)** — Candidate Asset 的准入依据,仅三类:`repeated`(两个以上不同 Evidence Event)、`owner-directed`(owner 明确要求未来长期沉淀并保留原话)、`high-risk`(可确定性验证的不变量及失败条件)。一次任务中的强调或具体要求不等于 owner-directed。
+- **Promotion Ground(晋升依据)** — Candidate Asset 的准入依据,仅两类:`repeated`(两个以上不同 Evidence Event)或 `owner-directed`(owner 明确要求未来长期沉淀并保留原话)。`high-risk` 只改变处理优先级与控制路径,不替代长期资产证据。
+- **Asset Fit(资产适配性)** — 为什么 owner 管的某个 Canonical Source 是当前 durable delta 的正确权威落点,而不是代码/测试、易变状态、可复用 Skill、平台/模型通用底线或 Observation。无法说明 Asset Fit 的主题不是 Candidate Asset。
 - **Rule Zone(行为规则区)** — 改变 agent 行为的内容(偏好/边界/工作规则)。delta-gated:每笔变更须 owner 在 run 中裁决;预算制(编译后默认 ≤150 行);由编译器结构性强制。
 - **State Zone(状态区)** — 信息类内容(项目状态/KB/调研结论)。agent 自由写入、逐笔记账,审阅方式是读即审 + 认证。
 - **Zones 配置** — owner 持有的分区声明(路径/段类 → 区);内容不能自我声明区属;本文件属规则区。
@@ -53,6 +54,7 @@ forge-core 领域字典。一句话定义,只收本项目独有概念。
 - ~~把每条 Memory 都蒸馏落账~~ — 输入不是资产;先分流,只有达到 Promotion Ground 的少数主题才能成为 Candidate Asset。
 - ~~候选 0 / 没有候选~~ — 批次局部统计不能充当全局结论;有未筛选 Review Unit 时只能说 Candidate Conclusion=unknown。
 - ~~explicit ground~~ — “明确”容易把本次任务要求误当长期要求;新建 Candidate 只使用 **owner-directed**,并保存明确要求未来长期沉淀的 owner 原话。
+- ~~high-risk ground~~ — 严重后果不等于长期资产证据;高风险单次事件优先走确定性控制修复或 Observation,不能凭假设风险占用 owner review。
 
 ## Flagged ambiguities
 

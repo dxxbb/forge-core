@@ -66,6 +66,7 @@ def test_repeated_candidate_counts_events_not_evidence_pointers(tmp_path: Path) 
         "ground": "repeated",
         "source_context": "两个独立任务都把一次性缺陷直接写成了永久行为规则。",
         "existing_coverage": "现有边界只禁止未核实事实，没有规定一次性缺陷的沉淀去向。",
+        "asset_fit": "这是跨任务复现的协作模式，不是单次代码缺陷、易变项目状态或平台通用底线；工作偏好是改变未来处理方式的权威落点。",
         "promotion_rationale": "两个不同任务暴露了同一跨场景错误，规则只约束可由代码确定性修复的缺陷。",
         "expected_effect": "以后同类缺陷优先修代码和回归测试，不再制造永久提示词补丁。",
         "decision_question": "是否把这条跨任务处理原则写入长期协作规则？",
@@ -101,6 +102,15 @@ def test_repeated_candidate_counts_events_not_evidence_pointers(tmp_path: Path) 
     assert candidate.evidence == ["capture/session-a.md", "capture/session-b.md"]
     assert list_candidates(tmp_path)[0].id == candidate.id
 
+    without_fit = {**common, "asset_fit": ""}
+    with pytest.raises(ValueError, match="asset_fit"):
+        create_candidate(
+            tmp_path,
+            event_ids=["codex-thread:session-c", "codex-thread:session-d"],
+            evidence=["capture/session-c.md", "capture/session-d.md"],
+            **without_fit,
+        )
+
 
 def test_owner_directed_candidate_requires_a_long_term_owner_quote(tmp_path: Path) -> None:
     common = {
@@ -110,6 +120,7 @@ def test_owner_directed_candidate_requires_a_long_term_owner_quote(tmp_path: Pat
         "evidence": ["rollout/medical-a.md"],
         "source_context": "用户在一次无痰调研中要求先判断是否需要排痰，再给教程。",
         "existing_coverage": "现有规则要求核实外部事实，但没有规定医疗回答结构。",
+        "asset_fit": "Owner 明确要求把回答结构作为长期偏好；它不是本次病情事实或一次性教程。",
         "promotion_rationale": "只有 owner 明确要求未来长期采用该结构时，才足以从一次事件晋升。",
         "expected_effect": "以后所有医疗调研默认采用分层结构。",
         "decision_question": "是否让未来所有医疗调研默认采用这一结构？",
@@ -137,7 +148,7 @@ def test_owner_directed_candidate_requires_a_long_term_owner_quote(tmp_path: Pat
     assert candidate.owner_request == "以后所有医疗问题都按这个方式回答。"
 
 
-def test_high_risk_candidate_requires_a_verifiable_invariant_and_failure_mode(
+def test_high_risk_signal_does_not_bypass_candidate_promotion_ground(
     tmp_path: Path,
 ) -> None:
     common = {
@@ -161,18 +172,16 @@ def test_high_risk_candidate_requires_a_verifiable_invariant_and_failure_mode(
         "verification": "缺少批准记录的删除命令被门禁拒绝。",
     }
 
-    with pytest.raises(ValueError, match="verifiable invariant and failure mode"):
-        create_candidate(tmp_path, risk_invariant="", risk_failure="", **common)
-
-    candidate = create_candidate(
-        tmp_path,
-        risk_invariant="生产删除前必须存在匹配目标和范围的 owner 批准记录。",
-        risk_failure="无批准、批准目标不匹配或批准已过期时拒绝执行。",
-        **common,
-    )
-
-    assert candidate.risk_invariant.startswith("生产删除前")
-    assert candidate.risk_failure.startswith("无批准")
+    with pytest.raises(
+        ValueError,
+        match=r"ground must be repeated\|owner-directed",
+    ):
+        create_candidate(
+            tmp_path,
+            risk_invariant="生产删除前必须存在匹配目标和范围的 owner 批准记录。",
+            risk_failure="无批准、批准目标不匹配或批准已过期时拒绝执行。",
+            **common,
+        )
 
 
 def test_review_card_explains_why_now_gap_ground_effect_question_and_patch(
@@ -187,6 +196,7 @@ def test_review_card_explains_why_now_gap_ground_effect_question_and_patch(
         evidence=["rollout/a.md", "rollout/b.md"],
         source_context="任务 A 和任务 B 都把一次性缺陷写成了永久规则。",
         existing_coverage="现有规则只要求事实核验，未规定一次性缺陷的去向。",
+        asset_fit="这是跨任务协作规则，工作偏好是权威落点；代码修复、状态记录和平台通用底线都不能表达这项 owner 行为选择。",
         promotion_rationale="两个独立任务暴露同一模式，且范围限定为可确定性修复的缺陷。",
         expected_effect="未来同类问题先修代码和测试，不再增加提示词补丁。",
         decision_question="是否把这项跨任务处理原则写入长期规则？",
@@ -207,6 +217,7 @@ def test_review_card_explains_why_now_gap_ground_effect_question_and_patch(
     for label in (
         "为什么现在提出",
         "现有资产对照",
+        "为什么值得成为长期资产",
         "晋升为什么成立",
         "写入后的影响",
         "请你决定",
@@ -219,7 +230,7 @@ def test_review_card_explains_why_now_gap_ground_effect_question_and_patch(
     contract = run.next_contract(tmp_path)
     assert contract["action"] == "decide-candidate"
     assert contract["constraints"] == [
-        "present the complete card in simple language, including why now, source events, existing coverage, promotion ground, future effect, exact patch, and decision question",
+        "present the complete card in simple language, including why now, actual source events, existing coverage, why this belongs in an owner-governed durable asset, promotion ground, future effect, exact patch, and decision question",
         "do not collapse the card into only the proposed rule",
         "do not decide for the owner",
     ]
@@ -231,6 +242,7 @@ def _owner_directed_review(event: str) -> dict[str, object]:
         "event_ids": [f"owner-request:{event}"],
         "source_context": "Owner 在一次任务中明确要求把该行为作为长期规则。",
         "existing_coverage": "已检查目标资产；当前没有覆盖这项长期要求。",
+        "asset_fit": "这是 owner 明确要求的长期行为选择，目标资产是它的权威落点；它不属于一次性实现修复、易变状态或平台通用底线。",
         "promotion_rationale": "一次事件能够晋升，是因为 owner 明确要求未来长期遵守。",
         "expected_effect": "批准后，未来匹配范围的任务都会受这项规则约束。",
         "decision_question": "是否把这项 owner 明确要求写入长期资产？",
@@ -554,6 +566,8 @@ def test_cli_records_observation_candidate_and_input_disposition(tmp_path: Path)
             "Owner 明确要求长期建立该资产。",
             "--existing-coverage",
             "现有资产没有覆盖。",
+            "--asset-fit",
+            "这是 owner 明确要求的长期资产，目标知识文件是权威落点。",
             "--promotion-rationale",
             "Owner 明确要求未来长期遵守。",
             "--expected-effect",
@@ -747,6 +761,7 @@ def test_pending_candidate_pauses_observation_expiry_and_reject_closes_it(
         "evidence": observation.evidence,
         "source_context": "两个独立事件都显示了同一问题。",
         "existing_coverage": "现有资产没有覆盖该跨事件问题。",
+        "asset_fit": "这是两个事件共同支持的长期资产，不属于单次修复、易变状态或平台通用底线。",
         "promotion_rationale": "两个独立事件支持相同的受限抽象。",
         "expected_effect": "未来匹配范围的事件应用该资产。",
         "decision_question": "是否把该跨事件模式写入长期资产？",

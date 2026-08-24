@@ -1,6 +1,6 @@
 ---
 name: forge
-version: 0.14.0
+version: 0.15.0
 description: "Initialize and operate a personalOS workspace with forge. Use when the user says they want to create/setup/build a forge or personalOS workspace, manage agent context, import existing CLAUDE.md/AGENTS.md/memory, review context changes, or approve/reject context updates. This skill is personalOS-layout-first and must not use legacy `forge new` / `sp` onboarding."
 metadata:
   requires:
@@ -97,7 +97,7 @@ topics proactively in work sessions.
    - 满足晋升依据 → `forge candidate create ... --event-id <stable-event-id>`,再记 `candidate --sink <cand-id>`
    - 无价值 → `closed --note <reason>`;raw evidence 仍保留
    - 本批确实无法处理 → `defer --note <reason>`;最终状态必须是 incomplete
-5. `decide-candidate` 不是只报一条建议。用简单自然语言完整讲清:为什么现在提出、来自哪些真实经历、现有资产已覆盖什么/还缺什么、为什么达到晋升门槛、准确写入内容、以后会改变什么,最后问卡片里的准确裁决问题。结构完整即可,不要求固定措辞;不得把卡片压缩成一句“正确的规则”。owner 一句话裁决 →
+5. `decide-candidate` 不是只报一条建议。用简单自然语言完整讲清:为什么现在提出、来自哪些真实经历、现有资产已覆盖什么/还缺什么、为什么这项变化值得成为 owner 管的长期资产而不是代码/测试/状态/Skill/平台通用底线或继续观察、为什么达到晋升门槛、准确写入内容、以后会改变什么,最后问卡片里的准确裁决问题。结构完整即可,不要求固定措辞;不得把卡片压缩成一句“正确的规则”。owner 一句话裁决 →
    - 同意:`forge run decide <id> --approve [--note]`
    - 不写:`forge run decide <id> --reject [--note]`
    - 继续观察:`forge run decide <id> --observe [--note]`
@@ -113,6 +113,7 @@ Source-specific hard bounds:
 - Web clipping:只读 contract 列出的最多 5 个文件。默认只搜索已有 canonical asset 作为 sink;未经 owner 明确要求,禁止启动 deep `knowledge-intake`、外部调研或逐篇全文走读。
 - Web clipping 已由 Source Batch 独占,不要再把同一路径当普通 capture evidence 分流。
 - Agent Memory 的 provider-managed raw capture 同样只是 evidence 副本,不要再作为 standalone capture 重复分流。
+- `classify-*` 是后台工作。进度只报告已处理/剩余数量和当前是否出现 owner 决策,不得主动念出 covered/closed/Observation 的主题或内容;owner 明确询问观察池时才展开。只有 `decide-integrity` / `decide-candidate` 进入前台。
 
 ### Run 铁律
 
@@ -121,10 +122,11 @@ Source-specific hard bounds:
 - 不硬凑:来源与 capture 都干净时说“没有”,空 Run 不生成审计文件或 Git 提交。
 - 全局候选结论:仍有 Source Review Unit 或 standalone capture evidence 未筛选时必须说 `unknown`;只有 Selection Coverage=complete 且 pending Candidate=0 时才能说“没有候选”。Observation 已分流,不算未筛选 backlog。
 - 裁决即执行,立刻报结果,不留"稍后处理"。
-- 候选准入至少满足一项:`repeated` = 两个以上不同 `event-id`；`owner-directed` = owner 明确要求**未来长期沉淀**并在卡片保存准确原话；`high-risk` = 可确定性验证的不变量及其失败条件。用户只要求“这次认真做/先判断/给教程”不等于 owner-directed。拿不准是否能长期一般化时必须进 Observation,不能先建 Candidate 再建议“继续观察”。
+- 候选准入只允许:`repeated` = 两个以上不同 `event-id`；`owner-directed` = owner 明确要求**未来长期沉淀**并在卡片保存准确原话。`high-risk` 只是优先处理信号,不能替代长期资产证据:单次高风险事件若有确定性控制缺陷,走 one-off 的代码/测试/门禁闭环；否则进 Observation；只有 owner 明确要求长期沉淀时才可由单次事件建 Candidate。用户只要求“这次认真做/先判断/给教程”不等于 owner-directed。拿不准是否能长期一般化时必须进 Observation,不能先建 Candidate 再建议“继续观察”。
 - evidence path 只是证据指针,不能充当独立事件。同一 thread 的 Task Group、rollout summary、raw session 即使是三个文件也只算一个 event。不要用会漂移的 `MEMORY.md#Lx-Ly` 作为唯一来源;保留稳定 event id、具体来源情境和稳定 summary/session 指针。
-- Candidate 创建前必须读取目标及直接相关的 canonical asset,写清 `existing-coverage` 与未覆盖的 durable delta；与现有规则重复、只是换个说法、或只解决一个 case 时用 covered/closed/observe,不要把比较工作留给 owner。
-- Candidate 卡除原有 problem/proposal/scope/exclusions/patch/verification 外,必须给出 `source-context`、`existing-coverage`、`promotion-rationale`、`expected-effect`、`decision-question`。CLI 缺任何一项会拒绝创建。
+- `source-context` 只能描述真实发生的行为、纠正、决定或失败；“如果犯错可能有严重后果”不是事件证据,不能凭假设风险制造 Candidate。
+- Candidate 创建前必须读取目标及直接相关的 canonical asset,写清 `existing-coverage` 与未覆盖的 durable delta,并用 `asset-fit` 说明为什么 owner 管的长期资产是正确落点,而不是代码/测试、易变状态、可复用 Skill、平台/模型通用底线或 Observation。无法说明时用 covered/one-off/closed/observe,不要把比较工作留给 owner。
+- Candidate 卡除原有 problem/proposal/scope/exclusions/patch/verification 外,必须给出 `source-context`、`existing-coverage`、`asset-fit`、`promotion-rationale`、`expected-effect`、`decision-question`。CLI 缺任何一项会拒绝创建。
 - 候选目标在 approve 前不得写入 canonical asset;规则区脱离候选卡的直接改动属于 unqualified-change。
 - close 前每条 Source Batch/capture input 必须有 disposition;非 defer 必须推进 provider checkpoint;观察池有期限,不是永久 backlog。
 - decide 报 stale/failed → 如实报错,标记下次重备,再调用 `run next`;run 中断 → 下次 open 自动续接原批次。

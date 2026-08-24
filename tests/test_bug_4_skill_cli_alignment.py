@@ -71,6 +71,7 @@ def test_skill_and_cli_align_on_event_grounded_candidate_review() -> None:
         "owner-directed",
         "source-context",
         "existing-coverage",
+        "asset-fit",
         "promotion-rationale",
         "expected-effect",
         "decision-question",
@@ -84,6 +85,7 @@ def test_skill_and_cli_align_on_event_grounded_candidate_review() -> None:
         "--event-id",
         "--source-context",
         "--existing-coverage",
+        "--asset-fit",
         "--promotion-rationale",
         "--expected-effect",
         "--decision-question",
@@ -92,6 +94,8 @@ def test_skill_and_cli_align_on_event_grounded_candidate_review() -> None:
         "--risk-failure",
     ):
         assert flag in candidate_help.output
+    assert "[repeated|owner-directed]" in candidate_help.output
+    assert "repeated|owner-directed|high-risk" not in candidate_help.output
 
     observation_help = runner.invoke(main, ["observation", "record", "--help"])
     assert observation_help.exit_code == 0, observation_help.output

@@ -659,6 +659,7 @@ def next_contract(root: Path, *, budget: int = DEFAULT_BUDGET) -> dict[str, Any]
         return {
             "run_id": record.id,
             "action": "decide-integrity",
+            "owner_visibility": "decision",
             "ask_id": item.id,
             "ask_type": item.type,
             "title": item.title,
@@ -687,6 +688,8 @@ def next_contract(root: Path, *, budget: int = DEFAULT_BUDGET) -> dict[str, Any]
             return {
                 "run_id": record.id,
                 "action": "classify-source-item",
+                "owner_visibility": "background",
+                "progress_reporting": "aggregate-only",
                 "input_ref": item.get("path", ""),
                 "source_kind": kind,
                 "handler": item.get("handler", "source-review"),
@@ -704,6 +707,8 @@ def next_contract(root: Path, *, budget: int = DEFAULT_BUDGET) -> dict[str, Any]
         return {
             "run_id": record.id,
             "action": "classify-source",
+            "owner_visibility": "background",
+            "progress_reporting": "aggregate-only",
             "input_ref": item.get("path", ""),
             "source_kind": kind,
             "handler": item.get("handler", "source-review"),
@@ -724,6 +729,8 @@ def next_contract(root: Path, *, budget: int = DEFAULT_BUDGET) -> dict[str, Any]
         return {
             "run_id": record.id,
             "action": "classify-evidence",
+            "owner_visibility": "background",
+            "progress_reporting": "aggregate-only",
             "input_ref": item.get("path", ""),
             "constraints": ["record exactly one disposition for this evidence"],
         }
@@ -738,13 +745,14 @@ def next_contract(root: Path, *, budget: int = DEFAULT_BUDGET) -> dict[str, Any]
         return {
             "run_id": record.id,
             "action": "decide-candidate",
+            "owner_visibility": "decision",
             "ask_id": item.id,
             "ask_type": item.type,
             "title": item.title,
             "detail": item.detail,
             "review_budget_remaining": candidate_budget,
             "constraints": [
-                "present the complete card in simple language, including why now, source events, existing coverage, promotion ground, future effect, exact patch, and decision question",
+                "present the complete card in simple language, including why now, actual source events, existing coverage, why this belongs in an owner-governed durable asset, promotion ground, future effect, exact patch, and decision question",
                 "do not collapse the card into only the proposed rule",
                 "do not decide for the owner",
             ],
@@ -753,6 +761,7 @@ def next_contract(root: Path, *, budget: int = DEFAULT_BUDGET) -> dict[str, Any]
     return {
         "run_id": record.id,
         "action": "close",
+        "owner_visibility": "summary",
         "constraints": [
             "run forge run close",
             "report the returned open, dirty, and remaining-source facts verbatim",
@@ -777,9 +786,11 @@ def _source_constraints(kind: str, *, per_item: bool = False) -> list[str]:
         return [
             "inspect only the listed Review Unit and its evidence pointers",
             "derive event ids from the underlying thread/session/source event, not from file paths; multiple pointers to the same event share one id",
+            "source context must describe what actually happened; a hypothetical harm is not evidence of a problem",
             "a request made for this one task is not an owner-directed long-term requirement",
+            "high-risk is a priority signal, not a promotion ground; a single event goes to one-off/control or observation unless owner-directed",
             "if long-term generalization is still uncertain, record an observation instead of a candidate",
-            "before creating a candidate, compare the target and related canonical assets and state the uncovered durable delta",
+            "before creating a candidate, compare related assets and explain why an owner-governed durable asset is the right sink instead of code, tests, volatile state, a reusable skill, platform baseline, or observation",
             "do not invoke another workflow without explicit owner request",
             unit_rule,
         ]
@@ -1022,6 +1033,7 @@ def _candidate_review_detail(candidate: promotion.Candidate) -> str:
         f"来源经历:{'；'.join(candidate.event_ids)}\n"
         f"证据指针:{'；'.join(candidate.evidence)}\n"
         f"现有资产对照:{candidate.existing_coverage}\n"
+        f"为什么值得成为长期资产:{candidate.asset_fit}\n"
         f"问题:{candidate.problem}\n"
         f"晋升为什么成立:{ground_detail}；{candidate.promotion_rationale}\n"
         f"建议:{candidate.proposal}\n"

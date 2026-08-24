@@ -53,7 +53,7 @@
 
 **AC-RUN-3** 每个新 capture input、每个 Source Batch Review Unit 必须经 `forge run disposition` 记录且只能保留一个最新去向:`covered|one-off|volatile-state|observe|candidate|closed|defer`;批次单元用 `--item <unit-id>` 独立分流,批次级非 defer disposition 必须拒绝。`defer` 仅用于尚未开始单元结算的 Source Signal 且必须有理由。存在 unclassified input/unit 时 close 必须失败。
 
-**AC-RUN-4(问单)** `forge run ask [--budget N]` 默认 3:conflict 与 unqualified-change 全量置顶,其后最多 N 张 pending Candidate Asset。Candidate 卡携带为什么现在提出、Evidence Event/evidence pointer、现有资产覆盖与缺口、problem、Promotion Ground 理由、proposal、scope、exclusions、未来行为影响、准确 patch、verification 与准确裁决问题;不返回超预算 Candidate,不生成 certification-due。
+**AC-RUN-4(问单)** `forge run ask [--budget N]` 默认 3:conflict 与 unqualified-change 全量置顶,其后最多 N 张 pending Candidate Asset。Candidate 卡携带为什么现在提出、实际发生的 Evidence Event/evidence pointer、现有资产覆盖与缺口、为什么 owner 管的长期资产是正确落点、problem、Promotion Ground 理由、proposal、scope、exclusions、未来行为影响、准确 patch、verification 与准确裁决问题;不返回超预算 Candidate,不生成 certification-due。
 
 **AC-RUN-5(裁决执行)** `forge run decide <candidate-id> --approve|--reject|--observe [--note]`:approve 走 AC-LEDGER-5 全流水线(规则区同时更新 verified 快照);reject 关闭卡但保留 evidence;observe 回到 Observation。执行结果即时回写 run 记录。conflict/unqualified-change 只接受 approve/reject。
 
@@ -65,7 +65,7 @@
 
 **AC-RUN-9(Source Settlement)** Memory 的每个非 defer Review Unit disposition 独立 stale-check 后推进 semantic checkpoint;Web clipping 的每个非 defer Review Unit disposition写回对应 marker,其中 `covered` 必须验证 sink 是 workspace 内已存在 canonical asset。provider 仍返回原批任一 unit 时 close fail closed。checkpoint 文件若已被 Git 跟踪,必须进入 close scoped commit;真正 gitignored side state 不提交。
 
-**AC-RUN-10(Run Contract)** `forge run next [--budget N]` 每次只返回一个 action。顺序固定为:完整性问题 → 一个未分流 Review Unit → 一条未分流 capture evidence → 预算内 Candidate → close。合同包含 input/ask id、当前 Review Unit、handler、constraints 与候选剩余预算;Agent 不得扩大合同范围。
+**AC-RUN-10(Run Contract)** `forge run next [--budget N]` 每次只返回一个 action。顺序固定为:完整性问题 → 一个未分流 Review Unit → 一条未分流 capture evidence → 预算内 Candidate → close。合同包含 input/ask id、当前 Review Unit、handler、constraints、owner visibility 与候选剩余预算;Agent 不得扩大合同范围。classify action 的 owner visibility 为 background,进度只报聚合数量,不得主动展开 covered/closed/Observation 内容;decision action 才进入前台。
 
 **AC-RUN-11** Web clipping 与 Agent Memory 由 Source Batch 独占处理,对应的 provider-managed raw capture 不能再作为 generic `capture-evidence` 重复筛选。Memory 每次只读合同列出的一个 Review Unit 及其 evidence pointer,不得顺手扫描完整源文件或下一单元;clipping 默认只查现有 canonical sink,除非 owner 明确要求,不得启动完整 knowledge-intake。
 
@@ -77,7 +77,7 @@
 
 **AC-PROMOTION-1** Observation 位于 `system/observations/`,同一 theme 合并去重后的 `event_ids` 与 evidence pointer,记录 created/last_seen/expires/state;独立事件数只按 event id 计算,同一事件的多个 pointer 不增加计数;到期只关闭记录,不删除 evidence。
 
-**AC-PROMOTION-2** Candidate Asset 位于 `system/candidates/`;`repeated` 至少两个不同 event id,`owner-directed` 至少一个 event id + owner 明确要求未来长期沉淀的原话,`high-risk` 至少一个 event id + 可验证不变量 + 失败条件。所有 ground 都必须包含 source_context、existing_coverage、promotion_rationale、expected_effect、decision_question、problem、proposal、scope、至少一个 exclusion、target patch 与 verification,缺失即拒绝创建。
+**AC-PROMOTION-2** Candidate Asset 位于 `system/candidates/`;`repeated` 至少两个不同 event id,`owner-directed` 至少一个 event id + owner 明确要求未来长期沉淀的原话。`high-risk` 只改变优先级与控制路径,不能单独构成 Promotion Ground。所有 Candidate 都必须包含只描述实际发生内容的 source_context、existing_coverage、asset_fit、promotion_rationale、expected_effect、decision_question、problem、proposal、scope、至少一个 exclusion、target patch 与 verification;缺失即拒绝创建。`asset_fit` 必须说明为何 owner 管的长期资产是正确落点,而不是代码/测试、易变状态、Skill、平台通用底线或 Observation。
 
 **AC-PROMOTION-3** Candidate 状态仅 `pending → promoted|rejected|observing`;promoted 必有 ledger entry。已决定 Candidate 默认不再进入 ask。
 

@@ -76,13 +76,12 @@ Agent:已通过 ledger 写入 assist config,重编译 runtime 并验证。
 | Ledger Entry | `system/ledger/` | 一笔写入的 evidence、patch、commit 与撤销记录 |
 | Runtime View | `context build/runtime/` | 给各 Agent runtime 读取的确定性编译产物 |
 
-Candidate 的准入依据只有三种:
+Candidate 的准入依据只有两种:
 
 - 两个以上独立事件支持;
 - owner 明确要求长期遵守;
-- 高风险且可确定性验证的不变量。
 
-每张卡还必须写清 `problem / proposal / scope / exclusions / exact patch / verification`。重复频率本身不能替代抽象质量。
+高风险只决定优先级和控制路径,不单独证明需要长期资产。每张卡还必须写清 `asset-fit / problem / proposal / scope / exclusions / exact patch / verification`;其中 `asset-fit` 要解释为什么 owner 管的长期真源是正确落点,而不是代码/测试、状态、Skill、平台通用底线或继续观察。重复频率本身不能替代抽象质量。
 
 ## Forge Run CLI
 
@@ -149,7 +148,7 @@ forge update
 
 ## 当前状态
 
-`0.14.0` Alpha,dogfood 阶段。Review Unit、Selection Coverage 与 Candidate Conclusion 已把“本批 0”与“全局没有候选”分开;Evidence Event 与完整 owner decision context 进一步阻止同一经历重复计数和一句话候选卡。语义分类质量与真实长期使用效果仍需连续 Run 验证。
+`0.15.0` Alpha,dogfood 阶段。Review Unit、Selection Coverage 与 Candidate Conclusion 已把“本批 0”与“全局没有候选”分开;Evidence Event 与完整 owner decision context 阻止同一经历重复计数和一句话候选卡;Owner Review Worthiness 进一步要求真实事件、`repeated|owner-directed` 准入与 Asset Fit,并把 Observation 留在后台。语义分类质量与真实长期使用效果仍需连续 Run 验证。
 
 ## 开发
 

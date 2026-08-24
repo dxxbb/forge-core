@@ -425,13 +425,14 @@ def candidate_group() -> None:
 @click.option("--title", required=True)
 @click.option(
     "--ground",
-    type=click.Choice(["repeated", "owner-directed", "high-risk"]),
+    type=click.Choice(["repeated", "owner-directed"]),
     required=True,
 )
 @click.option("--event-id", "event_ids", multiple=True, required=True)
 @click.option("--evidence", multiple=True, required=True)
 @click.option("--source-context", required=True)
 @click.option("--existing-coverage", required=True)
+@click.option("--asset-fit", required=True)
 @click.option("--promotion-rationale", required=True)
 @click.option("--expected-effect", required=True)
 @click.option("--decision-question", required=True)
@@ -456,6 +457,7 @@ def candidate_create(
     evidence: tuple[str, ...],
     source_context: str,
     existing_coverage: str,
+    asset_fit: str,
     promotion_rationale: str,
     expected_effect: str,
     decision_question: str,
@@ -485,6 +487,7 @@ def candidate_create(
         evidence=list(evidence),
         source_context=source_context,
         existing_coverage=existing_coverage,
+        asset_fit=asset_fit,
         promotion_rationale=promotion_rationale,
         expected_effect=expected_effect,
         decision_question=decision_question,
@@ -531,6 +534,7 @@ def candidate_show(candidate_id: str, root: str | None) -> None:
     click.echo("来源经历: " + "；".join(candidate.event_ids))
     click.echo(f"为什么现在提出: {candidate.source_context}")
     click.echo(f"现有资产对照: {candidate.existing_coverage}")
+    click.echo(f"为什么值得成为长期资产: {candidate.asset_fit}")
     click.echo(f"晋升为什么成立: {candidate.promotion_rationale}")
     if candidate.owner_request:
         click.echo(f"owner 长期要求原话: {candidate.owner_request}")
@@ -554,6 +558,7 @@ def candidate_show(candidate_id: str, root: str | None) -> None:
 @click.option("--problem", default=None)
 @click.option("--source-context", default=None)
 @click.option("--existing-coverage", default=None)
+@click.option("--asset-fit", default=None)
 @click.option("--promotion-rationale", default=None)
 @click.option("--expected-effect", default=None)
 @click.option("--decision-question", default=None)
@@ -575,6 +580,7 @@ def candidate_revise(
     problem: str | None,
     source_context: str | None,
     existing_coverage: str | None,
+    asset_fit: str | None,
     promotion_rationale: str | None,
     expected_effect: str | None,
     decision_question: str | None,
@@ -601,6 +607,7 @@ def candidate_revise(
         problem=problem,
         source_context=source_context,
         existing_coverage=existing_coverage,
+        asset_fit=asset_fit,
         promotion_rationale=promotion_rationale,
         expected_effect=expected_effect,
         decision_question=decision_question,

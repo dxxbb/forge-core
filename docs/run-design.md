@@ -69,13 +69,13 @@ Source Signal 也不能直接等同于“一次要处理的全部 backlog”。C
 - 以 theme 聚合 Evidence Event,另存 1..N 个 evidence pointer;
 - 记录首次/最近出现、到期时间、状态和候选关联;
 - 到期无新证据自动 `closed: expired`;
-- 不是 owner 待办,不进入 Run 问单。
+- 不是 owner 待办,不进入 Run 问单;分类进度只报聚合数量,不主动向 owner 展开 Observation 主题。
 
 ### 3.3 Candidate Asset
 
 - 位置:`system/candidates/`;
-- 准入依据仅 `repeated / owner-directed / high-risk`;
-- 卡片必须含 source context、event ids/evidence pointers、existing coverage、promotion rationale、problem、proposal、scope、exclusions、expected effect、准确 patch、verification 与 decision question;
+- 准入依据仅 `repeated / owner-directed`;`high-risk` 只决定优先级与控制路径,不能绕过长期资产证据;
+- 卡片必须含 actual source context、event ids/evidence pointers、existing coverage、asset fit、promotion rationale、problem、proposal、scope、exclusions、expected effect、准确 patch、verification 与 decision question;
 - 状态:`pending → promoted|rejected|observing`;
 - 每轮最多展示 3 张;完整性冲突不受候选预算压缩。
 

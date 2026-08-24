@@ -52,6 +52,7 @@ class Candidate:
     evidence: list[str]
     source_context: str
     existing_coverage: str
+    asset_fit: str
     promotion_rationale: str
     expected_effect: str
     decision_question: str
@@ -215,6 +216,7 @@ def create_candidate(
     mode: str,
     proposed_text: str,
     verification: str,
+    asset_fit: str = "",
     owner_request: str = "",
     risk_invariant: str = "",
     risk_failure: str = "",
@@ -223,26 +225,26 @@ def create_candidate(
 ) -> Candidate:
     """Admit one review card only when its evidence and boundaries are explicit."""
     ground = ground.strip()
-    if ground not in {"repeated", "owner-directed", "high-risk"}:
-        raise ValueError("ground must be repeated|owner-directed|high-risk")
+    if ground not in {"repeated", "owner-directed"}:
+        raise ValueError(
+            "ground must be repeated|owner-directed; high-risk is a priority signal, "
+            "not independent evidence that a durable owner asset is needed"
+        )
     event_ids = _clean_event_ids(event_ids)
     if not event_ids:
         raise ValueError("candidate requires at least one stable event id")
     evidence = _clean_refs(evidence)
     if ground == "repeated" and len(event_ids) < 2:
         raise ValueError("repeated ground requires two independent events")
-    if ground in {"owner-directed", "high-risk"} and not evidence:
+    if ground == "owner-directed" and not evidence:
         raise ValueError(f"{ground} ground requires evidence")
     if ground == "owner-directed" and not owner_request.strip():
         raise ValueError("owner-directed ground requires the exact long-term owner request")
-    if ground == "high-risk" and not (risk_invariant.strip() and risk_failure.strip()):
-        raise ValueError(
-            "high-risk ground requires a verifiable invariant and failure mode"
-        )
     required = {
         "title": title,
         "source_context": source_context,
         "existing_coverage": existing_coverage,
+        "asset_fit": asset_fit,
         "promotion_rationale": promotion_rationale,
         "expected_effect": expected_effect,
         "decision_question": decision_question,
@@ -287,6 +289,7 @@ def create_candidate(
         evidence=evidence,
         source_context=source_context.strip(),
         existing_coverage=existing_coverage.strip(),
+        asset_fit=asset_fit.strip(),
         promotion_rationale=promotion_rationale.strip(),
         expected_effect=expected_effect.strip(),
         decision_question=decision_question.strip(),
@@ -337,6 +340,7 @@ def list_candidates(root: Path, *, include_decided: bool = False) -> list[Candid
             evidence=evidence,
             source_context=str(fm.get("source_context") or "legacy candidate; inspect evidence"),
             existing_coverage=str(fm.get("existing_coverage") or "legacy candidate; not recorded"),
+            asset_fit=str(fm.get("asset_fit") or "legacy candidate; not recorded"),
             promotion_rationale=str(fm.get("promotion_rationale") or "legacy candidate; not recorded"),
             expected_effect=str(fm.get("expected_effect") or "legacy candidate; inspect proposed patch"),
             decision_question=str(fm.get("decision_question") or "是否批准这张历史候选卡？"),
@@ -378,6 +382,7 @@ def revise_candidate(
     problem: str | None = None,
     source_context: str | None = None,
     existing_coverage: str | None = None,
+    asset_fit: str | None = None,
     promotion_rationale: str | None = None,
     expected_effect: str | None = None,
     decision_question: str | None = None,
@@ -407,6 +412,7 @@ def revise_candidate(
             "problem": problem,
             "source_context": source_context,
             "existing_coverage": existing_coverage,
+            "asset_fit": asset_fit,
             "promotion_rationale": promotion_rationale,
             "expected_effect": expected_effect,
             "decision_question": decision_question,
@@ -431,6 +437,7 @@ def revise_candidate(
         "problem",
         "source_context",
         "existing_coverage",
+        "asset_fit",
         "promotion_rationale",
         "expected_effect",
         "decision_question",
@@ -683,6 +690,7 @@ def _write_candidate(root: Path, candidate: Candidate) -> None:
         "evidence": candidate.evidence,
         "source_context": candidate.source_context,
         "existing_coverage": candidate.existing_coverage,
+        "asset_fit": candidate.asset_fit,
         "promotion_rationale": candidate.promotion_rationale,
         "expected_effect": candidate.expected_effect,
         "decision_question": candidate.decision_question,
@@ -713,6 +721,7 @@ def _write_candidate(root: Path, candidate: Candidate) -> None:
         + f"# {candidate.title}\n\n"
         + f"## Source context\n\n{candidate.source_context}\n\n"
         + f"## Existing coverage\n\n{candidate.existing_coverage}\n\n"
+        + f"## Asset fit\n\n{candidate.asset_fit}\n\n"
         + f"## Promotion rationale\n\n{candidate.promotion_rationale}\n\n"
         + f"## Problem\n\n{candidate.problem}\n\n"
         + f"## Proposal\n\n{candidate.proposal}\n\n"
