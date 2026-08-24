@@ -2,6 +2,23 @@
 
 记录 `forge-core` 的所有显著变动。
 
+## 0.16.0 (Bounded Observations and Checkout Authority) — 2026-08-24
+
+0.15.0 的一句话隔离验收没有再制造高风险 Candidate,但仍把成功任务内容塞进 Observation,并因 detached worktree 自行切到 canonical personalOS。两者都说明模型判断不能独自承担后台池质量和工作区权限边界。
+
+### Changed
+
+- Observation 准入收紧为真实 `owner-correction|observed-failure|unresolved-conflict|owner-deferred`,并要求 `source_context`、`repeat_if` 与 `route_gap`。
+- 单次成功调研、一般专业原则、项目特定决定、假设风险和“也许以后有用”不再进入 Observation;raw evidence 保留在来源系统。
+- `run next` 明示后台进度只允许处理数、剩余数和是否出现 owner decision,禁止 source title、disposition、主题、理由和 Observation 细节。
+- CLI 拒绝从当前 checkout 显式操作同一仓库的 sibling worktree;detached worktree 被视为有效隔离根。
+- 黑盒验收改为八维全通过:触发路径、工作区权限、来源真实性、分流/观察质量、review worthiness、交互负担、状态真实性、成本收口。证据不足即失败,不匹配固定句子。
+
+### Tests
+
+- 新增 Observation admission 与跨 worktree root fail-closed 行为测试,并更新 Run Contract/CLI 对齐测试。
+- [ADR-0008](docs/adr/0008-unresolved-signal-observation-admission.md) 与 [ADR-0009](docs/adr/0009-current-checkout-authority.md) 记录语义和权限边界。
+
 ## 0.14.0 (Event-grounded Review Cards) — 2026-08-24
 
 第一次自然对话验收暴露出两个相连错误:同一 thread 的 Task Group 与 rollout summary 被当成两个独立事件;owner 对一次任务的具体要求被标成长期明确要求。最终 review 又把完整候选压缩成一句规则,owner 看不到为什么要审。

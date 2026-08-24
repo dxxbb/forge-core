@@ -148,7 +148,7 @@ forge update
 
 ## 当前状态
 
-`0.15.0` Alpha,dogfood 阶段。Review Unit、Selection Coverage 与 Candidate Conclusion 已把“本批 0”与“全局没有候选”分开;Evidence Event 与完整 owner decision context 阻止同一经历重复计数和一句话候选卡;Owner Review Worthiness 进一步要求真实事件、`repeated|owner-directed` 准入与 Asset Fit,并把 Observation 留在后台。语义分类质量与真实长期使用效果仍需连续 Run 验证。
+`0.16.0` Alpha,dogfood 阶段。除 Review Unit、Selection Coverage、Evidence Event 与 Owner Review Worthiness 外,Observation 现在只接收真实纠正/失败/冲突并要求明确复现条件和 route gap,不再作为未晋升内容池;Forge CLI 同时把当前任务 checkout 设为写入权限边界,拒绝隔离 worktree 逃逸到 canonical main。真实长期使用效果仍需连续 Run 验证。
 
 ## 开发
 

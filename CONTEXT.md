@@ -11,7 +11,8 @@ forge-core 领域字典。一句话定义,只收本项目独有概念。
 - **Evidence Event(证据事件)** — 一次真实发生的 thread/session/incident/source encounter,用稳定 `scheme:value` id 标识。Task Group、rollout summary、raw session 和行号都只是它的 evidence pointer;多个指针指向同一经历时仍只算一个事件。
 - **Source Settlement(来源结算)** — disposition 对来源 provider 状态产生的持久效果,例如把已审 Memory 批次写入 seen checkpoint,或把已覆盖 clipping 标记到 canonical sink。只写 Run note 而 monitor 数量不减少不算结算。
 - **Run Contract(运行合同)** — CLI 根据 Run 状态给出的唯一下一步、范围上限、禁止扩展项与结束事实。Agent 负责批次内语义判断,不能自行扩大为另一套工作流;最终答复以合同返回的 open/dirty/remaining 状态为准。
-- **Observation(观察)** — 一个可能复现、但证据尚不足以成为长期资产的主题。观察按 Evidence Event 聚合,有到期日;到期无新事件即关闭,原始 evidence 不删除。
+- **Workspace Authority(工作区权限边界)** — Forge 写入只属于当前任务所在的 Git checkout。detached worktree 仍是有效隔离根;当前 checkout 与显式 `--root` 若属于同一仓库的不同 worktree,CLI 必须拒绝跨越,不能因“canonical main 更持久”而替 Agent 扩权。
+- **Observation(观察)** — 一个由真实 owner correction、observed failure、unresolved conflict 或 owner-deferred Candidate 触发、尚未解决且等待另一独立事件验证的主题。必须保存实际来源情境、什么才算再次出现的 `repeat_if` 和为什么没有更合适去向的 `route_gap`;不接收成功任务摘要、一般正确原则、项目特定事实或“也许以后有用”的内容。观察按 Evidence Event 聚合,有到期日;到期无新事件即关闭,原始 evidence 不删除。
 - **Candidate Asset(候选资产)** — 已达到晋升门槛、等待 owner 质检的一张卡。卡片必须给出具体来源情境、Evidence Event、现有资产覆盖与缺口、Asset Fit、一般化问题、晋升理由、建议资产、适用/不适用范围、未来行为影响、准确 patch、验证方法与准确裁决问题。
 - **Promotion(资产晋升)** — owner 批准 Candidate Asset 后,通过既有 ledger / compile gate 把它写入 Canonical Source。频率本身不构成晋升理由。
 - **Promotion Ground(晋升依据)** — Candidate Asset 的准入依据,仅两类:`repeated`(两个以上不同 Evidence Event)或 `owner-directed`(owner 明确要求未来长期沉淀并保留原话)。`high-risk` 只改变处理优先级与控制路径,不替代长期资产证据。
@@ -55,6 +56,8 @@ forge-core 领域字典。一句话定义,只收本项目独有概念。
 - ~~候选 0 / 没有候选~~ — 批次局部统计不能充当全局结论;有未筛选 Review Unit 时只能说 Candidate Conclusion=unknown。
 - ~~explicit ground~~ — “明确”容易把本次任务要求误当长期要求;新建 Candidate 只使用 **owner-directed**,并保存明确要求未来长期沉淀的 owner 原话。
 - ~~high-risk ground~~ — 严重后果不等于长期资产证据;高风险单次事件优先走确定性控制修复或 Observation,不能凭假设风险占用 owner review。
+- ~~不确定就 Observation~~ — Observation 不是未晋升内容的默认池;没有真实纠正/失败/冲突与可检验复现条件时,应进入已有资产、代码/测试、项目状态或 closed,raw evidence 仍保留。
+- ~~detached worktree 不持久所以切回 main~~ — 任务 checkout 就是本轮权限边界;隔离验收不得自行写入 sibling canonical checkout。
 
 ## Flagged ambiguities
 
@@ -62,6 +65,7 @@ forge-core 领域字典。一句话定义,只收本项目独有概念。
 - "apply" 双义(裁决动作 vs 写盘动作)→ 解决:owner 的动作叫**裁决(decide/approve)**,写盘叫 apply,仅出现在机件层描述。
 - "review" 泛化 → 解决:规则区的 review = run 内裁决;状态区的 review = 读即审 + 认证;不再有第三种。
 - "evidence" 双义(证明材料 vs 独立发生次数)→ 解决:文件/摘要叫 **evidence pointer**,真实经历叫 **Evidence Event**;只有后者参与 repeated 准入计数。
+- "观察" 双义(未晋升素材池 vs 未解决复现假设)→ 解决:只保留后者;成功素材与普通知识不进入 Observation。
 
 ## Example dialogue
 

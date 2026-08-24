@@ -18,12 +18,22 @@ import yaml
 
 OBSERVATION_DIR = Path("system") / "observations"
 CANDIDATE_DIR = Path("system") / "candidates"
+OBSERVATION_SIGNAL_TYPES = {
+    "owner-correction",
+    "observed-failure",
+    "unresolved-conflict",
+    "owner-deferred",
+}
 
 
 @dataclass
 class Observation:
     id: str
     theme: str
+    signal_type: str
+    source_contexts: list[str]
+    repeat_if: str
+    route_gap: str
     state: str
     created_at: str
     last_seen_at: str
@@ -88,15 +98,31 @@ def record_observation(
     root: Path,
     *,
     theme: str,
+    signal_type: str,
+    source_context: str,
+    repeat_if: str,
+    route_gap: str,
     event_ids: list[str],
     evidence: list[str],
     note: str = "",
     expires_days: int = 30,
     now: datetime | None = None,
 ) -> Observation:
-    """Create or refresh one theme, deduplicating independent evidence refs."""
+    """Create or refresh one actual unresolved signal, grouped by theme."""
     if not theme.strip():
         raise ValueError("observation theme is required")
+    signal_type = signal_type.strip()
+    if signal_type not in OBSERVATION_SIGNAL_TYPES:
+        allowed = "|".join(sorted(OBSERVATION_SIGNAL_TYPES))
+        raise ValueError(f"observation signal type must be {allowed}")
+    required_context = {
+        "source context": source_context,
+        "repeat if": repeat_if,
+        "route gap": route_gap,
+    }
+    missing = [name for name, value in required_context.items() if not value.strip()]
+    if missing:
+        raise ValueError("observation missing required field(s): " + ", ".join(missing))
     if expires_days < 1:
         raise ValueError("expires_days must be at least 1")
     event_ids = _clean_event_ids(event_ids)
@@ -112,6 +138,10 @@ def record_observation(
         obs = Observation(
             id=obs_id,
             theme=theme.strip(),
+            signal_type=signal_type,
+            source_contexts=[source_context.strip()],
+            repeat_if=repeat_if.strip(),
+            route_gap=route_gap.strip(),
             state="open",
             created_at=_iso(now),
             last_seen_at=_iso(now),
@@ -127,6 +157,15 @@ def record_observation(
                 "observation already promoted; route new evidence as covered or draft a revision candidate"
             )
         obs.theme = theme.strip()
+        if obs.signal_type not in {"", "legacy", signal_type}:
+            raise ValueError(
+                "observation signal type changed; use a distinct theme for a different signal"
+            )
+        obs.signal_type = signal_type
+        if source_context.strip() not in obs.source_contexts:
+            obs.source_contexts.append(source_context.strip())
+        obs.repeat_if = repeat_if.strip()
+        obs.route_gap = route_gap.strip()
         obs.state = "open"
         obs.last_seen_at = _iso(now)
         obs.expires_at = _iso(now + timedelta(days=expires_days))
@@ -156,6 +195,10 @@ def list_observations(root: Path, *, include_closed: bool = False) -> list[Obser
         obs = Observation(
             id=obs_id,
             theme=str(fm.get("theme") or ""),
+            signal_type=str(fm.get("signal_type") or "legacy"),
+            source_contexts=[str(x) for x in (fm.get("source_contexts") or [])],
+            repeat_if=str(fm.get("repeat_if") or "legacy observation; not recorded"),
+            route_gap=str(fm.get("route_gap") or "legacy observation; not recorded"),
             state=str(fm.get("state") or ""),
             created_at=str(fm.get("created_at") or ""),
             last_seen_at=str(fm.get("last_seen_at") or ""),
@@ -549,6 +592,14 @@ def return_candidate_to_observation(
     observation = record_observation(
         root,
         theme=existing.theme if existing is not None else candidate.problem,
+        signal_type=existing.signal_type if existing is not None else "owner-deferred",
+        source_context=candidate.source_context,
+        repeat_if=(
+            "another independent event matches the candidate problem and scope"
+        ),
+        route_gap=(
+            "the owner explicitly deferred promotion until stronger recurrence evidence exists"
+        ),
         event_ids=candidate.event_ids,
         evidence=candidate.evidence,
         note=note or f"候选 {candidate.id} 退回观察",
@@ -654,6 +705,10 @@ def _write_observation(root: Path, obs: Observation) -> None:
         "kind": "observation",
         "id": obs.id,
         "theme": obs.theme,
+        "signal_type": obs.signal_type,
+        "source_contexts": obs.source_contexts,
+        "repeat_if": obs.repeat_if,
+        "route_gap": obs.route_gap,
         "state": obs.state,
         "created_at": obs.created_at,
         "last_seen_at": obs.last_seen_at,

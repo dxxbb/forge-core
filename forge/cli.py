@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import subprocess
 import sys
 import hashlib
 import functools
@@ -27,7 +28,47 @@ from forge.audit import write_portal
 
 
 def _root(path: str | None) -> Path:
-    return Path(path).resolve() if path else Path.cwd()
+    root = Path(path).resolve() if path else Path.cwd().resolve()
+    if path:
+        current = _git_checkout_identity(Path.cwd())
+        requested = _git_checkout_identity(root)
+        if (
+            current is not None
+            and requested is not None
+            and current[1] == requested[1]
+            and current[0] != requested[0]
+        ):
+            raise click.UsageError(
+                "refusing cross-worktree root: current checkout is "
+                f"{current[0]}, requested root is {requested[0]}. "
+                "Run Forge in the current checkout; a detached worktree is a valid isolated root."
+            )
+    return root
+
+
+def _git_checkout_identity(path: Path) -> tuple[Path, Path] | None:
+    """Return (worktree top, shared git dir) for paths inside a Git checkout."""
+    if not path.is_dir():
+        return None
+    top_proc = subprocess.run(
+        ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+    )
+    if top_proc.returncode != 0:
+        return None
+    top = Path(top_proc.stdout.strip()).resolve()
+    common_proc = subprocess.run(
+        ["git", "-C", str(top), "rev-parse", "--git-common-dir"],
+        capture_output=True,
+        text=True,
+    )
+    if common_proc.returncode != 0:
+        return None
+    common = Path(common_proc.stdout.strip())
+    if not common.is_absolute():
+        common = top / common
+    return top, common.resolve()
 
 
 def _looks_like_personal_os(workspace: Path) -> bool:
@@ -375,6 +416,21 @@ def observation_group() -> None:
 
 @observation_group.command("record")
 @click.option("--theme", required=True)
+@click.option(
+    "--signal-type",
+    type=click.Choice(
+        [
+            "owner-correction",
+            "observed-failure",
+            "unresolved-conflict",
+            "owner-deferred",
+        ]
+    ),
+    required=True,
+)
+@click.option("--source-context", required=True)
+@click.option("--repeat-if", required=True)
+@click.option("--route-gap", required=True)
 @click.option("--event-id", "event_ids", multiple=True, required=True)
 @click.option("--evidence", multiple=True, required=True)
 @click.option("--note", default="")
@@ -382,6 +438,10 @@ def observation_group() -> None:
 @click.option("--root", type=click.Path(), default=None)
 def observation_record(
     theme: str,
+    signal_type: str,
+    source_context: str,
+    repeat_if: str,
+    route_gap: str,
     event_ids: tuple[str, ...],
     evidence: tuple[str, ...],
     note: str,
@@ -394,6 +454,10 @@ def observation_record(
     observation = record_observation(
         _root(root),
         theme=theme,
+        signal_type=signal_type,
+        source_context=source_context,
+        repeat_if=repeat_if,
+        route_gap=route_gap,
         event_ids=list(event_ids),
         evidence=list(evidence),
         note=note,

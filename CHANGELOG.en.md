@@ -2,6 +2,16 @@
 
 All notable changes to `forge-core` will be recorded in this file.
 
+## [0.16.0] — 2026-08-24
+
+### Changed
+
+- Observation admission now requires an actual owner correction, observed failure, unresolved conflict, or owner-deferred Candidate, plus source context, a concrete recurrence test, and an explicit route gap.
+- Successful task summaries, generic professional baselines, project-specific decisions, hypothetical risk, and merely "possibly useful" material no longer enter the Observation pool.
+- Background Run progress is limited to processed/remaining counts and whether an owner decision is ready; source titles, dispositions, themes, reasons, and Observation details stay off the owner surface.
+- The CLI treats the current checkout as the write-authority boundary and refuses an explicit root pointing at a sibling worktree of the same Git repository. Detached worktrees remain valid isolated roots.
+- One-line black-box acceptance now requires evidence across eight behavioral dimensions rather than a pleasant-looking response or fixed wording.
+
 ## [0.14.0] — 2026-08-24
 
 ### Changed

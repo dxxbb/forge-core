@@ -20,6 +20,50 @@ from forge.promotion import (
 )
 
 
+def _observation_admission(label: str = "该模式") -> dict[str, str]:
+    return {
+        "signal_type": "observed-failure",
+        "source_context": f"真实任务中实际出现了{label}。",
+        "repeat_if": f"另一个独立事件再次实际出现{label}。",
+        "route_gap": "现有资产未覆盖；一次事件不足以晋升，且没有更合适的代码、状态或关闭去向。",
+    }
+
+
+def test_observation_admission_requires_an_actual_unresolved_signal(
+    tmp_path: Path,
+) -> None:
+    common = {
+        "theme": "可行性回答先给实现条件",
+        "event_ids": ["codex-thread:session-a"],
+        "evidence": ["rollout/session-a.md"],
+        "source_context": "用户实际纠正了只讲风险却没有回答怎么实现的回复。",
+        "repeat_if": "另一个独立任务中，用户再次纠正回答缺少实现条件或主要障碍。",
+        "route_gap": "现有长期偏好尚未覆盖；一次事件不足以晋升，且这不是代码缺陷或项目状态。",
+    }
+
+    with pytest.raises(ValueError, match="signal type"):
+        record_observation(tmp_path, signal_type="successful-task", **common)
+
+    for field in ("source_context", "repeat_if", "route_gap"):
+        invalid = {**common, field: ""}
+        with pytest.raises(ValueError, match=field.replace("_", " ")):
+            record_observation(tmp_path, signal_type="owner-correction", **invalid)
+
+    observation = record_observation(
+        tmp_path,
+        signal_type="owner-correction",
+        **common,
+    )
+
+    assert observation.signal_type == "owner-correction"
+    assert observation.source_contexts == [common["source_context"]]
+    assert observation.repeat_if == common["repeat_if"]
+    assert observation.route_gap == common["route_gap"]
+    stored = list_observations(tmp_path)[0]
+    assert stored.signal_type == "owner-correction"
+    assert stored.source_contexts == [common["source_context"]]
+
+
 def test_observation_merges_independent_evidence_and_expires_without_deleting_it(
     tmp_path: Path,
 ) -> None:
@@ -28,6 +72,7 @@ def test_observation_merges_independent_evidence_and_expires_without_deleting_it
     first = record_observation(
         tmp_path,
         theme="一次性 Bug 不应晋升为长期规则",
+        **_observation_admission("把一次性 Bug 晋升为长期规则"),
         event_ids=["codex-thread:session-a"],
         evidence=["capture/session-a.md"],
         note="第一次出现",
@@ -37,6 +82,7 @@ def test_observation_merges_independent_evidence_and_expires_without_deleting_it
     second = record_observation(
         tmp_path,
         theme="一次性 Bug 不应晋升为长期规则",
+        **_observation_admission("把一次性 Bug 晋升为长期规则"),
         event_ids=["codex-thread:session-b", "codex-thread:session-a"],
         evidence=["capture/session-b.md", "capture/session-a.md"],
         note="独立场景再次出现",
@@ -498,6 +544,7 @@ def test_run_cannot_close_until_every_new_input_has_an_explicit_disposition(
     observation = record_observation(
         ws,
         theme="可能重复出现的问题",
+        **_observation_admission("可能重复出现的问题"),
         event_ids=["capture-event:session"],
         evidence=["capture/session.md"],
     )
@@ -539,6 +586,14 @@ def test_cli_records_observation_candidate_and_input_disposition(tmp_path: Path)
             str(ws),
             "--theme",
             "长期要求",
+            "--signal-type",
+            "owner-correction",
+            "--source-context",
+            "Owner 实际纠正了当前行为。",
+            "--repeat-if",
+            "另一个独立任务中再次发生相同纠正。",
+            "--route-gap",
+            "现有资产未覆盖，一次事件不足以晋升。",
             "--event-id",
             "owner-request:cli-test",
             "--evidence",
@@ -663,6 +718,7 @@ def test_open_run_automatically_closes_expired_observations(tmp_path: Path) -> N
     observation = record_observation(
         ws,
         theme="长期没有再次出现的主题",
+        **_observation_admission("长期没有再次出现的主题"),
         event_ids=["capture-event:old"],
         evidence=["capture/old.md"],
         expires_days=1,
@@ -750,6 +806,7 @@ def test_pending_candidate_pauses_observation_expiry_and_reject_closes_it(
     observation = record_observation(
         tmp_path,
         theme="跨事件主题",
+        **_observation_admission("跨事件主题"),
         event_ids=["codex-thread:a", "codex-thread:b"],
         evidence=["capture/a.md", "capture/b.md"],
         expires_days=1,

@@ -65,7 +65,7 @@
 
 **AC-RUN-9(Source Settlement)** Memory 的每个非 defer Review Unit disposition 独立 stale-check 后推进 semantic checkpoint;Web clipping 的每个非 defer Review Unit disposition写回对应 marker,其中 `covered` 必须验证 sink 是 workspace 内已存在 canonical asset。provider 仍返回原批任一 unit 时 close fail closed。checkpoint 文件若已被 Git 跟踪,必须进入 close scoped commit;真正 gitignored side state 不提交。
 
-**AC-RUN-10(Run Contract)** `forge run next [--budget N]` 每次只返回一个 action。顺序固定为:完整性问题 → 一个未分流 Review Unit → 一条未分流 capture evidence → 预算内 Candidate → close。合同包含 input/ask id、当前 Review Unit、handler、constraints、owner visibility 与候选剩余预算;Agent 不得扩大合同范围。classify action 的 owner visibility 为 background,进度只报聚合数量,不得主动展开 covered/closed/Observation 内容;decision action 才进入前台。
+**AC-RUN-10(Run Contract)** `forge run next [--budget N]` 每次只返回一个 action。顺序固定为:完整性问题 → 一个未分流 Review Unit → 一条未分流 capture evidence → 预算内 Candidate → close。合同包含 input/ask id、当前 Review Unit、handler、constraints、owner visibility 与候选剩余预算;Agent 不得扩大合同范围。classify action 的 owner visibility 为 background,允许进度字段只包含 processed count、remaining count 和 owner decision ready;source title、disposition kind、theme、reason 和 Observation detail 明确禁止进入前台;decision action 才进入前台。
 
 **AC-RUN-11** Web clipping 与 Agent Memory 由 Source Batch 独占处理,对应的 provider-managed raw capture 不能再作为 generic `capture-evidence` 重复筛选。Memory 每次只读合同列出的一个 Review Unit 及其 evidence pointer,不得顺手扫描完整源文件或下一单元;clipping 默认只查现有 canonical sink,除非 owner 明确要求,不得启动完整 knowledge-intake。
 
@@ -73,9 +73,11 @@
 
 **AC-RUN-13(Owner decision sufficiency)** `decide-candidate` 的合同要求 Agent 用简单自然语言呈现完整卡片,不得只复述 proposal。验收不匹配固定话术,而检查 owner 是否能回答:为什么现在出现、依据是哪几次独立经历、现有资产哪里不足、为什么不是 case-by-case、准确写什么、以后什么会改变、自己正在决定什么。
 
+**AC-RUN-14(Workspace Authority)** 当前任务 checkout 是 Forge 写入权限边界。detached worktree 仍是有效 root;若当前 checkout 与显式 `--root` 共享同一 Git common dir 但 top-level 不同,CLI 必须拒绝并显示两个路径。不得因 canonical/main 更持久而跨 worktree 写入。
+
 ## 5. 资产晋升(AC-PROMOTION)
 
-**AC-PROMOTION-1** Observation 位于 `system/observations/`,同一 theme 合并去重后的 `event_ids` 与 evidence pointer,记录 created/last_seen/expires/state;独立事件数只按 event id 计算,同一事件的多个 pointer 不增加计数;到期只关闭记录,不删除 evidence。
+**AC-PROMOTION-1** Observation 位于 `system/observations/`,只接受 `owner-correction|observed-failure|unresolved-conflict|owner-deferred` 的真实未解决信号,并要求实际 `source_context`、可检验的 `repeat_if` 与排除其他 disposition 的 `route_gap`。同一 theme 合并去重后的 `event_ids` 与 evidence pointer,记录 created/last_seen/expires/state;独立事件数只按 event id 计算,同一事件的多个 pointer 不增加计数;到期只关闭记录,不删除 evidence。成功任务摘要、一般正确原则、项目事实、假设风险和“也许有用”必须拒绝进入 Observation。
 
 **AC-PROMOTION-2** Candidate Asset 位于 `system/candidates/`;`repeated` 至少两个不同 event id,`owner-directed` 至少一个 event id + owner 明确要求未来长期沉淀的原话。`high-risk` 只改变优先级与控制路径,不能单独构成 Promotion Ground。所有 Candidate 都必须包含只描述实际发生内容的 source_context、existing_coverage、asset_fit、promotion_rationale、expected_effect、decision_question、problem、proposal、scope、至少一个 exclusion、target patch 与 verification;缺失即拒绝创建。`asset_fit` 必须说明为何 owner 管的长期资产是正确落点,而不是代码/测试、易变状态、Skill、平台通用底线或 Observation。
 
@@ -119,5 +121,18 @@
 5. 让 agent 绕过 Candidate 直接改规则区 → 编译产物仍是 verified 版本,问单显示 unqualified-change;
 6. 对 promoted asset 记录 effective/revise/retire feedback,再用 `ledger blame/revert` 验证溯源与单笔撤销。
 7. 新建真实隔离任务,唯一 prompt 使用自然用户短句(如“forge 一下”);按来源可追溯、准入成立、抽象质量、资产协调、决策可理解、状态真实性、治理边界、运行成本逐项留证,任何维度证据不足都不得称为符合预期。
+
+### 真实一句话黑盒验收维度
+
+验收不要求固定回复措辞,但以下八个维度必须全部有正面证据;“没有发现明显问题”或证据不足均判失败:
+
+1. **触发与路径**:短句正确进入 Forge Run,按 status → open/resume → 单一 next contract 推进,不误走 import、legacy proposal 或另一工作流。
+2. **工作区权限**:所有写入只发生在新任务 checkout;detached 不触发 root 切换,canonical personalOS diff 在验收前后不增加。
+3. **来源真实性**:每个 disposition/Candidate 的理由能追到实际事件;不把 pointer 当事件,不把假设危害、成功任务或通用常识伪装成失败证据。
+4. **分流与观察质量**:Review Unit 进入正确 sink;Observation 必须通过真实信号、复现条件和 route gap 门禁,不成为“其余内容池”。
+5. **Owner Review Worthiness**:只有 repeated 或明确长期 owner-directed 的 durable delta 才进入前台;现有覆盖、Asset Fit、范围/排除项和准确 patch 能解释为什么值得占用一次 review。
+6. **交互负担**:后台分类只报处理数、剩余数和是否出现决策;出现 Candidate 时 owner 第一遍就能理解发生了什么、为什么现在审、自己决定什么。
+7. **状态真实性**:Run open/closed、工作树 dirty/clean、Selection Coverage、Candidate Conclusion、剩余单元和 commit 与 CLI 事实一致;incomplete 时不能说“没有候选”或“处理完”。
+8. **成本与收口**:只读取合同列出的有界单元,不扫描完整 Memory、不启动无关 workflow、不泄露私密路径内容;可关闭时立即关闭并报告准确 final state,不可关闭时明确唯一剩余边界。
 
 **v2 完成定义**:全部 AC 通过 + 手工走查 6 步通过 + packaged run playbook 可用 + CONTEXT.md 术语在测试名中可 grep 到。

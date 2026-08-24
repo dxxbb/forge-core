@@ -99,7 +99,14 @@ def test_skill_and_cli_align_on_event_grounded_candidate_review() -> None:
 
     observation_help = runner.invoke(main, ["observation", "record", "--help"])
     assert observation_help.exit_code == 0, observation_help.output
-    assert "--event-id" in observation_help.output
+    for flag in (
+        "--signal-type",
+        "--source-context",
+        "--repeat-if",
+        "--route-gap",
+        "--event-id",
+    ):
+        assert flag in observation_help.output
 
 
 def test_detect_recommendation_matches_skill_capture_command() -> None:

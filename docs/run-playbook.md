@@ -23,6 +23,11 @@ owner 只有两个主动动作:
    → 重复 open 保留原批次,同类新到文件留给下一次 Run;
    → 自动关闭已到期且无新证据的观察。
 
+   工作区边界:
+   - 所有命令只使用当前任务 checkout 的 Git root;
+   - detached worktree 是有效隔离根,不得切到 canonical/main;
+   - CLI 会拒绝同一仓库 sibling worktree 的显式 `--root`。
+
 3. 循环 forge run next --budget N
    → 每次只执行返回的一个 action,不自行改顺序或扩范围;
    → owner 未指定时 N=3;“只有 1 分钟”时 N=0。
@@ -39,7 +44,7 @@ owner 只有两个主动动作:
    covered        → 关联已有资产
    one-off        → 修代码/测试/Issue,不建长期规则
    volatile-state → ledger 写入带日期的项目状态/知识
-   observe        → 聚合进有期限的 Observation
+   observe        → 仅把真实、未解决且有明确复现条件的信号聚合进 Observation
    candidate      → 生成通过准入校验的 Candidate Asset
    closed         → 写明无价值原因
    defer          → 仅 Source Signal 可用;写明本轮为何不处理,下次重新出现
@@ -83,11 +88,24 @@ owner 只有两个主动动作:
 - `repeated`:两个以上不同 `event-id` 支持;
 - `owner-directed`:owner 明确要求未来长期沉淀,并保存准确原话;
 
-`high-risk` 只改变优先级和控制路径,不单独构成 Promotion Ground。单次高风险事件若存在确定性控制缺陷,走 one-off 的代码/测试/门禁闭环;否则进入 Observation;只有 owner 明确要求未来长期沉淀时才能从一次事件建 Candidate。
+`high-risk` 只改变优先级和控制路径,不单独构成 Promotion Ground。单次高风险事件若存在确定性控制缺陷,走 one-off 的代码/测试/门禁闭环;若有真实纠正/失败/冲突但尚不能晋升才进入 Observation;只有假设风险则 closed。只有 owner 明确要求未来长期沉淀时才能从一次事件建 Candidate。
 
 并且必须完整提供 `source-context / existing-coverage / asset-fit / promotion-rationale / expected-effect / decision-question / problem / proposal / scope / exclusions / target patch / verification`。`source-context` 只能写真实发生的行为、纠正、决定或失败,不能把假设风险当事件证据;`asset-fit` 必须说明为什么 owner 管的长期资产是正确落点,而不是代码/测试、易变状态、Skill、平台通用底线或继续观察。同一会话的 Task Group、rollout summary 和 raw session 共用一个 event id;用户只要求本次认真处理不算 owner-directed;频率不能替代抽象质量。
 
-分类与 Observation 是后台工作,进度只报聚合数量和是否出现 owner 决策;只有 Candidate / conflict / unqualified change 进入前台。
+Observation 不是“其余内容池”。新建时必须使用:
+
+```bash
+forge observation record \
+  --signal-type owner-correction|observed-failure|unresolved-conflict \
+  --source-context <实际发生了什么> \
+  --repeat-if <另一独立事件怎样才算同一模式> \
+  --route-gap <为什么不是其他 disposition> \
+  --event-id <stable-event-id> --evidence <pointer>
+```
+
+单次成功调研、可复用任务知识、项目特定决定、一般专业底线或“也许以后有用”分别走 covered、正确项目/状态落点或 closed,不复制进 Observation。Owner 把已审 Candidate 退回观察时使用内部 `owner-deferred`。
+
+分类与 Observation 是后台工作,进度只能报已处理数、剩余数和是否出现 owner 决策;不能报 source title、disposition 类型、主题、理由或 Observation 细节。只有 Candidate / conflict / unqualified change 进入前台。
 
 ## 失败语义
 

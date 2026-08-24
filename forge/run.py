@@ -638,6 +638,22 @@ _SOURCE_PRIORITY = {
     "agent-memory": 90,
 }
 
+_BACKGROUND_PROGRESS = {
+    "progress_reporting": "aggregate-only",
+    "progress_scope": [
+        "processed-count",
+        "remaining-count",
+        "owner-decision-ready",
+    ],
+    "progress_forbidden": [
+        "source-title",
+        "disposition-kind",
+        "theme",
+        "reason",
+        "observation-detail",
+    ],
+}
+
 
 def next_contract(root: Path, *, budget: int = DEFAULT_BUDGET) -> dict[str, Any]:
     """Return one machine-readable next step for the open Run.
@@ -689,7 +705,7 @@ def next_contract(root: Path, *, budget: int = DEFAULT_BUDGET) -> dict[str, Any]
                 "run_id": record.id,
                 "action": "classify-source-item",
                 "owner_visibility": "background",
-                "progress_reporting": "aggregate-only",
+                **_BACKGROUND_PROGRESS,
                 "input_ref": item.get("path", ""),
                 "source_kind": kind,
                 "handler": item.get("handler", "source-review"),
@@ -708,7 +724,7 @@ def next_contract(root: Path, *, budget: int = DEFAULT_BUDGET) -> dict[str, Any]
             "run_id": record.id,
             "action": "classify-source",
             "owner_visibility": "background",
-            "progress_reporting": "aggregate-only",
+            **_BACKGROUND_PROGRESS,
             "input_ref": item.get("path", ""),
             "source_kind": kind,
             "handler": item.get("handler", "source-review"),
@@ -730,7 +746,7 @@ def next_contract(root: Path, *, budget: int = DEFAULT_BUDGET) -> dict[str, Any]
             "run_id": record.id,
             "action": "classify-evidence",
             "owner_visibility": "background",
-            "progress_reporting": "aggregate-only",
+            **_BACKGROUND_PROGRESS,
             "input_ref": item.get("path", ""),
             "constraints": ["record exactly one disposition for this evidence"],
         }
@@ -788,8 +804,9 @@ def _source_constraints(kind: str, *, per_item: bool = False) -> list[str]:
             "derive event ids from the underlying thread/session/source event, not from file paths; multiple pointers to the same event share one id",
             "source context must describe what actually happened; a hypothetical harm is not evidence of a problem",
             "a request made for this one task is not an owner-directed long-term requirement",
-            "high-risk is a priority signal, not a promotion ground; a single event goes to one-off/control or observation unless owner-directed",
-            "if long-term generalization is still uncertain, record an observation instead of a candidate",
+            "high-risk is a priority signal, not a promotion ground; deterministically fix an actual control defect as one-off, observe only an actual unresolved signal, and close hypothetical risk",
+            "observation is not the default for unpromoted material; require an owner correction, observed failure, unresolved conflict, or owner-deferred candidate plus source context, a concrete repeat test, and a route gap",
+            "successful one-off research, reusable task knowledge, and project-specific decisions go to covered, volatile-state, a proper project sink, or closed unless the owner explicitly requested long-term promotion",
             "before creating a candidate, compare related assets and explain why an owner-governed durable asset is the right sink instead of code, tests, volatile state, a reusable skill, platform baseline, or observation",
             "do not invoke another workflow without explicit owner request",
             unit_rule,

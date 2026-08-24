@@ -1,6 +1,6 @@
 ---
 name: forge
-version: 0.15.0
+version: 0.16.0
 description: "Initialize and operate a personalOS workspace with forge. Use when the user says they want to create/setup/build a forge or personalOS workspace, manage agent context, import existing CLAUDE.md/AGENTS.md/memory, review context changes, or approve/reject context updates. This skill is personalOS-layout-first and must not use legacy `forge new` / `sp` onboarding."
 metadata:
   requires:
@@ -63,6 +63,13 @@ First inspect the current working directory and user wording.
 
 Do not skip layers. Import never writes directly to `context build/sections`.
 
+Workspace authority is fixed by the current task checkout. Resolve the root
+from the current directory (`git rev-parse --show-toplevel` when available)
+and use that exact checkout for every Forge command. A detached Codex
+worktree is a valid isolated workspace: never switch to another worktree or
+the canonical checkout because detached HEAD looks temporary. The CLI rejects
+an explicit `--root` that escapes to a sibling worktree of the same repository.
+
 ## Forge Run(主工作流)
 
 The run is the only governance workflow once zones are initialized: an
@@ -93,7 +100,7 @@ topics proactively in work sessions.
    - 已覆盖 → `forge run disposition <input> --as covered --sink <existing-asset>`
    - 一次性缺陷 → 修代码/测试/Issue 后记 `one-off --sink <receipt>`;不建长期规则
    - 易变项目事实 → ledger 写入带日期状态后记 `volatile-state --sink <path>`
-   - 证据不足但可能复现 → `forge observation record ... --event-id <stable-event-id>`,再记 `observe --sink <obs-id>`
+   - 真实但尚未解决的模式 → 仅当存在 owner correction / observed failure / unresolved conflict 时,用 `forge observation record --signal-type ... --source-context ... --repeat-if ... --route-gap ... --event-id <stable-event-id>`,再记 `observe --sink <obs-id>`
    - 满足晋升依据 → `forge candidate create ... --event-id <stable-event-id>`,再记 `candidate --sink <cand-id>`
    - 无价值 → `closed --note <reason>`;raw evidence 仍保留
    - 本批确实无法处理 → `defer --note <reason>`;最终状态必须是 incomplete
@@ -113,7 +120,7 @@ Source-specific hard bounds:
 - Web clipping:只读 contract 列出的最多 5 个文件。默认只搜索已有 canonical asset 作为 sink;未经 owner 明确要求,禁止启动 deep `knowledge-intake`、外部调研或逐篇全文走读。
 - Web clipping 已由 Source Batch 独占,不要再把同一路径当普通 capture evidence 分流。
 - Agent Memory 的 provider-managed raw capture 同样只是 evidence 副本,不要再作为 standalone capture 重复分流。
-- `classify-*` 是后台工作。进度只报告已处理/剩余数量和当前是否出现 owner 决策,不得主动念出 covered/closed/Observation 的主题或内容;owner 明确询问观察池时才展开。只有 `decide-integrity` / `decide-candidate` 进入前台。
+- `classify-*` 是后台工作。进度只能报告已处理数量、剩余数量和当前是否出现 owner 决策;不得报告 source title、disposition 类型、主题、理由或 Observation 细节。owner 明确询问观察池时才展开。只有 `decide-integrity` / `decide-candidate` 进入前台。
 
 ### Run 铁律
 
@@ -122,7 +129,8 @@ Source-specific hard bounds:
 - 不硬凑:来源与 capture 都干净时说“没有”,空 Run 不生成审计文件或 Git 提交。
 - 全局候选结论:仍有 Source Review Unit 或 standalone capture evidence 未筛选时必须说 `unknown`;只有 Selection Coverage=complete 且 pending Candidate=0 时才能说“没有候选”。Observation 已分流,不算未筛选 backlog。
 - 裁决即执行,立刻报结果,不留"稍后处理"。
-- 候选准入只允许:`repeated` = 两个以上不同 `event-id`；`owner-directed` = owner 明确要求**未来长期沉淀**并在卡片保存准确原话。`high-risk` 只是优先处理信号,不能替代长期资产证据:单次高风险事件若有确定性控制缺陷,走 one-off 的代码/测试/门禁闭环；否则进 Observation；只有 owner 明确要求长期沉淀时才可由单次事件建 Candidate。用户只要求“这次认真做/先判断/给教程”不等于 owner-directed。拿不准是否能长期一般化时必须进 Observation,不能先建 Candidate 再建议“继续观察”。
+- 候选准入只允许:`repeated` = 两个以上不同 `event-id`；`owner-directed` = owner 明确要求**未来长期沉淀**并在卡片保存准确原话。`high-risk` 只是优先处理信号,不能替代长期资产证据:单次高风险事件若暴露可确定控制缺陷,走 one-off 的代码/测试/门禁闭环；若存在真实但尚未解决的纠正/失败/冲突才进 Observation；只有假设风险则 closed。只有 owner 明确要求长期沉淀时才可由单次事件建 Candidate。用户只要求“这次认真做/先判断/给教程”不等于 owner-directed。
+- Observation 不是“没晋升内容”的默认池。新建时必须给出实际发生的 owner correction、observed failure 或 unresolved conflict，描述真实 `source-context`、另一独立事件怎样才算同一模式的 `repeat-if`，以及为什么不是 covered / one-off / volatile-state / project sink / closed / Candidate 的 `route-gap`。单次成功调研、可复用任务知识、项目特定决定、一般专业底线或“也许以后有用”不得进 Observation；分别走已有资产、正确项目/状态落点或 closed。Owner 把已有 Candidate 退回观察时可用 `owner-deferred`。
 - evidence path 只是证据指针,不能充当独立事件。同一 thread 的 Task Group、rollout summary、raw session 即使是三个文件也只算一个 event。不要用会漂移的 `MEMORY.md#Lx-Ly` 作为唯一来源;保留稳定 event id、具体来源情境和稳定 summary/session 指针。
 - `source-context` 只能描述真实发生的行为、纠正、决定或失败；“如果犯错可能有严重后果”不是事件证据,不能凭假设风险制造 Candidate。
 - Candidate 创建前必须读取目标及直接相关的 canonical asset,写清 `existing-coverage` 与未覆盖的 durable delta,并用 `asset-fit` 说明为什么 owner 管的长期资产是正确落点,而不是代码/测试、易变状态、可复用 Skill、平台/模型通用底线或 Observation。无法说明时用 covered/one-off/closed/observe,不要把比较工作留给 owner。
