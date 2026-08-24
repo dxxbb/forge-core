@@ -2,6 +2,11 @@
 
 记录 `forge-core` 的所有显著变动。
 
+## 0.18.1 (Run-Owned Sink Receipt) — 2026-08-24
+
+- 同一 Run 的多个 Review Unit 更新同一状态 sink 时，各 disposition 保留自己的语义 note 与当时 digest；close 按 sink 验证最后一次正式 receipt，最后 receipt 之后的漂移仍拒绝。
+- 避免为了通过 close 机械重写某条 disposition，从而破坏它原本解释“为什么更新这份资产”的审计语义。
+
 ## 0.18.0 (Qualified Review and Run-Owned Settlement) — 2026-08-24
 
 ### Changed

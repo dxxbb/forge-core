@@ -698,6 +698,82 @@ def test_volatile_state_rejects_a_sink_that_was_dirty_before_run_opened(
     assert "dirty before this Run opened" in str(result.exception)
 
 
+def test_run_owned_sink_uses_the_latest_receipt_across_review_units(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    workspace = _workspace_with_new_codex_memory(tmp_path, monkeypatch)
+    rollout_dir = tmp_path / "home" / ".codex" / "memories" / "rollout_summaries"
+    (rollout_dir / "second.md").write_text(
+        "second durable learning\n", encoding="utf-8"
+    )
+    sink = workspace / "workbench" / "project" / "demo" / "onepage.md"
+    sink.parent.mkdir(parents=True)
+    sink.write_text("# Demo\n\nStatus: base\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(workspace), "init", "-q"], check=True)
+    subprocess.run(
+        ["git", "-C", str(workspace), "config", "user.email", "t@example.com"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(workspace), "config", "user.name", "t"], check=True
+    )
+    subprocess.run(["git", "-C", str(workspace), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(workspace), "commit", "-qm", "base"], check=True)
+    runner = CliRunner()
+    assert runner.invoke(
+        cli_main, ["run", "open", "--root", str(workspace)]
+    ).exit_code == 0
+    [run_path] = (workspace / "system" / "run").glob("run-*.md")
+    record = yaml.safe_load(run_path.read_text(encoding="utf-8").split("---", 2)[1])
+    signal = next(i for i in record["inputs"] if i["path"] == "source://agent-memory")
+    first, second = signal["batch_items"]
+
+    sink.write_text("# Demo\n\nStatus: first unit\n", encoding="utf-8")
+    first_result = runner.invoke(
+        cli_main,
+        [
+            "run", "disposition", "source://agent-memory",
+            "--item", first["unit_id"],
+            "--as", "volatile-state",
+            "--sink", "workbench/project/demo/onepage.md",
+            "--note", "first semantic update",
+            "--root", str(workspace),
+        ],
+    )
+    assert first_result.exit_code == 0, first_result.output
+
+    sink.write_text("# Demo\n\nStatus: first and second units\n", encoding="utf-8")
+    second_result = runner.invoke(
+        cli_main,
+        [
+            "run", "disposition", "source://agent-memory",
+            "--item", second["unit_id"],
+            "--as", "volatile-state",
+            "--sink", "workbench/project/demo/onepage.md",
+            "--note", "second semantic update",
+            "--root", str(workspace),
+        ],
+    )
+    assert second_result.exit_code == 0, second_result.output
+
+    closed = runner.invoke(cli_main, ["run", "close", "--root", str(workspace)])
+
+    assert closed.exit_code == 0, closed.output
+    persisted = yaml.safe_load(
+        run_path.read_text(encoding="utf-8").split("---", 2)[1]
+    )
+    receipts = [
+        disposition
+        for disposition in persisted["dispositions"]
+        if disposition.get("sink") == "workbench/project/demo/onepage.md"
+    ]
+    assert [receipt["note"] for receipt in receipts] == [
+        "first semantic update",
+        "second semantic update",
+    ]
+    assert receipts[0]["sink_digest"] != receipts[1]["sink_digest"]
+
+
 def test_agent_memory_source_settlement_advances_to_the_next_batch(
     tmp_path: Path, monkeypatch,
 ) -> None:

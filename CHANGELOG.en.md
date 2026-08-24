@@ -2,6 +2,11 @@
 
 All notable changes to `forge-core` will be recorded in this file.
 
+## [0.18.1] — 2026-08-24
+
+- Multiple Review Units may retain their own semantic notes and point-in-time digests for one Run-owned sink; close validates the latest formal receipt for that path while still rejecting any later drift.
+- This removes mechanical receipt-refresh dispositions that overwrite the real reason a unit updated its asset.
+
 ## [0.18.0] — 2026-08-24
 
 ### Qualified Review and Run-Owned Settlement

@@ -21,7 +21,7 @@ Forge 0.17.0 的真实一句话验收仍暴露了同一个根问题的三种表�
 4. Codex Memory Review Unit 从 Task Group 收紧为一个 `## Task` 加上 group scope 及明确标注该 Task 的 preference/knowledge/failure 条目。无 Task 结构才回退整个 Task Group；未标注且无法归属的 group 内容形成单独 summary unit，不静默丢弃。
 5. Run Contract 可以一次返回最多 3 个后台 Review Unit，称 Background Review Slice。每单元仍独立 disposition、独立 checkpoint、独立 stale check；这只减少 Agent/CLI 往返，不改变 owner 零打扰边界。
 6. `covered` 回执必须保存 `coverage_claim`、`coverage_locator` 与在 sink 中真实存在的 `coverage_excerpt`。Canonical Source eligibility 由“当前 checkout 内、Git tracked、非私密、非 capture/system/runtime/临时或生成面”判定，不再靠有限的正向顶层目录硬编码。
-7. Run open 保存完整 dirty baseline。`volatile-state` 只有两条合法路径：本 Run ledger receipt；或 Run 开始时不 dirty、之后真实改变、disposition 保存 sink digest 的 Run-Owned Write。close stale-check 后把 Run-Owned Write 与 Run 记录原子提交。Run 前已有 dirty 路径必须拒绝，不能借 Forge close 提交用户内容。
+7. Run open 保存完整 dirty baseline。`volatile-state` 只有两条合法路径：本 Run ledger receipt；或 Run 开始时不 dirty、之后真实改变、disposition 保存 sink digest 的 Run-Owned Write。所有权按 sink 路径归并：同一 Run 的多个 Review Unit 可保留各自当时的 digest 与语义 note，close 以该 sink 最后一次正式 receipt 做 stale-check，再把 Run-Owned Write 与 Run 记录原子提交；最后 receipt 之后的漂移仍拒绝。Run 前已有 dirty 路径必须拒绝，不能借 Forge close 提交用户内容。
 8. 默认 Owner Candidate budget 从 3 降为 1。未展示的 qualified Candidate 保留在系统状态，但不称为 owner 欠下的待办。
 9. Forge Run 主 Skill 只保留 Run 所需合同；初始化、导入和 legacy proposal 流程下沉为按需 reference，并由 self-install 一并安装。真实成本验收同时看耗时、模型/工具往返和 Owner 交互，不用测试通过替代。
 

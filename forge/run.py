@@ -672,10 +672,13 @@ def _volatile_state_receipt(
 
 
 def _validate_run_owned_writes(root: Path, record: RunRecord) -> None:
+    latest_by_sink: dict[str, dict[str, Any]] = {}
     for disposition in record.dispositions:
         if disposition.get("run_owned_write") is not True:
             continue
         relpath = str(disposition.get("sink") or "")
+        latest_by_sink[relpath] = disposition
+    for relpath, disposition in latest_by_sink.items():
         path = root / relpath
         expected = str(disposition.get("sink_digest") or "")
         current = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else ""

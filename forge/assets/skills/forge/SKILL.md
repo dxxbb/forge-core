@@ -2,7 +2,7 @@
 name: forge
 description: "Operate a personalOS workspace with forge: run review-gated context settlement, inspect pending governance, initialize a workspace, import memory, or review legacy proposals."
 metadata:
-  version: 0.18.0
+  version: 0.18.1
   requires:
     bins: ["forge"]
   cliHelp: "forge --help"
@@ -60,7 +60,7 @@ Every listed unit gets exactly one route:
   ```
 
 - **one-off** — a concrete defect belongs in code, tests, or an Issue; fix that bounded defect first, then record `--as one-off --sink <receipt>`.
-- **volatile-state** — update the real current-state asset during this Run, then record `--as volatile-state --sink <path>`. The path must have been clean when the Run opened and retain the disposition digest until close, or have a ledger entry with `origin=run:<id>`. Pre-existing dirty content is never a Run-Owned Write.
+- **volatile-state** — update the real current-state asset during this Run, then record `--as volatile-state --sink <path>`. The path must have been clean when the Run opened, or have a ledger entry with `origin=run:<id>`. Multiple units may keep their own semantic receipts for the same Run-owned sink; close checks the latest formal receipt for that path, so do not issue a mechanical “refresh” that overwrites an earlier unit's real reason. Any drift after the latest receipt still fails. Pre-existing dirty content is never a Run-Owned Write.
 - **observe** — only for an actual unresolved owner correction, observed failure, conflict, or owner-deferred Candidate. First record an Observation with real `--source-context`, a falsifiable `--repeat-if`, `--route-gap`, and stable `--event-id`; then route to its Observation id.
 - **candidate** — only after current Candidate Qualification is satisfied. Create the card, then route to its Candidate id.
 - **closed** — no durable value or correct further action; preserve raw evidence and give a short reason.
