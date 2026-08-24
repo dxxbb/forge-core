@@ -844,7 +844,13 @@ def test_run_next_respects_zero_candidate_budget(tmp_path: Path) -> None:
         verification="后续 Run 再审。",
     )
 
-    assert run.next_contract(ws, budget=0)["action"] == "close"
+    contract = run.next_contract(ws, budget=0)
+    assert contract["action"] == "close"
+    assert contract["owner_facing_projection"] == {
+        "source": "forge run close -> OWNER-FACING SUMMARY",
+        "summary_must_be_verbatim": True,
+        "agent_authored_summary_forbidden": True,
+    }
 
 
 def test_approved_rule_candidate_updates_verified_runtime_without_prior_rule_drift(

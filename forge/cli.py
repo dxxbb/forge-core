@@ -1014,6 +1014,8 @@ def run_close(root: str | None) -> None:
     if report["empty"]:
         click.echo("没有发现需要处理的输入;未生成 Run 记录或 Git 提交。")
         _echo_run_final_facts(report)
+        projection = report["owner_facing_projection"]
+        click.echo(f"OWNER-FACING SUMMARY: {projection['text']}")
         return
     disposition_text = "、".join(
         f"{kind} {count}" for kind, count in report["dispositions"].items()
@@ -1048,6 +1050,8 @@ def run_close(root: str | None) -> None:
         f"· 剩余可筛选单元 {report['unprocessed_review_units']}"
     )
     _echo_run_final_facts(report)
+    projection = report["owner_facing_projection"]
+    click.echo(f"OWNER-FACING SUMMARY: {projection['text']}")
 
 
 def _echo_run_final_facts(report: dict[str, object]) -> None:

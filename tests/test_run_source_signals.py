@@ -373,7 +373,7 @@ def test_reopening_run_keeps_the_original_memory_batch(
     assert reopened_signal == first_signal
 
 
-def test_forge_run_next_returns_a_three_unit_background_review_slice(
+def test_forge_run_next_returns_background_review_slice_with_owner_facing_projection(
     tmp_path: Path, monkeypatch,
 ) -> None:
     workspace = _workspace_with_new_codex_memory(tmp_path, monkeypatch)
@@ -403,21 +403,11 @@ def test_forge_run_next_returns_a_three_unit_background_review_slice(
     assert "review_unit" not in contract
     assert contract["remaining_count"] == 2
     assert contract["owner_visibility"] == "silent"
-    assert contract["progress_reporting"] == "heartbeat-only"
-    assert contract["safe_heartbeat"] == {
-        "running": True,
-        "owner_decision_ready": False,
+    assert contract["owner_facing_projection"] == {
+        "default": "silent",
+        "heartbeat_if_required": "Forge 仍在后台处理；当前不需要你决定。",
+        "heartbeat_must_be_verbatim": True,
     }
-    assert contract["progress_scope"] == ["owner-decision-ready"]
-    assert contract["progress_forbidden"] == [
-        "processed-count",
-        "remaining-count",
-        "source-title",
-        "disposition-kind",
-        "theme",
-        "reason",
-        "observation-detail",
-    ]
     assert contract["constraints"] == [
         "inspect only the listed Review Units and their evidence pointers",
         "derive event ids from the underlying thread/session/source event, not from file paths; multiple pointers to the same event share one id",
@@ -1075,7 +1065,7 @@ def test_closed_legacy_run_grandfathers_its_capture_fingerprints(
     assert status["unprocessed_capture_evidence"] == 0
 
 
-def test_close_uses_global_selection_inventory_when_new_capture_arrives(
+def test_close_owner_facing_projection_uses_global_inventory_when_capture_arrives(
     tmp_path: Path, monkeypatch,
 ) -> None:
     home = tmp_path / "home"
@@ -1119,6 +1109,18 @@ def test_close_uses_global_selection_inventory_when_new_capture_arrives(
     assert "本批完成" in closed.output
     assert "候选结论 未知（1 个可筛选单元尚未处理）" in closed.output
     assert "最终状态 batch-complete" in closed.output
+    owner_summary = next(
+        line.removeprefix("OWNER-FACING SUMMARY: ")
+        for line in closed.output.splitlines()
+        if line.startswith("OWNER-FACING SUMMARY: ")
+    )
+    assert "Forge 本批已处理并关闭" in owner_summary
+    assert "final_state=batch-complete" in owner_summary
+    assert "Run=closed" in owner_summary
+    assert "Selection Coverage=incomplete" in owner_summary
+    assert "Candidate Conclusion=unknown" in owner_summary
+    assert "剩余可筛选单元=1" in owner_summary
+    assert "Forge 完成" not in owner_summary
     [run_path] = (workspace / "system" / "run").glob("run-*.md")
     report = yaml.safe_load(
         run_path.read_text(encoding="utf-8").split("---", 2)[1]
@@ -1338,6 +1340,14 @@ def test_forge_run_reports_deferred_source_signal_as_incomplete(
     assert closed.exit_code == 0, closed.output
     assert "本轮未完成" in closed.output
     assert "顺延来源 1" in closed.output
+    owner_summary = next(
+        line.removeprefix("OWNER-FACING SUMMARY: ")
+        for line in closed.output.splitlines()
+        if line.startswith("OWNER-FACING SUMMARY: ")
+    )
+    assert "Forge 本轮未完成并已关闭" in owner_summary
+    assert "final_state=incomplete" in owner_summary
+    assert "Forge 完成" not in owner_summary
 
     reopened = runner.invoke(cli_main, ["run", "open", "--root", str(workspace)])
     assert reopened.exit_code == 0, reopened.output

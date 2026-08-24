@@ -13,6 +13,7 @@ forge-core 领域字典。一句话定义,只收本项目独有概念。
 - **Source Settlement(来源结算)** — disposition 对来源 provider 状态产生的持久效果,例如把已审 Memory 批次写入 seen checkpoint,或把已覆盖 clipping 标记到 canonical sink。只写 Run note 而 monitor 数量不减少不算结算。
 - **Run Contract(运行合同)** — CLI 根据 Run 状态给出的唯一下一步、范围上限、禁止扩展项与结束事实。Agent 负责批次内语义判断,不能自行扩大为另一套工作流;最终答复以合同返回的 open/dirty/remaining 状态为准。
 - **Owner Attention Boundary(Owner 注意力边界)** — Run Contract 对前台打扰的硬边界:`classify-*` 对 owner 静默,长任务需要心跳时只能说明仍在后台运行以及当前是否需要 owner 决策,不能暴露单元主题、来源、去向、理由或 Observation;只有 `decide-*` 和 close summary 可以呈现治理内容。
+- **Owner-Facing Projection(用户可见投影)** — CLI 根据 Run action 或 Closure Snapshot 生成的唯一安全前台文本。后台 action 默认不发言;若确需心跳,Agent 只能原样使用合同给出的 heartbeat,不能自行概括后台语义。close 后同样原样使用机器生成的 summary,避免把 `batch-complete` 改写成全局完成。固定的是安全事实边界,不是对 Agent 文风做黑盒验收。
 - **Disposition Receipt(去向回执)** — disposition 不只是一枚分类标签,还要证明所选去向真实成立:`covered` 必须保存当前 workspace 内现存、持久、权威且非私密的 Canonical Source、稳定 locator、实际 excerpt 与它覆盖的 claim；`volatile-state` 必须指向同类状态资产，并由 Run 开始时 clean、当前内容 digest 与 close 原子提交共同证明本 Run 的真实写入，或指向本 Run 的 ledger 记录。裸路径、runtime projection、scratch/capture/system 临时文件、Run 前已有 dirty 内容或未发生的状态写入都不是回执。
 - **Run-Owned Write(本轮拥有的写入)** — Run 打开时该路径不在 dirty baseline 中，随后由当前 Run 改变且在 disposition 时保存内容 digest 的 Canonical Source 写入。写入所有权按 sink 路径归并：多个 Review Unit 可保留各自当时的语义回执，close 以该 sink 最后一次正式回执做 stale-check 并与 Run 记录原子提交；最后回执后的漂移仍拒绝。Run 前已 dirty 的用户内容不因被选作 sink 而变成 Forge 可提交内容。
 - **Closure Snapshot(收口快照)** — Source Settlement 与 close commit 完成后取得的一份来源/候选/工作树终态快照。持久 Run 报告、CLI close 输出与紧随其后的状态判断必须从它派生,不能在 close 前后分别重新拼出两套计数。

@@ -148,7 +148,7 @@ forge update
 
 ## 当前状态
 
-`0.19.0` Alpha,dogfood 阶段。Owner Review 只接收符合当前 Candidate Qualification 的卡；目标属于全局 Preference Authority 时，`repeated` 必须保存两个不同情境中的 owner 准确纠偏，单一工作流事故回到该工作流自己的 Skill、代码、测试或状态资产。历史缺当前证据的卡保留审计但不再进入 Review。covered/volatile-state 继续要求可核验回执，真实长期使用效果仍需连续 Run 验证。
+`0.20.0` Alpha,dogfood 阶段。Owner Review 只接收符合当前 Candidate Qualification 的卡；目标属于全局 Preference Authority 时，`repeated` 必须保存两个不同情境中的 owner 准确纠偏，单一工作流事故回到该工作流自己的 Skill、代码、测试或状态资产。后台与 close 的 Owner-Facing Projection 由机器生成并要求原样使用，避免泄露 Review Unit 语义或把 `batch-complete` 改写成全局完成。真实长期使用效果仍需连续 Run 验证。
 
 ## 开发
 

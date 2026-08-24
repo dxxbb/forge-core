@@ -70,6 +70,10 @@ def test_skill_and_cli_align_on_review_unit_disposition() -> None:
     assert "--coverage-claim" in skill
     assert "--coverage-locator" in skill
     assert "--coverage-excerpt" in skill
+    assert "owner_facing_projection" in skill
+    assert "heartbeat_if_required" in skill
+    assert "OWNER-FACING SUMMARY" in skill
+    assert "原样" in skill
 
     result = CliRunner().invoke(main, ["run", "disposition", "--help"])
     assert result.exit_code == 0, result.output

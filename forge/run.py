@@ -298,7 +298,7 @@ def close_run(
             if refresh_source_signals is not None
             else (current_source_signals or [])
         )
-        return _with_final_facts(root, {
+        empty_report = _with_final_facts(root, {
             "empty": True,
             "settled": 0,
             "decisions": 0,
@@ -311,6 +311,10 @@ def close_run(
             "unresolved_sources": 0,
             "remaining_sources": 0,
         }, final_signals)
+        empty_report["owner_facing_projection"] = _owner_closure_projection(
+            empty_report
+        )
+        return empty_report
     runtime_paths = rebuild_outputs(root)
     remaining = _ask_items(root)
     final_signals = (
@@ -414,6 +418,9 @@ def close_run(
     final_commit = _git.head_hash(root)
     assert final_commit is not None
     closure_report["commit"] = final_commit
+    closure_report["owner_facing_projection"] = _owner_closure_projection(
+        closure_report
+    )
     return closure_report
 
 
@@ -837,6 +844,11 @@ _SOURCE_PRIORITY = {
 }
 
 _BACKGROUND_PROGRESS = {
+    "owner_facing_projection": {
+        "default": "silent",
+        "heartbeat_if_required": "Forge 仍在后台处理；当前不需要你决定。",
+        "heartbeat_must_be_verbatim": True,
+    },
     "progress_reporting": "heartbeat-only",
     "safe_heartbeat": {
         "running": True,
@@ -1003,9 +1015,14 @@ def next_contract(root: Path, *, budget: int = DEFAULT_BUDGET) -> dict[str, Any]
         "run_id": record.id,
         "action": "close",
         "owner_visibility": "summary",
+        "owner_facing_projection": {
+            "source": "forge run close -> OWNER-FACING SUMMARY",
+            "summary_must_be_verbatim": True,
+            "agent_authored_summary_forbidden": True,
+        },
         "constraints": [
             "run forge run close",
-            "report the returned open, dirty, and remaining-source facts verbatim",
+            "send only the returned OWNER-FACING SUMMARY verbatim",
         ],
     }
 
@@ -1591,6 +1608,26 @@ def _candidate_summary_text(report: dict[str, Any]) -> str:
     if observing:
         return f"候选结论 无（筛选完成，观察中 {observing} 条）"
     return "候选结论 无（可筛选单元已处理完）"
+
+
+def _owner_closure_projection(report: dict[str, Any]) -> dict[str, Any]:
+    lead = {
+        "incomplete": "Forge 本轮未完成并已关闭",
+        "batch-complete": "Forge 本批已处理并关闭",
+        "complete": "Forge 本轮结算已完成并关闭",
+    }[str(report["final_state"])]
+    tree = "clean" if report.get("worktree_clean") else "dirty"
+    commit = str(report.get("commit") or "none")[:12]
+    return {
+        "text": (
+            f"{lead}；final_state={report['final_state']}；Run=closed；"
+            f"工作树={tree}；commit={commit}；"
+            f"Selection Coverage={report['selection_coverage']}；"
+            f"Candidate Conclusion={report['candidate_conclusion']}；"
+            f"剩余可筛选单元={report['unprocessed_review_units']}。"
+        ),
+        "must_be_verbatim": True,
+    }
 
 
 def _remaining_source_count(source_signals: list[dict[str, Any]]) -> int:

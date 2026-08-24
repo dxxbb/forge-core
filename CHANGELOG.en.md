@@ -2,6 +2,15 @@
 
 All notable changes to `forge-core` will be recorded in this file.
 
+## [0.20.0] — 2026-08-24
+
+### Machine-owned Owner Surface
+
+- Background Run contracts now provide an exact Owner-Facing Projection: silent by default, with one verbatim heartbeat when an update is required.
+- Close derives one verbatim `OWNER-FACING SUMMARY` from the final Closure Snapshot, including final state, Run closure, worktree, commit, Selection Coverage, Candidate Conclusion, and remaining units.
+- Real one-line acceptance uses an eight-row evidence matrix; wording is free except for the deliberately machine-owned safety projections, and any hard failure or insufficient evidence fails the run.
+- Added [ADR-0012](docs/adr/0012-machine-owned-owner-facing-projection.md).
+
 ## [0.18.1] — 2026-08-24
 
 - Multiple Review Units may retain their own semantic notes and point-in-time digests for one Run-owned sink; close validates the latest formal receipt for that path while still rejecting any later drift.

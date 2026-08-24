@@ -137,4 +137,8 @@
 
 黑盒验收的硬失败条件：出现不合格 Candidate、资产权威错位、后台语义泄露、跨 checkout 写入、Selection Coverage/Candidate Conclusion 失真、无证据却声称完成，任一项即失败；不能用“回复看起来顺”“测试通过”或“没有候选”抵消。没有 Candidate 只有在全部已处理单元的去向可核验，且 coverage 未完成时仍诚实报告 `unknown`，才是合理结果。
 
+每次真实验收必须产出一张证据表，而不是先下结论再找佐证。八行分别对应上述维度，每行记录 session/trace、Run contract/record、Git/worktree 或资产内容中的直接证据，并只允许 `pass|fail|insufficient`。`insufficient` 与 `fail` 都意味着本次没有通过；总评只有在八行全为 `pass` 且硬失败扫描为空时才是 `pass`。最终回复本身只能证明交互表象，不能单独证明后台分流、资产权威或结算正确。
+
+措辞不参与一般黑盒匹配。唯一例外是安全合同本身：`classify-*` 的 heartbeat 与 close 的 `OWNER-FACING SUMMARY` 是机器拥有的 Owner-Facing Projection，必须原样使用；这是防止语义泄露和状态改写的边界，不是对其他回复文风的要求。
+
 **v2 完成定义**:全部 AC 通过 + 手工走查 6 步通过 + packaged run playbook 可用 + CONTEXT.md 术语在测试名中可 grep 到。

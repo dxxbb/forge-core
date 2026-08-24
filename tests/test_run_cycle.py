@@ -292,6 +292,15 @@ def test_clean_empty_run_creates_no_git_commit_or_audit_file(tmp_path: Path) -> 
     report = run.close_run(ws, current_source_signals=[])
 
     assert report["empty"] is True
+    assert report["owner_facing_projection"] == {
+        "text": (
+            "Forge 本轮结算已完成并关闭；final_state=complete；Run=closed；"
+            "工作树=clean；commit=none；"
+            "Selection Coverage=complete；Candidate Conclusion=none；"
+            "剩余可筛选单元=0。"
+        ),
+        "must_be_verbatim": True,
+    }
     assert _git(ws, "rev-parse", "HEAD").strip() == before
     assert not (ws / "system" / "run" / f"{record.id}.md").exists()
 
@@ -325,3 +334,7 @@ def test_cli_run_and_certify_smoke(tmp_path: Path, monkeypatch) -> None:
 
     closed = runner.invoke(main, ["run", "close", "--root", str(ws)])
     assert closed.exit_code == 0
+    assert (
+        "OWNER-FACING SUMMARY: Forge 本轮结算已完成并关闭"
+        in closed.output
+    )

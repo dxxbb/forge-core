@@ -2,7 +2,7 @@
 name: forge
 description: "Operate a personalOS workspace with forge: run review-gated context settlement, inspect pending governance, initialize a workspace, import memory, or review legacy proposals."
 metadata:
-  version: 0.19.0
+  version: 0.20.0
   requires:
     bins: ["forge"]
   cliHelp: "forge --help"
@@ -39,8 +39,8 @@ A Run is an owner-initiated settlement conversation. Do not raise governance top
    - `classify-source`: classify the one source contract only; do not invent another workflow.
    - `classify-evidence`: classify the one capture item only.
    - `decide-candidate`: present the complete Review Card and wait for the owner.
-   - `close`: immediately run `forge run close --root <path>`.
-4. Report the close output as machine fact. Do not reinterpret partial coverage as global completion.
+   - `close`: immediately run `forge run close --root <path>`, then send only the returned `OWNER-FACING SUMMARY` text exactly as written.
+4. Treat `owner_facing_projection` as the complete public boundary. Do not compose a second owner-facing account from internal contract fields.
 
 Default Candidate review budget is **1**. A background slice may contain up to 3 Review Units, but each keeps its own disposition, checkpoint, and stale check. Do not reread this Skill or broadly rescan the provider for every unit; use the content and evidence pointers in the contract, opening only what the semantic decision actually requires.
 
@@ -126,7 +126,7 @@ Then ask the card's exact decision question. Owner outcomes:
 - Web clipping: inspect only the listed, at most 5 files. Search existing Canonical Sources for coverage; do not start deep `knowledge-intake`, external research, or full-article walkthrough unless the owner separately requests it.
 - Do not process the same web clipping or provider-managed Memory capture again as standalone evidence.
 
-All `classify-*` actions are silent to the owner. If a long pass needs a heartbeat, say only that background work continues and whether a decision is needed; do not expose unit titles, themes, routes, Observation details, counts, or remaining work. Only `decide-*` and the close summary enter the foreground.
+All `classify-*` actions are silent to the owner. Their `owner_facing_projection.default` is `silent`. If a heartbeat is actually required, emit `owner_facing_projection.heartbeat_if_required` **原样且单独**; do not paraphrase it or add unit titles, themes, routes, Observation details, counts, remaining work, or reasons. Only `decide-*` and the machine-generated close summary enter the foreground.
 
 ### Truth at close
 
@@ -134,7 +134,7 @@ All `classify-*` actions are silent to the owner. If a long pass needs a heartbe
 - Candidate Conclusion is `available` when a qualified pending Candidate exists; `none` only when coverage is complete and none exists; otherwise `unknown`.
 - `batch-complete`, current-batch zero, and an empty `forge run open` are not global completion claims.
 - Close must stale-check Run-Owned Writes and atomically commit only Run-owned sinks plus Run records/settlement state. It must not absorb the dirty baseline or unrelated user changes.
-- Report exactly: `complete|batch-complete|incomplete`, Run open/closed, clean/dirty, commit, Selection Coverage, Candidate Conclusion, and remaining screenable units. A clean empty Run creates no audit file or commit.
+- `forge run close` returns an `OWNER-FACING SUMMARY` derived from the Closure Snapshot. Send that summary **原样且单独**; do not prepend “Forge 完成”, reinterpret `batch-complete`, or write another summary. The projection contains `complete|batch-complete|incomplete`, Run closure, clean/dirty, commit, Selection Coverage, Candidate Conclusion, and remaining screenable units. A clean empty Run creates no audit file or commit.
 
 ## Read-only questions
 
