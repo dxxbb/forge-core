@@ -148,7 +148,9 @@ forge update
 
 ## 当前状态
 
-`0.20.0` Alpha,dogfood 阶段。Owner Review 只接收符合当前 Candidate Qualification 的卡；目标属于全局 Preference Authority 时，`repeated` 必须保存两个不同情境中的 owner 准确纠偏，单一工作流事故回到该工作流自己的 Skill、代码、测试或状态资产。后台与 close 的 Owner-Facing Projection 由机器生成并要求原样使用，避免泄露 Review Unit 语义或把 `batch-complete` 改写成全局完成。真实长期使用效果仍需连续 Run 验证。
+`0.20.0` Alpha,dogfood 阶段。Owner Review 只接收符合当前 Candidate Qualification 的卡；目标属于全局 Preference Authority 时，`repeated` 必须保存两个不同情境中的 owner 准确纠偏，单一工作流事故回到该工作流自己的 Skill、代码、测试或状态资产。后台与 close 的 Owner-Facing Projection 由机器生成并要求原样使用，避免泄露 Review Unit 语义或把 `batch-complete` 改写成全局完成。
+
+最新真实一句话验收的语义分流、前台交互和状态收口正确，但 10 个 Review Unit 耗时 7 分钟、27 次模型调用和 26 次工具调用，因此整体仍判失败；Forge 尚未达到低成本日常可用。证据与保留/撤回判断见 [`docs/run-acceptance-report.md`](docs/run-acceptance-report.md)。
 
 ## 开发
 

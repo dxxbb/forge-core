@@ -106,7 +106,9 @@ Legacy `system/pr`, proposal schemas, memory workbenches, and bulk Portal review
 
 ## Status
 
-`0.14.0` Alpha and dogfood-stage. Semantic Review Units, Selection Coverage, and Candidate Conclusion separate a zero-candidate batch from a globally complete selection; Evidence Events and complete owner decision context additionally prevent duplicate occurrence counts and one-sentence candidate cards. Semantic candidate quality and long-term real-use outcomes still require repeated live Runs.
+`0.20.0` is Alpha and dogfood-stage. Candidate Qualification, authority-matched owner-correction evidence, and machine-owned Owner-Facing Projections now protect review quality, background silence, and closure truth.
+
+The latest real one-line acceptance produced reasonable dispositions and an accurate close, but processing 10 Review Units still took 7 minutes, 27 model invocations, and 26 tool calls. The overall result is therefore a failure: Forge is not yet cheap enough for routine use. See [`docs/run-acceptance-report.md`](docs/run-acceptance-report.md).
 
 ## Development
 

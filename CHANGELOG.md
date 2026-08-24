@@ -2,6 +2,20 @@
 
 记录 `forge-core` 的所有显著变动。
 
+## 0.20.0 (Machine-owned Owner Surface) — 2026-08-24
+
+- 后台 Run Contract 提供唯一 Owner-Facing Projection：默认静默，确需心跳时只能原样发送机器文本。
+- close 从最终 Closure Snapshot 生成唯一 `OWNER-FACING SUMMARY`，包含 final state、Run、工作树、commit、Selection Coverage、Candidate Conclusion 和剩余单元。
+- 真实一句话验收使用八维证据表；任一硬失败或证据不足都不能判为通过。
+- 增加 [ADR-0012](docs/adr/0012-machine-owned-owner-facing-projection.md)。
+
+## 0.19.0 (Authority-matched Preference Evidence) — 2026-08-24
+
+- 全局 Preference Authority 的 `repeated` Candidate 必须提供两个不同 Evidence Event、两个不同 operational context 中的 owner 准确纠偏原话。
+- 同一工作流反复失败只能支持该工作流的 Skill、代码、测试或状态资产，不能自动上升为全局偏好。
+- 历史卡缺少当前权威证据时保留为 `legacy-unqualified`，不进入 Owner Review 或 Candidate Conclusion。
+- 增加 [ADR-0011](docs/adr/0011-authority-matched-preference-evidence.md)。
+
 ## 0.18.1 (Run-Owned Sink Receipt) — 2026-08-24
 
 - 同一 Run 的多个 Review Unit 更新同一状态 sink 时，各 disposition 保留自己的语义 note 与当时 digest；close 按 sink 验证最后一次正式 receipt，最后 receipt 之后的漂移仍拒绝。

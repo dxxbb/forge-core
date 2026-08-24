@@ -11,6 +11,15 @@ All notable changes to `forge-core` will be recorded in this file.
 - Real one-line acceptance uses an eight-row evidence matrix; wording is free except for the deliberately machine-owned safety projections, and any hard failure or insufficient evidence fails the run.
 - Added [ADR-0012](docs/adr/0012-machine-owned-owner-facing-projection.md).
 
+## [0.19.0] — 2026-08-24
+
+### Authority-matched Preference Evidence
+
+- A repeated Candidate targeting global Preference Authority now requires exact owner corrections from two Evidence Events in two distinct operational contexts.
+- Repeated failures inside one workflow can support that workflow's Skill, code, tests, or state asset, but cannot be promoted into a global preference by default.
+- Historical cards missing the current authority evidence remain `legacy-unqualified` audit records and do not enter Owner Review or Candidate Conclusion.
+- Added [ADR-0011](docs/adr/0011-authority-matched-preference-evidence.md).
+
 ## [0.18.1] — 2026-08-24
 
 - Multiple Review Units may retain their own semantic notes and point-in-time digests for one Run-owned sink; close validates the latest formal receipt for that path while still rejecting any later drift.
