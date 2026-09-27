@@ -240,11 +240,11 @@ def close_run(
         if item.get("type") != "source-signal":
             continue
         current_signal = current_signals_by_path.get(item.get("path", ""))
-        if current_signal is None:
-            continue
         dispositions = _dispositions_for_input(record, item)
         if any(disposition.get("kind") == "defer" for disposition in dispositions):
             unresolved_sources.append(item.get("path", ""))
+            continue
+        if current_signal is None:
             continue
         batch_items = list(item.get("batch_items") or [])
         if batch_items:
@@ -461,7 +461,7 @@ def record_disposition(
         raise ValueError(f"input not found in open run: {input_ref}")
     batch_items = list(item.get("batch_items") or [])
     batch_item: dict[str, Any] | None = None
-    if batch_items and kind != "defer":
+    if batch_items and (kind != "defer" or item_ref.strip()):
         if not item_ref.strip():
             raise ValueError(
                 f"source batch {item.get('path')} requires --item for each Review Unit"
@@ -479,10 +479,15 @@ def record_disposition(
         if batch_item is None:
             raise ValueError(f"Review Unit not found in source batch: {item_ref}")
     elif item_ref.strip():
-        raise ValueError("--item is only valid for a non-defer Source Batch disposition")
+        raise ValueError("--item is only valid for a Source Batch disposition")
     if kind == "defer" and item.get("type") != "source-signal":
         raise ValueError("defer is only valid for a source signal")
-    if kind == "defer" and batch_items and _dispositions_for_input(record, item):
+    if (
+        kind == "defer"
+        and batch_items
+        and batch_item is None
+        and _dispositions_for_input(record, item)
+    ):
         raise ValueError("cannot defer a Source Batch after Review Unit settlement started")
     if kind in {"covered", "one-off", "volatile-state"} and not sink.strip():
         raise ValueError(f"{kind} disposition requires a concrete sink")
@@ -777,7 +782,10 @@ def _batch_item_ref(batch_item: dict[str, Any]) -> str:
 
 def _input_is_classified(record: RunRecord, item: dict[str, Any]) -> bool:
     dispositions = _dispositions_for_input(record, item)
-    if any(disposition.get("kind") == "defer" for disposition in dispositions):
+    if any(
+        disposition.get("kind") == "defer" and not disposition.get("batch_item_ref")
+        for disposition in dispositions
+    ):
         return True
     batch_items = list(item.get("batch_items") or [])
     if batch_items:

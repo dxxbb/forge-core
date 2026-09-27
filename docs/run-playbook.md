@@ -47,7 +47,7 @@ owner 只有两个主动动作:
    observe        → 仅把真实、未解决且有明确复现条件的信号聚合进 Observation
    candidate      → 生成通过准入校验的 Candidate Asset
    closed         → 写明无价值原因
-   defer          → 仅 Source Signal 可用;写明本轮为何不处理,下次重新出现
+   defer          → Source Signal 或其单条 Review Unit 可用;写明为何无法处理。批次开始结算后须用 --item 逐条延期；不推进来源 checkpoint，不跳过其他单元，收口为 incomplete。
 
    每条随后调用一次:
    forge run disposition <source> --item <unit-id> --as <kind> --sink <receipt> [--note ...]

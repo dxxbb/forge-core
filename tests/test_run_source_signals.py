@@ -1387,3 +1387,59 @@ def test_forge_run_close_reports_machine_checked_dirty_worktree(
     assert "Run 已关闭" in closed.output
     assert "工作树 dirty" in closed.output
     assert "剩余可筛选单元 0" in closed.output
+
+
+@pytest.mark.parametrize("change", ["missing", "drifted"])
+def test_defer_stale_unit_preserves_other_units_and_closes_incomplete(
+    tmp_path: Path, monkeypatch, change: str,
+) -> None:
+    import json
+
+    workspace = _workspace_with_new_codex_memory(tmp_path, monkeypatch)
+    memories = tmp_path / "home" / ".codex" / "memories" / "rollout_summaries"
+    for name in ("second.md", "third.md"):
+        (memories / name).write_text(name + " learning\n", encoding="utf-8")
+    for name in ("sections", "config"):
+        (workspace / "context build" / name).mkdir(parents=True)
+    for args in (["init", "-q"], ["config", "user.email", "t@example.com"],
+                 ["config", "user.name", "t"], ["add", "-A"], ["commit", "-qm", "base"]):
+        subprocess.run(["git", "-C", str(workspace), *args], check=True)
+    runner = CliRunner()
+    root = ["--root", str(workspace)]
+    assert runner.invoke(cli_main, ["run", "open", *root]).exit_code == 0
+    [run_path] = (workspace / "system" / "run").glob("run-*.md")
+    record = yaml.safe_load(run_path.read_text().split("---", 2)[1])
+    signal = next(i for i in record["inputs"] if i["path"] == "source://agent-memory")
+    first, stale, last = signal["batch_items"]
+
+    def disposition(unit, kind):
+        return runner.invoke(cli_main, ["run", "disposition", signal["path"],
+            "--item", unit["unit_id"], "--as", kind, "--note", "bounded review", *root])
+
+    assert disposition(first, "closed").exit_code == 0
+    source = Path(stale["path"])
+    if change == "missing":
+        source.unlink()
+    else:
+        source.write_text("changed evidence\n", encoding="utf-8")
+    failed = disposition(stale, "closed")
+    assert failed.exit_code != 0
+    checkpoint = (workspace / ".forge" / "agent_memory_state.json").read_bytes()
+    deferred = disposition(stale, "defer")
+    assert deferred.exit_code == 0, str(deferred.exception)
+    assert (workspace / ".forge" / "agent_memory_state.json").read_bytes() == checkpoint
+    action = runner.invoke(cli_main, ["run", "next", *root])
+    contract = json.loads(action.output)
+    assert contract["action"] in {"classify-source-item", "classify-source-items"}
+    assert last["unit_id"] in action.output
+    premature = runner.invoke(cli_main, ["run", "close", *root])
+    assert premature.exit_code != 0
+    assert "unclassified" in str(premature.exception)
+    assert disposition(last, "closed").exit_code == 0
+    closed = runner.invoke(cli_main, ["run", "close", *root])
+    assert closed.exit_code == 0, str(closed.exception)
+    assert "final_state=incomplete" in closed.output
+    state = load_state(workspace)
+    assert stale["unit_id"] not in state.settled_units
+    assert first["unit_id"] in state.settled_units
+    assert last["unit_id"] in state.settled_units
